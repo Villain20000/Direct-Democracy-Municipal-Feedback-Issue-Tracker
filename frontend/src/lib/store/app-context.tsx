@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
-export type IssueStatus = 'pending' | 'in-progress' | 'resolved';
+export type IssueStatus = 'pending' | 'in-progress' | 'in-review' | 'resolved';
 
 export interface Issue {
   id: string;
@@ -20,6 +20,8 @@ export interface Issue {
   after_image_url?: string;
   resolution_time?: string; // in days
   cost?: number;
+  team_size?: number;
+  materials?: string[];
 }
 
 interface AppContextType {
@@ -75,7 +77,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         title: 'Overgrown park bushes',
         description: 'Bushes in the small park are blocking the sidewalk.',
         category: 'Green Spaces',
-        status: 'resolved',
+        status: 'in-review',
         lat: 37.9780,
         lng: 23.7230,
         image_url: 'https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?auto=format&fit=crop&q=80&w=800',
@@ -85,7 +87,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         created_at: new Date(Date.now() - 86400000 * 10).toISOString(),
         department: 'Parks & Recreation',
         resolution_time: '2 days',
-        cost: 450
+        cost: 450,
+        team_size: 3,
+        materials: ['Asphalt Patch', 'Safety Cones']
       },
       {
         id: '4',
@@ -102,7 +106,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         created_at: new Date(Date.now() - 86400000 * 15).toISOString(),
         department: 'Sanitation',
         resolution_time: '3 days',
-        cost: 1200
+        cost: 1200,
+        team_size: 5,
+        materials: ['Heavy Duty Loader', 'Disposal Fees']
       }
     ];
     setIssues(seed);

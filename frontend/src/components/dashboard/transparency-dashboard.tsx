@@ -242,6 +242,17 @@ function BeforeAfterCard({ issue }: { issue: any }) {
             €{issue.cost}
           </span>
         </div>
+        <div className="mt-3 pt-3 border-t border-slate-50 flex items-center justify-between">
+           <div className="flex items-center gap-2">
+              <Icons.users size={12} className="text-slate-400" />
+              <span className="text-[10px] font-bold text-slate-500">{issue.team_size} members</span>
+           </div>
+           <div className="flex items-center gap-1">
+              {issue.materials?.slice(0, 1).map((m: string) => (
+                <Badge key={m} variant="outline" className="text-[8px] py-0 px-1.5 opacity-60 uppercase">{m}</Badge>
+              ))}
+           </div>
+        </div>
       </div>
     </div>
   );

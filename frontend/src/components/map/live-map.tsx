@@ -164,16 +164,22 @@ export default function LiveMap() {
               </div>
             </ScrollArea>
 
-            <div className="p-8 border-t bg-slate-50/50 flex gap-4">
-              <button
-                onClick={() => upvoteIssue(selected.id)}
-                className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-xl shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95"
-              >
-                Upvote Awareness
-                <span className="bg-blue-500 px-3 py-1 rounded-lg text-[10px] font-black">{selected.upvotes}</span>
-              </button>
-              <button className="w-16 h-16 bg-white border border-slate-200 rounded-2xl flex items-center justify-center text-slate-400 hover:text-slate-900 transition-colors shadow-sm">
-                 <Icons.shieldCheck size={24} />
+            <div className="p-8 border-t bg-slate-50/50 flex flex-col gap-4">
+              <div className="flex gap-4">
+                <button
+                  onClick={() => upvoteIssue(selected.id)}
+                  className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-xl shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95"
+                >
+                  Upvote Awareness
+                  <span className="bg-blue-500 px-3 py-1 rounded-lg text-[10px] font-black">{selected.upvotes}</span>
+                </button>
+                <button className="w-16 h-16 bg-white border border-slate-200 rounded-2xl flex items-center justify-center text-slate-400 hover:text-slate-900 transition-colors shadow-sm">
+                   <Icons.shieldCheck size={24} />
+                </button>
+              </div>
+              <button className="w-full py-4 bg-white border-2 border-slate-200 text-slate-900 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-slate-50 transition-all active:scale-95">
+                <Icons.pending size={16} />
+                Subscribe to Updates
               </button>
             </div>
           </motion.div>

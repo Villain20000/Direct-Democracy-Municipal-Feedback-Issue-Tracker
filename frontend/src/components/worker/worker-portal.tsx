@@ -17,14 +17,15 @@ export function WorkerPortal() {
   const columns = [
     { id: 'pending', title: 'Pending', icon: Icons.pending, color: 'text-rose-600', bg: 'bg-rose-50' },
     { id: 'in-progress', title: 'Dispatched', icon: Icons.activity, color: 'text-amber-600', bg: 'bg-amber-50' },
+    { id: 'in-review', title: 'In Review', icon: Icons.search, color: 'text-blue-600', bg: 'bg-blue-50' },
     { id: 'resolved', title: 'Completed', icon: Icons.resolved, color: 'text-emerald-600', bg: 'bg-emerald-50' },
   ];
 
   return (
     <div className="h-full flex overflow-hidden bg-slate-50 relative">
-      <div className="flex-1 p-8 flex gap-8 overflow-x-auto pb-12">
+      <div className="flex-1 p-8 flex gap-6 overflow-x-auto pb-12">
         {columns.map(col => (
-          <div key={col.id} className="min-w-[340px] w-[340px] flex flex-col gap-4">
+          <div key={col.id} className="min-w-[300px] w-[300px] flex flex-col gap-4">
             <div className="flex items-center justify-between px-3">
               <div className="flex items-center gap-2.5">
                 <div className={cn("w-8 h-8 rounded-xl flex items-center justify-center shadow-sm", col.bg)}>

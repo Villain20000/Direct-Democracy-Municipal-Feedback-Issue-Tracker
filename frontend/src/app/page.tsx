@@ -9,10 +9,37 @@ import { WorkerPortal } from '@/components/worker/worker-portal';
 import { useApp } from '@/lib/store/app-context';
 import { Icons } from '@/components/icons';
 import SmartReportModal from '@/components/map/smart-report-modal';
+import { useEffect } from 'react';
+import { toast } from 'sonner';
 
 export default function Home() {
-  const { role, currentView } = useApp();
+  const { role, currentView, addIssue } = useApp();
   const [reportModalOpen, setReportModalOpen] = useState(false);
+
+  useEffect(() => {
+    // Simulate real-time WebSocket pulses
+    const interval = setInterval(() => {
+      if (Math.random() > 0.8) {
+        const newIssue = {
+          title: "New Public Concern",
+          description: "A neighbor just reported a new issue in your vicinity.",
+          category: "Other",
+          lat: 37.9750 + (Math.random() - 0.5) * 0.01,
+          lng: 23.7250 + (Math.random() - 0.5) * 0.01,
+          severity: Math.floor(Math.random() * 5) + 1
+        };
+
+        toast.info("Live Update", {
+          description: "New civic issue reported nearby.",
+          duration: 5000,
+        });
+
+        addIssue(newIssue);
+      }
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, [addIssue]);
 
   const renderView = () => {
     if (role === 'worker') return <WorkerPortal />;
