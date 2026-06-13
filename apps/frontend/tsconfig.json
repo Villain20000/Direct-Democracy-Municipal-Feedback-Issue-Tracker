@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "out-tsc/app",
+    "baseUrl": ".",
+    "types": ["leaflet"],
+    "lib": ["ES2022", "DOM"],
+    "paths": {
+      "@dd/shared-types": ["../../packages/shared-types/src"],
+      "@app/*": ["src/app/*"],
+      "@env/*": ["src/environments/*"]
+    }
+  },
+  "files": ["src/main.ts"],
+  "include": ["src/**/*.d.ts", "src/**/*.ts"]
+}
