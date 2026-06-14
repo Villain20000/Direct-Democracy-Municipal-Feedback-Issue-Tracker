@@ -1,8 +1,9 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
+import { TranslationService } from '../../core/i18n/translation.service';
 
 @Component({
   selector: 'app-forgot-password',
@@ -13,8 +14,8 @@ import { AuthService } from '../../core/services/auth.service';
       <div class="login-card">
         <div class="login-header">
           <div class="logo-circle"><span>DD</span></div>
-          <h1>Reset Password</h1>
-          <p>Enter your email to receive a reset link</p>
+          <h1>{{ i18n.t('auth.forgotPasswordTitle') }}</h1>
+          <p>{{ i18n.t('auth.forgotPasswordDesc') }}</p>
         </div>
 
         @if (error) { <div class="error-msg">{{ error }}</div> }
@@ -22,16 +23,16 @@ import { AuthService } from '../../core/services/auth.service';
 
         <form (ngSubmit)="onSubmit()">
           <div class="form-group">
-            <label>Email</label>
-            <input type="email" [(ngModel)]="email" name="email" placeholder="your@email.com" required />
+            <label>{{ i18n.t('auth.email') }}</label>
+            <input type="email" [(ngModel)]="email" name="email" [placeholder]="i18n.t('auth.emailPlaceholder')" required />
           </div>
           <button type="submit" class="btn btn-primary" [disabled]="loading">
-            @if (loading) { Sending... } @else { Send Reset Link }
+            @if (loading) { {{ i18n.t('auth.sending') }} } @else { {{ i18n.t('auth.sendResetLink') }} }
           </button>
         </form>
 
         <div class="login-footer" style="margin-top:16px;">
-          <a routerLink="/login">← Back to Sign In</a>
+          <a routerLink="/login">{{ i18n.t('auth.backToLogin') }}</a>
         </div>
       </div>
     </div>
@@ -43,6 +44,8 @@ export class ForgotPasswordComponent {
   error = '';
   message = '';
 
+  i18n = inject(TranslationService);
+
   constructor(private auth: AuthService) {}
 
   onSubmit() {
@@ -52,11 +55,11 @@ export class ForgotPasswordComponent {
     this.auth.forgotPassword(this.email).subscribe({
       next: (res) => {
         this.loading = false;
-        this.message = res.message || 'If that email exists, a reset link has been sent.';
+        this.message = res.message || this.i18n.t('auth.resetLinkSent');
       },
       error: (err) => {
         this.loading = false;
-        this.error = err.error?.error || 'Failed to send reset link.';
+        this.error = err.error?.error || this.i18n.t('auth.sendResetLinkError');
       },
     });
   }

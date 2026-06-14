@@ -1,11 +1,12 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { LayoutComponent, NavItem } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
+import { TranslationService } from '../../core/i18n/translation.service';
 import { Issue } from '@dd/shared-types';
-import { issueStatusClass, formatIssueStatus } from '../../core/utils/issue-ui';
+import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../core/utils/issue-ui';
 
 @Component({
   selector: 'app-issue-reports-page',
@@ -41,7 +42,7 @@ import { issueStatusClass, formatIssueStatus } from '../../core/utils/issue-ui';
                       <strong>{{ issue.title }}</strong>
                       <br><span style="font-size:11px;color:var(--text-muted);">{{ issue.location }}</span>
                     </td>
-                    <td><span class="badge badge-blue">{{ issue.category }}</span></td>
+                    <td><span class="badge badge-blue">{{ i18n.tCategory(issue.category) }}</span></td>
                     <td><span class="status-badge" [ngClass]="issueStatusClass(issue.status)">{{ formatIssueStatus(issue.status) }}</span></td>
                     <td><span class="priority-dot" [ngClass]="'p' + (issue.priority || 3)"></span> {{ issue.priority || '-' }}/5</td>
                     <td style="font-weight:700;">▲ {{ issue.upvotes }}</td>
@@ -68,11 +69,13 @@ export class IssueReportsPageComponent implements OnInit {
   navItems: NavItem[] = [];
 
   issueStatusClass = issueStatusClass;
-  formatIssueStatus = formatIssueStatus;
+  formatIssueStatus(status: string) { return formatStatusI18n(status, this.i18n); }
+
+  i18n = inject(TranslationService);
 
   constructor(public auth: AuthService, private api: ApiService) {
     this.navItems = [
-      { icon: 'dashboard', label: 'Dashboard', route: '/citizen' },
+      { icon: 'dashboard', label: 'nav.dashboard', route: '/citizen' },
       { icon: 'my_reports', label: 'My Reports', route: '/citizen/reports' },
     ];
   }

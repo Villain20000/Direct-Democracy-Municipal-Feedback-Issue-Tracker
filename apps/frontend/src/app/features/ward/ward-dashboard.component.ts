@@ -1,9 +1,11 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule, formatDate } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
+import { TranslationService } from '../../core/i18n/translation.service';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { Event, Issue } from '@dd/shared-types';
 
 interface WardCategory {
@@ -23,28 +25,28 @@ interface WardEvent {
 @Component({
   selector: 'app-ward-dashboard',
   standalone: true,
-  imports: [CommonModule, LayoutComponent, RouterLink],
+  imports: [CommonModule, LayoutComponent, RouterLink, TranslatePipe],
   template: `
     <app-layout
-      pageTitle="Ward Dashboard"
+      [pageTitle]="i18n.t('ward.pageTitle')"
       [navItems]="navItems"
       (logout)="auth.logout()">
 
       <div style="background:linear-gradient(135deg,#0D9488,#0891B2);border-radius:var(--radius-xl);padding:28px;color:white;margin-bottom:24px;">
         <h2 style="font-size:22px;font-weight:800;">{{ wardTitle }}</h2>
-        <p style="opacity:0.8;font-size:13px;">Ward representative dashboard</p>
+        <p style="opacity:0.8;font-size:13px;">{{ 'ward.repLabel' | t }}</p>
         <div style="display:flex;gap:24px;margin-top:16px;">
-          <div><div style="font-size:28px;font-weight:800;">{{ activeIssueCount }}</div><div style="opacity:0.7;font-size:12px;">Active Issues</div></div>
-          <div><div style="font-size:28px;font-weight:800;">{{ wardIssues.length }}</div><div style="opacity:0.7;font-size:12px;">Total Ward Issues</div></div>
-          <div><div style="font-size:28px;font-weight:800;">{{ events.length }}</div><div style="opacity:0.7;font-size:12px;">Upcoming Events</div></div>
+          <div><div style="font-size:28px;font-weight:800;">{{ activeIssueCount }}</div><div style="opacity:0.7;font-size:12px;">{{ 'ward.activeIssues' | t }}</div></div>
+          <div><div style="font-size:28px;font-weight:800;">{{ wardIssues.length }}</div><div style="opacity:0.7;font-size:12px;">{{ 'ward.totalIssues' | t }}</div></div>
+          <div><div style="font-size:28px;font-weight:800;">{{ events.length }}</div><div style="opacity:0.7;font-size:12px;">{{ 'ward.upcomingEvents' | t }}</div></div>
         </div>
       </div>
 
       <div class="content-grid">
         <div class="card">
           <div class="card-header">
-            <h3>🗺 Neighborhood Issues Map</h3>
-            <a routerLink="/ward/map" class="btn btn-primary btn-sm">Open Full Map</a>
+            <h3>{{ 'ward.mapTitle' | t }}</h3>
+            <a routerLink="/ward/map" class="btn btn-primary btn-sm">{{ 'ward.openMap' | t }}</a>
           </div>
           <div class="card-body">
             <div style="height:280px;background:linear-gradient(135deg,#E0F2FE,#DBEAFE);border-radius:var(--radius);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;">
@@ -55,33 +57,33 @@ interface WardEvent {
               </div>
               <div style="text-align:center;z-index:1;background:rgba(255,255,255,0.9);padding:16px 24px;border-radius:var(--radius-lg);">
                 <i class="material-icons-outlined" style="font-size:48px;color:var(--primary);">map</i>
-                <div style="font-size:13px;font-weight:600;margin-top:8px;">Interactive Heat Map</div>
-                <div style="font-size:11px;color:var(--text-muted);">{{ activeIssueCount }} issues tracked</div>
-                <a routerLink="/ward/map" class="btn btn-secondary btn-sm" style="margin-top:12px;">View Interactive Map</a>
+                <div style="font-size:13px;font-weight:600;margin-top:8px;">{{ 'ward.heatMap' | t }}</div>
+                <div style="font-size:11px;color:var(--text-muted);">{{ i18n.t('ward.issuesTracked', { n: activeIssueCount }) }}</div>
+                <a routerLink="/ward/map" class="btn btn-secondary btn-sm" style="margin-top:12px;">{{ 'ward.viewMap' | t }}</a>
               </div>
             </div>
           </div>
         </div>
         <div class="card">
-          <div class="card-header"><h3>📊 Issue Categories in Ward</h3></div>
+          <div class="card-header"><h3>{{ 'ward.catsTitle' | t }}</h3></div>
           <div class="card-body">
             @for (cat of wardCategories; track cat.name) {
               <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
-                <span style="font-size:13px;width:120px;color:var(--text-secondary);">{{ cat.name }}</span>
+                <span style="font-size:13px;width:120px;color:var(--text-secondary);">{{ i18n.tCategory(cat.name) }}</span>
                 <div style="flex:1;background:var(--bg-primary);border-radius:4px;height:8px;">
                   <div [style.width.%]="cat.pct" [style.background]="cat.color" style="height:100%;border-radius:4px;"></div>
                 </div>
                 <span style="font-size:13px;font-weight:700;width:30px;text-align:right;">{{ cat.count }}</span>
               </div>
             } @empty {
-              <div style="text-align:center;padding:32px;color:var(--text-muted);">No ward issues found.</div>
+              <div style="text-align:center;padding:32px;color:var(--text-muted);">{{ 'ward.noIssues' | t }}</div>
             }
           </div>
         </div>
       </div>
 
       <div class="card" style="margin-bottom:24px;">
-        <div class="card-header"><h3>Community Feedback Feed</h3></div>
+        <div class="card-header"><h3>{{ 'ward.feedbackTitle' | t }}</h3></div>
         <div class="card-body">
           @for (fb of feedback; track fb.id) {
             <a [routerLink]="['/issues', fb.id]" style="display:flex;gap:12px;padding:14px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;text-decoration:none;color:inherit;">
@@ -92,28 +94,31 @@ interface WardEvent {
                   <span style="font-size:11px;color:var(--text-muted);">{{ fb.time }}</span>
                 </div>
                 <p style="font-size:13px;color:var(--text-secondary);margin-top:4px;">{{ fb.text }}</p>
-                <div style="display:flex;gap:8px;margin-top:8px;"><span class="badge" [class]="fb.sentimentBadge">{{ fb.sentiment }}</span><span class="badge badge-slate">{{ fb.category }}</span></div>
+                <div style="display:flex;gap:8px;margin-top:8px;"><span class="badge" [class]="fb.sentimentBadge">{{ fb.sentiment }}</span><span class="badge badge-slate">{{ i18n.tCategory(fb.category) }}</span></div>
               </div>
             </a>
           } @empty {
-            <div style="text-align:center;padding:32px;color:var(--text-muted);">No recent ward feedback.</div>
+            <div style="text-align:center;padding:32px;color:var(--text-muted);">{{ 'ward.noFeedback' | t }}</div>
           }
         </div>
       </div>
 
       <div class="card">
-        <div class="card-header"><h3>🤝 Upcoming Community Events</h3></div>
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+          <h3>{{ 'ward.eventsTitle' | t }}</h3>
+          <a routerLink="/ward/events" class="btn btn-secondary btn-sm">{{ 'common.viewAll' | t }}</a>
+        </div>
         <div class="card-body">
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
             @for (evt of events; track evt.title) {
-              <div style="padding:16px;background:var(--bg-primary);border-radius:var(--radius);text-align:center;">
+              <a routerLink="/ward/events" style="padding:16px;background:var(--bg-primary);border-radius:var(--radius);text-align:center;text-decoration:none;color:inherit;transition:background 0.2s,transform 0.1s;display:block;">
                 <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">{{ evt.month }}</div>
                 <div style="font-size:24px;font-weight:800;color:var(--primary);">{{ evt.day }}</div>
                 <div style="font-size:13px;font-weight:600;margin-top:4px;">{{ evt.title }}</div>
                 <div style="font-size:11px;color:var(--text-muted);">{{ evt.time }}</div>
-              </div>
+              </a>
             } @empty {
-              <div style="grid-column:1/-1;text-align:center;padding:32px;color:var(--text-muted);">No upcoming events.</div>
+              <div style="grid-column:1/-1;text-align:center;padding:32px;color:var(--text-muted);">{{ 'ward.noEvents' | t }}</div>
             }
           </div>
         </div>
@@ -129,12 +134,12 @@ export class WardDashboardComponent implements OnInit {
   mapPins: Array<{ x: number; y: number; color: string }> = [];
   feedback: Array<{ id: string; name: string; initials: string; time: string; text: string; sentiment: string; sentimentBadge: string; category: string }> = [];
   navItems = [
-    { icon: 'dashboard', label: 'Overview', route: '/ward' },
-    { icon: 'map', label: 'Ward Map', route: '/ward/map' },
-    { icon: 'forum', label: 'Feedback', route: '/ward/feedback' },
-    { icon: 'groups', label: 'Residents', route: '/ward/residents' },
-    { icon: 'event', label: 'Events', route: '/ward/events' },
-  ];
+    { icon: 'dashboard', label: 'nav.overview', route: '/ward' },
+    { icon: 'map', label: 'nav.map', route: '/ward/map' },
+    { icon: 'forum', label: 'nav.feedback', route: '/ward/feedback' },
+    { icon: 'groups', label: 'nav.residents', route: '/ward/residents' },
+    { icon: 'event', label: 'nav.events', route: '/ward/events' },
+  ] as any;
 
   private readonly categoryColors: Record<string, string> = {
     INFRASTRUCTURE: '#2563EB', PUBLIC_SAFETY: '#DC2626', SANITATION: '#16A34A',
@@ -144,7 +149,9 @@ export class WardDashboardComponent implements OnInit {
 
   private readonly locale = 'en-US';
 
-  constructor(public auth: AuthService, private api: ApiService) {}
+  auth = inject(AuthService);
+  api = inject(ApiService);
+  i18n = inject(TranslationService);
 
   get activeIssueCount(): number {
     return this.wardIssues.filter(i => i.status !== 'RESOLVED' && i.status !== 'VERIFIED' && i.status !== 'REJECTED').length;
@@ -176,7 +183,7 @@ export class WardDashboardComponent implements OnInit {
     const entries = Object.entries(counts);
     const max = Math.max(...entries.map(([, c]) => c), 1);
     this.wardCategories = entries.map(([cat, count]) => ({
-      name: cat.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase()),
+      name: cat,
       count,
       pct: (count / max) * 100,
       color: this.categoryColors[cat] || '#64748B',
@@ -189,19 +196,19 @@ export class WardDashboardComponent implements OnInit {
       const first = reporter?.firstName?.[0] || '?';
       const last = reporter?.lastName?.[0] || '';
       const sentiment = issue.status === 'RESOLVED' || issue.status === 'VERIFIED'
-        ? { label: 'Positive', badge: 'badge-green' }
+        ? { label: this.i18n.t('ward.sentimentPositive'), badge: 'badge-green' }
         : issue.status === 'REJECTED'
-          ? { label: 'Negative', badge: 'badge-red' }
-          : { label: 'Open', badge: 'badge-slate' };
+          ? { label: this.i18n.t('ward.sentimentNegative'), badge: 'badge-red' }
+          : { label: this.i18n.t('ward.sentimentOpen'), badge: 'badge-slate' };
       return {
         id: issue.id,
-        name: reporter ? `${reporter.firstName} ${reporter.lastName}` : 'Resident',
+        name: reporter ? `${reporter.firstName} ${reporter.lastName}` : this.i18n.t('detail.resident'),
         initials: `${first}${last}`,
         time: formatDate(issue.createdAt, 'mediumDate', this.locale),
         text: issue.description?.slice(0, 160) + (issue.description && issue.description.length > 160 ? '...' : ''),
         sentiment: sentiment.label,
         sentimentBadge: sentiment.badge,
-        category: issue.category.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase()),
+        category: issue.category,
       };
     });
   }

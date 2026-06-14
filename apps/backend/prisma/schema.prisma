@@ -10,22 +10,22 @@ datasource db {
 // === AUTHENTICATION & USERS ===
 
 model User {
-  id            String    @id @default(uuid())
-  email         String    @unique
-  passwordHash  String
-  firstName     String
-  lastName      String
-  phone         String?
-  avatarUrl     String?
-  role          UserRole
-  isActive      Boolean   @default(true)
-  isVerified    Boolean   @default(false)
-  lastLoginAt   DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  phone        String?
+  avatarUrl    String?
+  role         UserRole
+  isActive     Boolean   @default(true)
+  isVerified   Boolean   @default(false)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  issues              Issue[]           @relation("IssueReporter")
-  assignedIssues      Issue[]           @relation("IssueAssignee")
+  issues              Issue[]              @relation("IssueReporter")
+  assignedIssues      Issue[]              @relation("IssueAssignee")
   comments            Comment[]
   votes               Vote[]
   surveys             Survey[]
@@ -35,27 +35,37 @@ model User {
   announcements       Announcement[]
   events              Event[]
   eventRSVPs          EventRSVP[]
-  sentMessages        Message[]         @relation("MessageSender")
-  receivedMessages    Message[]         @relation("MessageReceiver")
-  resolutions         Resolution[]      @relation("ResolutionProposer")
+  sentMessages        Message[]            @relation("MessageSender")
+  receivedMessages    Message[]            @relation("MessageReceiver")
+  resolutions         Resolution[]         @relation("ResolutionProposer")
   refreshTokens       RefreshToken[]
   forums              Forum[]
   forumPosts          ForumPost[]
   passwordResetTokens PasswordResetToken[]
 
+  // === Feature additions (10-feature sweep) ===
+  issueSubscriptions     IssueSubscription[]
+  shareLinksCreated      IssueShareLink[]         @relation("ShareLinkCreator")
+  savedSearches          SavedSearch[]
+  notificationPrefs      NotificationPreference[]
+  internalNotes          InternalNote[]
+  assignmentsReceived    IssueAssignment[]        @relation("AssignmentAssignee")
+  assignmentsPerformed   IssueAssignment[]        @relation("AssignmentAssigner")
+  unassignmentsPerformed IssueAssignment[]        @relation("AssignmentUnassigner")
+
   // Ward relationship (many users in one ward)
-  wardId              String?
-  ward                Ward?             @relation("WardResident", fields: [wardId], references: [id])
+  wardId String?
+  ward   Ward?   @relation("WardResident", fields: [wardId], references: [id])
 
   // Ward representative (one-to-one: a ward has one rep)
-  representativeOf    Ward?             @relation("WardRepresentative")
+  representativeOf Ward? @relation("WardRepresentative")
 
   // Department staff relationship (many staff in one dept)
-  departmentId        String?
-  department          Department?       @relation("DepartmentStaff", fields: [departmentId], references: [id])
+  departmentId String?
+  department   Department? @relation("DepartmentStaff", fields: [departmentId], references: [id])
 
   // Department head (one-to-one: user heads one dept)
-  managedDepartment   Department?       @relation("DepartmentHead")
+  managedDepartment Department? @relation("DepartmentHead")
 }
 
 enum UserRole {
@@ -92,22 +102,22 @@ model PasswordResetToken {
 // === GEOGRAPHIC STRUCTURE ===
 
 model Ward {
-  id              String   @id @default(uuid())
-  name            String
-  code            String   @unique
-  description     String?
-  boundary        Json?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id          String   @id @default(uuid())
+  name        String
+  code        String   @unique
+  description String?
+  boundary    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   // Ward representative (one-to-one)
   representativeId String? @unique
-  representative   User?    @relation("WardRepresentative", fields: [representativeId], references: [id])
+  representative   User?   @relation("WardRepresentative", fields: [representativeId], references: [id])
 
   // Residents (one-to-many)
-  users            User[]   @relation("WardResident")
-  issues           Issue[]
-  departments      DepartmentWard[]
+  users       User[]           @relation("WardResident")
+  issues      Issue[]
+  departments DepartmentWard[]
 }
 
 model Department {
@@ -120,14 +130,14 @@ model Department {
   updatedAt   DateTime @updatedAt
 
   // Department head (one-to-one via headId)
-  headId      String?  @unique
-  head        User?    @relation("DepartmentHead", fields: [headId], references: [id])
+  headId String? @unique
+  head   User?   @relation("DepartmentHead", fields: [headId], references: [id])
 
   // Staff members (one-to-many)
-  staff       User[]   @relation("DepartmentStaff")
+  staff User[] @relation("DepartmentStaff")
 
-  issues      Issue[]
-  wards       DepartmentWard[]
+  issues Issue[]
+  wards  DepartmentWard[]
 }
 
 model DepartmentWard {
@@ -143,38 +153,45 @@ model DepartmentWard {
 // === ISSUES & FEEDBACK ===
 
 model Issue {
-  id                     String      @id @default(uuid())
-  title                  String
-  description            String
-  category               IssueCategory
-  status                 IssueStatus @default(SUBMITTED)
-  priority               Int?
-  priorityJustification  String?
-  location               String
-  latitude               Decimal?    @db.Decimal(9, 6)
-  longitude              Decimal?    @db.Decimal(9, 6)
-  upvotes                Int         @default(0)
-  viewCount              Int         @default(0)
-  isPublic               Boolean     @default(true)
-  reporterId             String
-  reporter               User        @relation("IssueReporter", fields: [reporterId], references: [id])
-  assigneeId             String?
-  assignee               User?       @relation("IssueAssignee", fields: [assigneeId], references: [id])
-  departmentId           String?
-  department             Department? @relation(fields: [departmentId], references: [id])
-  wardId                 String?
-  ward                   Ward?       @relation(fields: [wardId], references: [id])
-  aiCategory             String?
-  aiSentiment            String?
-  resolvedAt             DateTime?
-  createdAt              DateTime    @default(now())
-  updatedAt              DateTime    @updatedAt
+  id                    String        @id @default(uuid())
+  title                 String
+  description           String
+  category              IssueCategory
+  status                IssueStatus   @default(SUBMITTED)
+  priority              Int?
+  priorityJustification String?
+  location              String
+  latitude              Decimal?      @db.Decimal(9, 6)
+  longitude             Decimal?      @db.Decimal(9, 6)
+  upvotes               Int           @default(0)
+  viewCount             Int           @default(0)
+  isPublic              Boolean       @default(true)
+  reporterId            String
+  reporter              User          @relation("IssueReporter", fields: [reporterId], references: [id])
+  assigneeId            String?
+  assignee              User?         @relation("IssueAssignee", fields: [assigneeId], references: [id])
+  departmentId          String?
+  department            Department?   @relation(fields: [departmentId], references: [id])
+  wardId                String?
+  ward                  Ward?         @relation(fields: [wardId], references: [id])
+  aiCategory            String?
+  aiSentiment           String?
+  resolvedAt            DateTime?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
 
   comments      Comment[]
   votes         Vote[]
   attachments   Attachment[]
   statusHistory StatusHistory[]
   tags          IssueTag[]
+
+  // === Feature additions (10-feature sweep) ===
+  subscriptions     IssueSubscription[]
+  shareLinks        IssueShareLink[]
+  internalNotes     InternalNote[]
+  slaTracking       SlaTracking?
+  assignmentHistory IssueAssignment[]
 }
 
 enum IssueCategory {
@@ -224,17 +241,17 @@ model Vote {
 // === COMMENTS ===
 
 model Comment {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   content   String
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
   issueId   String
-  issue     Issue    @relation(fields: [issueId], references: [id])
+  issue     Issue     @relation(fields: [issueId], references: [id])
   parentId  String?
-  parent    Comment? @relation("CommentThread", fields: [parentId], references: [id])
+  parent    Comment?  @relation("CommentThread", fields: [parentId], references: [id])
   children  Comment[] @relation("CommentThread")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 }
 
 // === FORUMS ===
@@ -265,29 +282,29 @@ model ForumPost {
 // === SURVEYS & POLLS ===
 
 model Survey {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   title       String
   description String?
   creatorId   String
-  creator     User     @relation(fields: [creatorId], references: [id])
-  isActive    Boolean  @default(true)
+  creator     User      @relation(fields: [creatorId], references: [id])
+  isActive    Boolean   @default(true)
   closesAt    DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  questions   SurveyQuestion[]
-  responses   SurveyResponse[]
-  votes       Vote[]
+  questions SurveyQuestion[]
+  responses SurveyResponse[]
+  votes     Vote[]
 }
 
 model SurveyQuestion {
-  id        String   @id @default(uuid())
-  surveyId  String
-  survey    Survey   @relation(fields: [surveyId], references: [id], onDelete: Cascade)
-  text      String
-  type      String
-  options   Json?
-  order     Int
+  id       String @id @default(uuid())
+  surveyId String
+  survey   Survey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  text     String
+  type     String
+  options  Json?
+  order    Int
 }
 
 model SurveyResponse {
@@ -301,16 +318,16 @@ model SurveyResponse {
 }
 
 model Poll {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   title       String
   description String?
   creatorId   String
-  isActive    Boolean  @default(true)
+  isActive    Boolean   @default(true)
   closesAt    DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
-  options     PollOption[]
-  votes       Vote[]
+  options PollOption[]
+  votes   Vote[]
 }
 
 model PollOption {
@@ -338,16 +355,16 @@ model Notification {
 // === AUDIT LOG ===
 
 model AuditLog {
-  id         String   @id @default(uuid())
-  userId     String
-  user       User     @relation(fields: [userId], references: [id])
-  action     String
-  entity     String
-  entityId   String
-  oldValues  Json?
-  newValues  Json?
-  ipAddress  String?
-  createdAt  DateTime @default(now())
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String
+  oldValues Json?
+  newValues Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
 }
 
 // === ATTACHMENTS ===
@@ -393,16 +410,16 @@ model Event {
   isPublic    Boolean  @default(true)
   createdAt   DateTime @default(now())
 
-  rsvps       EventRSVP[]
+  rsvps EventRSVP[]
 }
 
 model EventRSVP {
-  id       String @id @default(uuid())
-  eventId  String
-  event    Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  userId   String
-  user     User   @relation(fields: [userId], references: [id])
-  status   String
+  id      String @id @default(uuid())
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId  String
+  user    User   @relation(fields: [userId], references: [id])
+  status  String
 
   @@unique([eventId, userId])
 }
@@ -423,18 +440,18 @@ model Message {
 // === RESOLUTIONS ===
 
 model Resolution {
-  id           String   @id @default(uuid())
+  id           String    @id @default(uuid())
   title        String
   description  String
   issueId      String?
   proposedById String
-  proposedBy   User     @relation("ResolutionProposer", fields: [proposedById], references: [id])
-  status       String   @default("DRAFT")
-  votesFor     Int      @default(0)
-  votesAgainst Int      @default(0)
+  proposedBy   User      @relation("ResolutionProposer", fields: [proposedById], references: [id])
+  status       String    @default("DRAFT")
+  votesFor     Int       @default(0)
+  votesAgainst Int       @default(0)
   votedByIds   String[]
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
   decidedAt    DateTime?
 }
 
@@ -452,12 +469,116 @@ model IssueTag {
 // === STATUS HISTORY ===
 
 model StatusHistory {
-  id        String     @id @default(uuid())
+  id        String   @id @default(uuid())
   issueId   String
-  issue     Issue      @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  issue     Issue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
   oldStatus String?
   newStatus String
   changedBy String
   note      String?
-  createdAt DateTime   @default(now())
+  createdAt DateTime @default(now())
+}
+
+// =====================================================
+// === 10-Feature Sweep — Engagement / Workflow / Analytics
+// =====================================================
+
+// --- 1. Issue subscriptions (citizen follow) ---
+model IssueSubscription {
+  id        String   @id @default(uuid())
+  issueId   String
+  issue     Issue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([issueId, userId])
+  @@index([userId])
+}
+
+// --- 2. Issue sharing (public share token) ---
+model IssueShareLink {
+  id          String    @id @default(uuid())
+  issueId     String
+  issue       Issue     @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  token       String    @unique
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  createdById String
+  createdBy   User      @relation("ShareLinkCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([issueId])
+  @@index([createdById])
+}
+
+// --- 3. Saved searches (issue filter combos) ---
+model SavedSearch {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  filters   Json
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// --- 4. Notification preferences (per-channel opt-in) ---
+model NotificationPreference {
+  id      String  @id @default(uuid())
+  userId  String
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel String // 'inApp' | 'email' | 'push'
+  type    String // 'ISSUE_UPDATE' | 'COMMENT' | 'ANNOUNCEMENT' | 'EVENT' | etc.
+  enabled Boolean @default(true)
+
+  @@unique([userId, channel, type])
+  @@index([userId])
+}
+
+// --- 5. Internal notes on issues (staff-only) ---
+model InternalNote {
+  id        String   @id @default(uuid())
+  issueId   String
+  issue     Issue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  content   String
+  createdAt DateTime @default(now())
+
+  @@index([issueId])
+}
+
+// --- 6. SLA tracking (response/resolution timer) ---
+model SlaTracking {
+  id              String    @id @default(uuid())
+  issueId         String    @unique
+  issue           Issue     @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  priority        String
+  dueAt           DateTime
+  firstResponseAt DateTime?
+  resolvedAt      DateTime?
+  breached        Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([breached, dueAt])
+}
+
+// --- 7. Assignment history (audit trail of who was assigned what and when) ---
+model IssueAssignment {
+  id             String    @id @default(uuid())
+  issueId        String
+  issue          Issue     @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  assigneeId     String?
+  assignee       User?     @relation("AssignmentAssignee", fields: [assigneeId], references: [id])
+  assignedById   String
+  assignedBy     User      @relation("AssignmentAssigner", fields: [assignedById], references: [id])
+  unassignedById String?
+  unassignedBy   User?     @relation("AssignmentUnassigner", fields: [unassignedById], references: [id])
+  assignedAt     DateTime  @default(now())
+  unassignedAt   DateTime?
+  reason         String?
+
+  @@index([issueId, assignedAt])
 }

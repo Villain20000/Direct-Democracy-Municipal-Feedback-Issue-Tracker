@@ -1,45 +1,47 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
+import { TranslationService } from '../../core/i18n/translation.service';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { Issue, IssueStatus, IssueCategory, UserRole } from '@dd/shared-types';
-import { issueStatusClass, formatIssueStatus } from '../../core/utils/issue-ui';
+import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../core/utils/issue-ui';
 
 @Component({
   selector: 'app-issue-list',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, LayoutComponent, DatePipe],
+  imports: [CommonModule, FormsModule, RouterLink, LayoutComponent, DatePipe, TranslatePipe],
   template: `
     <app-layout
-      pageTitle="All Issues"
+      [pageTitle]="i18n.t('issues.allIssues')"
       [navItems]="navItems"
       (logout)="auth.logout()">
 
       <div style="display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap;align-items:center;">
         <div style="flex:1;min-width:200px;">
-          <input type="text" [(ngModel)]="search" (ngModelChange)="loadIssues()" placeholder="Search issues..." style="width:100%;padding:10px 16px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" />
+          <input type="text" [(ngModel)]="search" (ngModelChange)="loadIssues()" [placeholder]="i18n.t('issues.searchPlaceholder')" style="width:100%;padding:10px 16px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" />
         </div>
         <select [(ngModel)]="filterStatus" (ngModelChange)="loadIssues()" style="padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;">
-          <option value="">All Statuses</option>
-          @for (s of statuses; track s) { <option [value]="s">{{ s }}</option> }
+          <option value="">{{ i18n.t('issues.allStatuses') }}</option>
+          @for (s of statuses; track s) { <option [value]="s">{{ i18n.tEnum('status', s) }}</option> }
         </select>
         <select [(ngModel)]="filterCategory" (ngModelChange)="loadIssues()" style="padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;">
-          <option value="">All Categories</option>
-          @for (c of categories; track c) { <option [value]="c">{{ c }}</option> }
+          <option value="">{{ i18n.t('issues.allCategories') }}</option>
+          @for (c of categories; track c) { <option [value]="c">{{ i18n.tCategory(c) }}</option> }
         </select>
-        <button class="btn btn-primary" routerLink="/issues/new"><i class="material-icons-outlined" style="font-size:16px;">add</i> New Issue</button>
+        <button class="btn btn-primary" routerLink="/issues/new"><i class="material-icons-outlined" style="font-size:16px;">add</i> {{ 'issues.newIssue' | t }}</button>
         @if (canBulkUpdate) {
           <select [(ngModel)]="bulkStatus" style="padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;">
-            <option value="">Bulk status...</option>
-            @for (s of statuses; track s) { <option [value]="s">{{ s }}</option> }
+            <option value="">{{ i18n.t('issues.bulkStatus') }}</option>
+            @for (s of statuses; track s) { <option [value]="s">{{ i18n.tEnum('status', s) }}</option> }
           </select>
-          <button class="btn btn-secondary btn-sm" (click)="bulkUpdate()" [disabled]="!bulkStatus || bulkLoading">Apply to page</button>
+          <button class="btn btn-secondary btn-sm" (click)="bulkUpdate()" [disabled]="!bulkStatus || bulkLoading">{{ 'issues.applyToPage' | t }}</button>
         }
         @if (canExport) {
-          <button class="btn btn-secondary btn-sm" (click)="exportCsv()" [disabled]="exporting">⬇ Export</button>
+          <button class="btn btn-secondary btn-sm" (click)="exportCsv()" [disabled]="exporting">{{ 'issues.export' | t }}</button>
         }
       </div>
 
@@ -48,8 +50,8 @@ import { issueStatusClass, formatIssueStatus } from '../../core/utils/issue-ui';
           <table class="data-table">
             <thead>
               <tr>
-                <th>Title</th><th>Category</th><th>Status</th><th>Priority</th>
-                <th>Upvotes</th><th>Reporter</th><th>Date</th>
+                <th>{{ 'admin.title' | t }}</th><th>{{ 'issues.category' | t }}</th><th>{{ 'citizen.tableStatus' | t }}</th><th>{{ 'issues.priority' | t }}</th>
+                <th>{{ 'issues.upvotes' | t }}</th><th>{{ 'issues.reporter' | t }}</th><th>{{ 'issues.date' | t }}</th>
               </tr>
             </thead>
             <tbody>
@@ -59,15 +61,15 @@ import { issueStatusClass, formatIssueStatus } from '../../core/utils/issue-ui';
                     <strong>{{ issue.title }}</strong>
                     <br><span style="font-size:11px;color:var(--text-muted);">{{ issue.location }}</span>
                   </td>
-                  <td><span class="badge badge-blue">{{ issue.category }}</span></td>
+                  <td><span class="badge badge-blue">{{ i18n.tCategory(issue.category) }}</span></td>
                   <td><span class="status-badge" [ngClass]="issueStatusClass(issue.status)">{{ formatIssueStatus(issue.status) }}</span></td>
                   <td><span class="priority-dot" [ngClass]="'p' + (issue.priority || 3)"></span> {{ issue.priority || '-' }}/5</td>
                   <td style="font-weight:700;">▲ {{ issue.upvotes }}</td>
-                  <td style="font-size:12px;">{{ issue.reporter?.firstName || 'Anonymous' }}</td>
+                  <td style="font-size:12px;">{{ issue.reporter?.firstName || i18n.t('detail.anonymous') }}</td>
                   <td style="color:var(--text-muted);font-size:12px;">{{ issue.createdAt | date:'mediumDate' }}</td>
                 </tr>
               } @empty {
-                <tr><td colspan="7" style="text-align:center;padding:48px;color:var(--text-muted);">No issues found</td></tr>
+                <tr><td colspan="7" style="text-align:center;padding:48px;color:var(--text-muted);">{{ 'issues.noIssues' | t }}</td></tr>
               }
             </tbody>
           </table>
@@ -75,10 +77,10 @@ import { issueStatusClass, formatIssueStatus } from '../../core/utils/issue-ui';
       </div>
 
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">
-        <span style="font-size:13px;color:var(--text-muted);">Showing {{ issues.length }} of {{ total }} issues</span>
+        <span style="font-size:13px;color:var(--text-muted);">{{ i18n.t('issues.showingOf', { shown: issues.length, total: total }) }}</span>
         <div style="display:flex;gap:8px;">
-          <button class="btn btn-secondary btn-sm" [disabled]="page <= 1" (click)="prevPage()">← Previous</button>
-          <button class="btn btn-secondary btn-sm" [disabled]="page >= totalPages" (click)="nextPage()">Next →</button>
+          <button class="btn btn-secondary btn-sm" [disabled]="page <= 1" (click)="prevPage()">← {{ 'common.previous' | t }}</button>
+          <button class="btn btn-secondary btn-sm" [disabled]="page >= totalPages" (click)="nextPage()">{{ 'common.next' | t }} →</button>
         </div>
       </div>
     </app-layout>
@@ -95,8 +97,8 @@ export class IssueListComponent implements OnInit {
   statuses = ['SUBMITTED', 'ACKNOWLEDGED', 'IN_PROGRESS', 'PENDING_REVIEW', 'RESOLVED', 'VERIFIED', 'REJECTED'];
   categories = ['INFRASTRUCTURE', 'PUBLIC_SAFETY', 'SANITATION', 'UTILITIES', 'HOUSING', 'ENVIRONMENT', 'TRANSPORTATION', 'EDUCATION', 'HEALTH', 'OTHER'];
   navItems = [
-    { icon: 'report_problem', label: 'All Issues', route: '/issues' },
-  ];
+    { icon: 'report_problem', label: 'nav.issues', route: '/issues' },
+  ] as any;
 
   bulkStatus = '';
   bulkLoading = false;
@@ -108,11 +110,17 @@ export class IssueListComponent implements OnInit {
   private wardId = '';
 
   issueStatusClass = issueStatusClass;
-  formatIssueStatus = formatIssueStatus;
+  formatIssueStatus(status: string) { return formatStatusI18n(status, this.i18n); }
 
-  constructor(public auth: AuthService, private api: ApiService, private route: ActivatedRoute, private router: Router) {
-    this.canBulkUpdate = auth.hasRole(UserRole.SUPER_ADMIN, UserRole.MAYOR, UserRole.DEPARTMENT_HEAD, UserRole.STAFF);
-    this.canExport = auth.hasRole(UserRole.SUPER_ADMIN, UserRole.MAYOR, UserRole.AUDITOR, UserRole.DEPARTMENT_HEAD);
+  auth = inject(AuthService);
+  api = inject(ApiService);
+  i18n = inject(TranslationService);
+  route = inject(ActivatedRoute);
+  router = inject(Router);
+
+  constructor() {
+    this.canBulkUpdate = this.auth.hasRole(UserRole.SUPER_ADMIN, UserRole.MAYOR, UserRole.DEPARTMENT_HEAD, UserRole.STAFF);
+    this.canExport = this.auth.hasRole(UserRole.SUPER_ADMIN, UserRole.MAYOR, UserRole.AUDITOR, UserRole.DEPARTMENT_HEAD);
   }
 
   ngOnInit() {

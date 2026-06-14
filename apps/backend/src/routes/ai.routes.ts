@@ -71,4 +71,94 @@ router.post('/chat', authenticate, aiLimiter as any, async (req: AuthenticatedRe
   }
 });
 
+router.post('/duplicates', authenticate, aiLimiter as any, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { text, candidates } = req.body;
+    if (!text) { res.status(400).json({ error: 'Text is required' }); return; }
+    if (!Array.isArray(candidates)) { res.status(400).json({ error: 'Candidates array is required' }); return; }
+    const result = await aiService.detectDuplicates(text, candidates);
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    res.status(503).json({ error: error.message });
+  }
+});
+
+router.post('/resolve', authenticate, aiLimiter as any, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { text, category } = req.body;
+    if (!text) { res.status(400).json({ error: 'Text is required' }); return; }
+    const result = await aiService.suggestResolution(text, category);
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    res.status(503).json({ error: error.message });
+  }
+});
+
+router.post('/describe', authenticate, aiLimiter as any, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { title, category } = req.body;
+    if (!title) { res.status(400).json({ error: 'Title is required' }); return; }
+    const result = await aiService.generateDescription(title, category);
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    res.status(503).json({ error: error.message });
+  }
+});
+
+router.post('/tags', authenticate, aiLimiter as any, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { text } = req.body;
+    if (!text) { res.status(400).json({ error: 'Text is required' }); return; }
+    const result = await aiService.extractTags(text);
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    res.status(503).json({ error: error.message });
+  }
+});
+
+router.post('/resolution-time', authenticate, aiLimiter as any, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { text, category } = req.body;
+    if (!text) { res.status(400).json({ error: 'Text is required' }); return; }
+    const result = await aiService.predictResolutionTime(text, category);
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    res.status(503).json({ error: error.message });
+  }
+});
+
+router.post('/department', authenticate, aiLimiter as any, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { text, category } = req.body;
+    if (!text) { res.status(400).json({ error: 'Text is required' }); return; }
+    const result = await aiService.suggestDepartment(text, category);
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    res.status(503).json({ error: error.message });
+  }
+});
+
+router.post('/translate', authenticate, aiLimiter as any, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { text, language } = req.body;
+    if (!text) { res.status(400).json({ error: 'Text is required' }); return; }
+    const result = await aiService.translate(text, language || 'English');
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    res.status(503).json({ error: error.message });
+  }
+});
+
+router.post('/search', authenticate, aiLimiter as any, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { query, issues } = req.body;
+    if (!query) { res.status(400).json({ error: 'Query is required' }); return; }
+    if (!Array.isArray(issues)) { res.status(400).json({ error: 'Issues array is required' }); return; }
+    const result = await aiService.smartSearch(query, issues);
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    res.status(503).json({ error: error.message });
+  }
+});
+
 export default router;

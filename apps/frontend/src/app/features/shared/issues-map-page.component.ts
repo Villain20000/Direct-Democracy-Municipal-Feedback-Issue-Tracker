@@ -1,8 +1,9 @@
-import { Component, OnInit, AfterViewInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, AfterViewInit, OnDestroy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LayoutComponent, NavItem } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
+import { TranslationService } from '../../core/i18n/translation.service';
 import { Issue } from '@dd/shared-types';
 import * as L from 'leaflet';
 
@@ -11,7 +12,7 @@ import * as L from 'leaflet';
   standalone: true,
   imports: [CommonModule, LayoutComponent],
   template: `
-    <app-layout pageTitle="Issues Map" [navItems]="navItems" (logout)="auth.logout()">
+    <app-layout [pageTitle]="i18n.t('issuesMap.pageTitle')" [navItems]="navItems" (logout)="auth.logout()">
       @if (error) {
         <div class="card" style="margin-bottom:24px;border-color:var(--danger);">
           <div class="card-body" style="color:var(--danger);">{{ error }}</div>
@@ -20,13 +21,13 @@ import * as L from 'leaflet';
 
       <div class="card">
         <div class="card-header">
-          <h3>📍 Issue Locations</h3>
-          <span style="font-size:12px;color:var(--text-muted);">{{ mappedCount }} issues on map</span>
+          <h3>{{ i18n.t('issuesMap.header') }}</h3>
+          <span style="font-size:12px;color:var(--text-muted);">{{ i18n.t('issuesMap.mappedCount', { n: mappedCount }) }}</span>
         </div>
         <div class="card-body" style="padding:0;position:relative;">
           @if (loading) {
             <div style="position:absolute;inset:0;z-index:1000;background:rgba(255,255,255,0.85);display:flex;align-items:center;justify-content:center;color:var(--text-muted);">
-              Loading issues...
+              {{ i18n.t('issuesMap.loading') }}
             </div>
           }
           <div id="issues-map" style="height:500px;width:100%;border-radius:0 0 var(--radius) var(--radius);"></div>
@@ -36,7 +37,7 @@ import * as L from 'leaflet';
       @if (!loading && mappedCount === 0) {
         <div class="card" style="margin-top:16px;">
           <div class="card-body" style="text-align:center;padding:32px;color:var(--text-muted);">
-            No issues with location coordinates found.
+            {{ i18n.t('issuesMap.noGeo') }}
           </div>
         </div>
       }
@@ -54,8 +55,10 @@ export class IssuesMapPageComponent implements OnInit, AfterViewInit, OnDestroy 
   private viewReady = false;
   private dataReady = false;
 
+  i18n = inject(TranslationService);
+
   constructor(public auth: AuthService, private api: ApiService) {
-    this.navItems = [{ icon: 'dashboard', label: 'Dashboard', route: auth.getDashboardRoute() }];
+    this.navItems = [{ icon: 'dashboard', label: 'nav.dashboard', route: auth.getDashboardRoute() }];
   }
 
   ngOnInit() { this.loadIssues(); }
@@ -80,7 +83,7 @@ export class IssuesMapPageComponent implements OnInit, AfterViewInit, OnDestroy 
         this.tryInitMap();
       },
       error: (err) => {
-        this.error = err.error?.error || 'Failed to load issues.';
+        this.error = err.error?.error || this.i18n.t('issuesMap.loadFailed');
         this.loading = false;
       },
     });

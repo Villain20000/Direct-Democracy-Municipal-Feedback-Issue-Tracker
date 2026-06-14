@@ -1,10 +1,12 @@
-import { Component, input, output, OnInit } from '@angular/core';
+import { Component, input, output, OnInit, computed } from '@angular/core';
 import { CommonModule, formatDate } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { AuthService } from '../core/services/auth.service';
 import { NotificationService } from '../core/services/notification.service';
 import { Notification } from '@dd/shared-types';
+import { TranslationService } from '../core/i18n/translation.service';
+import { LanguageSwitcherComponent } from './language-switcher.component';
 
 export interface NavItem {
   icon: string;
@@ -16,32 +18,32 @@ export interface NavItem {
 @Component({
   selector: 'app-layout',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, RouterLinkActive],
+  imports: [CommonModule, FormsModule, RouterLink, RouterLinkActive, LanguageSwitcherComponent],
   template: `
     <div class="dashboard-layout">
       <aside class="sidebar">
         <div class="sidebar-header">
           <div class="logo">DD</div>
           <div class="brand">
-            Direct Democracy
-            <span>Municipal Platform</span>
+            {{ i18n.t('app.name') }}
+            <span>{{ i18n.t('app.platform') }}</span>
           </div>
         </div>
         <nav class="sidebar-nav">
           <div class="nav-section">
-            <div class="nav-section-title">{{ dashboardTitle }}</div>
+            <div class="nav-section-title">{{ dashboardTitle() }}</div>
             @for (item of navItems(); track item.route) {
               <a class="nav-item" [routerLink]="item.route" routerLinkActive="active">
                 <i class="material-icons-outlined">{{ item.icon }}</i>
-                {{ item.label }}
+                {{ i18n.t(item.label) }}
                 @if (item.badge) { <span class="badge">{{ item.badge }}</span> }
               </a>
             }
           </div>
           <div class="nav-section">
-            <div class="nav-section-title">General</div>
+            <div class="nav-section-title">{{ i18n.t('nav.general') }}</div>
             <a class="nav-item" routerLink="/issues" routerLinkActive="active">
-              <i class="material-icons-outlined">report_problem</i> All Issues
+              <i class="material-icons-outlined">report_problem</i> {{ i18n.t('nav.issues') }}
             </a>
           </div>
         </nav>
@@ -49,9 +51,9 @@ export interface NavItem {
           <div class="user-avatar">{{ userInitials }}</div>
           <div class="user-info">
             <div class="name">{{ userName }}</div>
-            <div class="role">{{ userRoleDisplay }}</div>
+            <div class="role">{{ userRoleDisplay() }}</div>
           </div>
-          <button class="logout-btn" (click)="logout.emit()">
+          <button class="logout-btn" (click)="logout.emit()" [title]="i18n.t('auth.logout')">
             <i class="material-icons-outlined">logout</i>
           </button>
         </div>
@@ -64,11 +66,12 @@ export interface NavItem {
               <i class="material-icons-outlined">search</i>
               <input
                 type="text"
-                placeholder="Search issues, users..."
+                [placeholder]="i18n.t('common.searchPlaceholder')"
                 [(ngModel)]="searchQuery"
                 (keydown.enter)="onSearch()"
               />
             </div>
+            <app-language-switcher />
             <div class="notification-wrapper">
               <button class="notification-btn" (click)="toggleNotifications($event)">
                 <i class="material-icons-outlined">notifications</i>
@@ -78,12 +81,12 @@ export interface NavItem {
               </button>
               @if (showNotifications) {
                 <div class="notification-panel" (click)="$event.stopPropagation()">
-                  <div class="notification-panel-header">
-                    <span>Notifications</span>
-                    @if (displayNotifCount > 0) {
-                      <button class="mark-all-btn" (click)="markAllRead()">Mark all read</button>
-                    }
-                  </div>
+              <div class="notification-panel-header">
+                <span>{{ i18n.t('nav.notifications') }}</span>
+                @if (displayNotifCount > 0) {
+                  <button class="mark-all-btn" (click)="markAllRead()">{{ i18n.t('nav.markAllRead') }}</button>
+                }
+              </div>
                   <div class="notification-list">
                     @for (notif of notifications.notifications(); track notif.id) {
                       <div
@@ -96,7 +99,7 @@ export interface NavItem {
                         <div class="notification-time">{{ formatDateTime(notif.createdAt) }}</div>
                       </div>
                     } @empty {
-                      <div class="notification-empty">No notifications</div>
+                      <div class="notification-empty">{{ i18n.t('nav.noNotifications') }}</div>
                     }
                   </div>
                 </div>
@@ -223,7 +226,8 @@ export class LayoutComponent implements OnInit {
   constructor(
     private auth: AuthService,
     public notifications: NotificationService,
-    private router: Router
+    private router: Router,
+    public i18n: TranslationService,
   ) {}
 
   ngOnInit(): void {
@@ -246,21 +250,28 @@ export class LayoutComponent implements OnInit {
     return u ? `${u.firstName[0]}${u.lastName[0]}` : '';
   }
 
-  get userRoleDisplay(): string {
-    return (this.auth.user()?.role || '').replace(/_/g, ' ');
+  get userRole(): string {
+    return this.auth.user()?.role || '';
   }
 
-  get dashboardTitle(): string {
-    const role = this.auth.user()?.role || '';
+  userRoleDisplay = computed(() => this.i18n.tEnum('roles', this.userRole));
+
+  dashboardTitle = computed(() => {
+    const role = this.userRole;
     const titles: Record<string, string> = {
-      SUPER_ADMIN: 'Admin Panel', MAYOR: 'Mayor Dashboard',
-      DEPARTMENT_HEAD: 'Department Panel', COUNCIL_MEMBER: 'Council Dashboard',
-      STAFF: 'Staff Panel', WARD_REP: 'Ward Dashboard',
-      CITIZEN: 'My Dashboard', VOLUNTEER: 'Volunteer Hub',
-      AUDITOR: 'Audit Center', MEDIA: 'Press Center',
+      SUPER_ADMIN: this.i18n.t('roles.SUPER_ADMIN') + ' Panel',
+      MAYOR: this.i18n.t('roles.MAYOR') + ' ' + this.i18n.t('nav.dashboard'),
+      DEPARTMENT_HEAD: this.i18n.t('roles.DEPARTMENT_HEAD') + ' Panel',
+      COUNCIL_MEMBER: this.i18n.t('roles.COUNCIL_MEMBER') + ' ' + this.i18n.t('nav.dashboard'),
+      STAFF: this.i18n.t('roles.STAFF') + ' Panel',
+      WARD_REP: this.i18n.t('roles.WARD_REP') + ' ' + this.i18n.t('nav.dashboard'),
+      CITIZEN: this.i18n.t('nav.dashboard'),
+      VOLUNTEER: this.i18n.t('roles.VOLUNTEER') + ' Hub',
+      AUDITOR: this.i18n.t('roles.AUDITOR') + ' Center',
+      MEDIA: this.i18n.t('roles.MEDIA') + ' Center',
     };
-    return titles[role] || 'Dashboard';
-  }
+    return titles[role] || this.i18n.t('nav.dashboard');
+  });
 
   onSearch(): void {
     const query = this.searchQuery.trim();

@@ -1,17 +1,19 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { LayoutComponent, NavItem } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
+import { TranslationService } from '../../core/i18n/translation.service';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { Issue } from '@dd/shared-types';
 
 @Component({
   selector: 'app-staff-tasks-page',
   standalone: true,
-  imports: [CommonModule, RouterLink, LayoutComponent, DatePipe],
+  imports: [CommonModule, RouterLink, LayoutComponent, DatePipe, TranslatePipe],
   template: `
-    <app-layout pageTitle="My Tasks" [navItems]="navItems" (logout)="auth.logout()">
+    <app-layout [pageTitle]="i18n.t('staffTasks.pageTitle')" [navItems]="navItems" (logout)="auth.logout()">
       @if (error) {
         <div class="card" style="margin-bottom:24px;border-color:var(--danger);">
           <div class="card-body" style="color:var(--danger);">{{ error }}</div>
@@ -19,14 +21,14 @@ import { Issue } from '@dd/shared-types';
       }
 
       @if (loading) {
-        <div class="card"><div class="card-body" style="text-align:center;padding:48px;color:var(--text-muted);">Loading tasks...</div></div>
+        <div class="card"><div class="card-body" style="text-align:center;padding:48px;color:var(--text-muted);">{{ i18n.t('staffTasks.loading') }}</div></div>
       } @else {
         <div class="card">
-          <div class="card-header"><h3>📋 Assigned Tasks</h3></div>
+          <div class="card-header"><h3>{{ i18n.t('staffTasks.header') }}</h3></div>
           <div class="card-body" style="padding:0;">
             <table class="data-table">
               <thead>
-                <tr><th>Title</th><th>Status</th><th>Priority</th><th>Reporter</th><th>Date</th><th>Actions</th></tr>
+                <tr><th>{{ i18n.t('staffTasks.colTitle') }}</th><th>{{ i18n.t('staffTasks.colStatus') }}</th><th>{{ i18n.t('staffTasks.colPriority') }}</th><th>{{ i18n.t('staffTasks.colReporter') }}</th><th>{{ i18n.t('staffTasks.colDate') }}</th><th>{{ i18n.t('staffTasks.colActions') }}</th></tr>
               </thead>
               <tbody>
                 @for (issue of issues; track issue.id) {
@@ -35,20 +37,20 @@ import { Issue } from '@dd/shared-types';
                       <a [routerLink]="['/issues', issue.id]" style="font-weight:600;">{{ issue.title }}</a>
                       <br><span style="font-size:11px;color:var(--text-muted);">{{ issue.location }}</span>
                     </td>
-                    <td><span class="status-badge" [ngClass]="statusClass(issue.status)">{{ formatStatus(issue.status) }}</span></td>
+                    <td><span class="status-badge" [ngClass]="statusClass(issue.status)">{{ i18n.tStatus(issue.status) }}</span></td>
                     <td><span class="priority-dot" [ngClass]="'p' + (issue.priority || 3)"></span> {{ issue.priority || '-' }}/5</td>
-                    <td style="font-size:12px;">{{ issue.reporter?.firstName || 'Anonymous' }}</td>
+                    <td style="font-size:12px;">{{ issue.reporter?.firstName || i18n.t('detail.anonymous') }}</td>
                     <td style="color:var(--text-muted);font-size:12px;">{{ issue.createdAt | date:'mediumDate' }}</td>
                     <td>
                       <div style="display:flex;gap:4px;flex-wrap:wrap;">
-                        <button type="button" class="btn btn-primary btn-sm" [disabled]="updatingId === issue.id || issue.status === 'IN_PROGRESS'" (click)="updateStatus(issue, 'IN_PROGRESS')">▶ Start</button>
-                        <button type="button" class="btn btn-secondary btn-sm" [disabled]="updatingId === issue.id" (click)="updateStatus(issue, 'PENDING_REVIEW')">Review</button>
-                        <button type="button" class="btn btn-success btn-sm" [disabled]="updatingId === issue.id || issue.status === 'RESOLVED'" (click)="updateStatus(issue, 'RESOLVED')">✓ Done</button>
+                        <button type="button" class="btn btn-primary btn-sm" [disabled]="updatingId === issue.id || issue.status === 'IN_PROGRESS'" (click)="updateStatus(issue, 'IN_PROGRESS')">{{ 'status.start' | t }}</button>
+                        <button type="button" class="btn btn-secondary btn-sm" [disabled]="updatingId === issue.id" (click)="updateStatus(issue, 'PENDING_REVIEW')">{{ 'status.review' | t }}</button>
+                        <button type="button" class="btn btn-success btn-sm" [disabled]="updatingId === issue.id || issue.status === 'RESOLVED'" (click)="updateStatus(issue, 'RESOLVED')">{{ 'status.done' | t }}</button>
                       </div>
                     </td>
                   </tr>
                 } @empty {
-                  <tr><td colspan="6" style="text-align:center;padding:48px;color:var(--text-muted);">No tasks assigned to you.</td></tr>
+                  <tr><td colspan="6" style="text-align:center;padding:48px;color:var(--text-muted);">{{ i18n.t('staffTasks.noTasks') }}</td></tr>
                 }
               </tbody>
             </table>
@@ -67,12 +69,14 @@ export class StaffTasksPageComponent implements OnInit {
 
   private statusFilter = '';
 
+  i18n = inject(TranslationService);
+
   constructor(public auth: AuthService, private api: ApiService, private route: ActivatedRoute) {
     this.navItems = [
-      { icon: 'dashboard', label: 'Overview', route: '/staff' },
-      { icon: 'assignment', label: 'My Tasks', route: '/staff/tasks' },
-      { icon: 'task_alt', label: 'Completed', route: '/staff/completed' },
-      { icon: 'note_add', label: 'Field Notes', route: '/staff/notes' },
+      { icon: 'dashboard', label: 'nav.overview', route: '/staff' },
+      { icon: 'assignment', label: 'nav.tasks', route: '/staff/tasks' },
+      { icon: 'task_alt', label: 'nav.completed', route: '/staff/completed' },
+      { icon: 'note_add', label: 'nav.notes', route: '/staff/notes' },
     ];
   }
 
@@ -84,7 +88,7 @@ export class StaffTasksPageComponent implements OnInit {
   loadTasks() {
     const userId = this.auth.user()?.id;
     if (!userId) {
-      this.error = 'User not authenticated.';
+      this.error = this.i18n.t('staffTasks.notAuthenticated');
       this.loading = false;
       return;
     }
@@ -100,7 +104,7 @@ export class StaffTasksPageComponent implements OnInit {
         this.loading = false;
       },
       error: (err) => {
-        this.error = err.error?.error || 'Failed to load tasks.';
+        this.error = err.error?.error || this.i18n.t('staffTasks.loadFailed');
         this.loading = false;
       },
     });
@@ -108,10 +112,6 @@ export class StaffTasksPageComponent implements OnInit {
 
   statusClass(status: string): string {
     return status.toLowerCase().replace(/_/g, '-');
-  }
-
-  formatStatus(status: string): string {
-    return status.replace(/_/g, ' ');
   }
 
   updateStatus(issue: Issue, status: string) {
@@ -129,7 +129,7 @@ export class StaffTasksPageComponent implements OnInit {
         this.updatingId = '';
       },
       error: (err) => {
-        this.error = err.error?.error || 'Failed to update status.';
+        this.error = err.error?.error || this.i18n.t('staffTasks.updateFailed');
         this.updatingId = '';
       },
     });

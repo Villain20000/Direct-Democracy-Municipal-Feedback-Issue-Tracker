@@ -358,12 +358,11 @@ a { color: var(--primary); text-decoration: none; }
   align-items: center;
   justify-content: center;
   background: linear-gradient(135deg, #0F172A 0%, #1E293B 50%, #334155 100%);
-  padding: 20px;
-
-  .login-card {
-    width: 100%; max-width: 440px;
-    background: var(--bg-card); border-radius: var(--radius-xl);
-    padding: 40px; box-shadow: var(--shadow-lg);
+  padding: 20px;    .login-card {
+      width: 100%; max-width: 440px;
+      background: var(--bg-card); border-radius: var(--radius-xl);
+      padding: 40px; box-shadow: var(--shadow-lg);
+      position: relative;
 
     .login-header {
       text-align: center; margin-bottom: 32px;

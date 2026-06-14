@@ -1,44 +1,46 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
+import { TranslationService } from '../../core/i18n/translation.service';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { Issue, Poll } from '@dd/shared-types';
 
 @Component({
   selector: 'app-citizen-dashboard',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, LayoutComponent, DatePipe],
+  imports: [CommonModule, FormsModule, RouterLink, LayoutComponent, DatePipe, TranslatePipe],
   template: `
     <app-layout
-      pageTitle="My Dashboard"
+      [pageTitle]="i18n.t('citizen.pageTitle')"
       [navItems]="navItems"
       (logout)="auth.logout()">
 
       <div style="display:flex;gap:16px;margin-bottom:24px;">
         <button class="btn btn-primary btn-lg" style="flex:1;" routerLink="/issues/new">
-          <i class="material-icons-outlined">add_circle</i> Report New Issue
+          <i class="material-icons-outlined">add_circle</i> {{ 'citizen.reportNew' | t }}
         </button>
         <button class="btn btn-secondary btn-lg" routerLink="/citizen/polls">
-          <i class="material-icons-outlined">poll</i> Vote on Polls
+          <i class="material-icons-outlined">poll</i> {{ 'citizen.votePolls' | t }}
         </button>
       </div>
 
       <div class="stats-grid">
-        <div class="stat-card"><div class="stat-icon blue"><i class="material-icons-outlined">my_reports</i></div><div class="stat-info"><div class="stat-value">{{ myIssues.length }}</div><div class="stat-label">My Reports</div></div></div>
-        <div class="stat-card"><div class="stat-icon green"><i class="material-icons-outlined">check_circle</i></div><div class="stat-info"><div class="stat-value">{{ resolvedCount }}</div><div class="stat-label">Resolved</div></div></div>
-        <div class="stat-card"><div class="stat-icon amber"><i class="material-icons-outlined">how_to_vote</i></div><div class="stat-info"><div class="stat-value">{{ votesCast }}</div><div class="stat-label">Votes Cast</div></div></div>
-        <div class="stat-card"><div class="stat-icon teal"><i class="material-icons-outlined">near_me</i></div><div class="stat-info"><div class="stat-value">{{ nearbyIssues.length }}</div><div class="stat-label">Nearby Issues</div></div></div>
+        <div class="stat-card"><div class="stat-icon blue"><i class="material-icons-outlined">my_reports</i></div><div class="stat-info"><div class="stat-value">{{ myIssues.length }}</div><div class="stat-label">{{ 'citizen.myReports' | t }}</div></div></div>
+        <div class="stat-card"><div class="stat-icon green"><i class="material-icons-outlined">check_circle</i></div><div class="stat-info"><div class="stat-value">{{ resolvedCount }}</div><div class="stat-label">{{ 'citizen.resolved' | t }}</div></div></div>
+        <div class="stat-card"><div class="stat-icon amber"><i class="material-icons-outlined">how_to_vote</i></div><div class="stat-info"><div class="stat-value">{{ votesCast }}</div><div class="stat-label">{{ 'citizen.votesCast' | t }}</div></div></div>
+        <div class="stat-card"><div class="stat-icon teal"><i class="material-icons-outlined">near_me</i></div><div class="stat-info"><div class="stat-value">{{ nearbyIssues.length }}</div><div class="stat-label">{{ 'citizen.nearbyIssues' | t }}</div></div></div>
       </div>
 
       <div class="content-grid">
         <div class="card">
-          <div class="card-header"><h3>📋 My Reported Issues</h3></div>
+          <div class="card-header"><h3>{{ 'citizen.tableTitle' | t }}</h3></div>
           <div class="card-body" style="padding:0;">
             <table class="data-table">
-              <thead><tr><th>Title</th><th>Status</th><th>Date</th></tr></thead>
+              <thead><tr><th>{{ 'issues.titleField' | t }}</th><th>{{ 'citizen.tableStatus' | t }}</th><th>{{ 'citizen.tableDate' | t }}</th></tr></thead>
               <tbody>
                 @for (issue of myIssues; track issue.id) {
                   <tr [routerLink]="['/issues', issue.id]" style="cursor:pointer;">
@@ -47,41 +49,41 @@ import { Issue, Poll } from '@dd/shared-types';
                     <td style="color:var(--text-muted);">{{ issue.createdAt | date:'mediumDate' }}</td>
                   </tr>
                 } @empty {
-                  <tr><td colspan="3" style="text-align:center;padding:32px;color:var(--text-muted);">No reported issues yet.</td></tr>
+                  <tr><td colspan="3" style="text-align:center;padding:32px;color:var(--text-muted);">{{ 'citizen.empty' | t }}</td></tr>
                 }
               </tbody>
             </table>
           </div>
         </div>
         <div class="card">
-          <div class="card-header"><h3>📍 Nearby Issues</h3></div>
+          <div class="card-header"><h3>📍 {{ 'citizen.nearbyIssues' | t }}</h3></div>
           <div class="card-body">
             @for (issue of nearbyIssues; track issue.id) {
               <div style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-light);align-items:flex-start;">
                 <div style="width:8px;height:8px;border-radius:50%;margin-top:6px;" [style.background]="getCategoryColor(issue.category)"></div>
                 <a [routerLink]="['/issues', issue.id]" style="flex:1;text-decoration:none;color:inherit;">
                   <div style="font-size:13px;font-weight:600;">{{ issue.title }}</div>
-                  <div style="font-size:11px;color:var(--text-muted);">{{ issue.location }} · {{ issue.upvotes }} votes</div>
+                  <div style="font-size:11px;color:var(--text-muted);">{{ issue.location }} · {{ issue.upvotes }} {{ 'issues.upvotes' | t }}</div>
                 </a>
                 <button type="button" class="btn btn-ghost btn-sm" [disabled]="upvotingId === issue.id" (click)="upvoteIssue(issue, $event)">
                   @if (upvotingId === issue.id) { ... } @else { ▲ }
                 </button>
               </div>
             } @empty {
-              <div style="text-align:center;padding:32px;color:var(--text-muted);">No nearby issues found.</div>
+              <div style="text-align:center;padding:32px;color:var(--text-muted);">{{ 'citizen.empty' | t }}</div>
             }
           </div>
         </div>
       </div>
 
       <div class="card" style="margin-bottom:24px;">
-        <div class="card-header"><h3>🗳 Active Polls</h3></div>
+        <div class="card-header"><h3>{{ 'citizen.activePolls' | t }}</h3></div>
         <div class="card-body">
           @if (activePoll) {
             <div style="padding:16px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;">
               <strong>{{ activePoll.title }}</strong>
               @if (activePoll.closesAt) {
-                <p style="font-size:12px;color:var(--text-muted);margin:8px 0;">Closes {{ activePoll.closesAt | date:'mediumDate' }}</p>
+                <p style="font-size:12px;color:var(--text-muted);margin:8px 0;">{{ i18n.t('citizen.closes', { date: (activePoll.closesAt | date:'mediumDate') || '' }) }}</p>
               }
               @for (opt of activePoll.options || []; track opt.id) {
                 <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
@@ -91,16 +93,16 @@ import { Issue, Poll } from '@dd/shared-types';
                   <div style="width:80px;background:var(--bg-primary);border-radius:3px;height:6px;"><div [style.width.%]="getVotePct(opt.votes)" style="background:var(--primary);height:100%;border-radius:3px;"></div></div>
                 </div>
               }
-              <button class="btn btn-primary btn-sm" style="margin-top:8px;" [disabled]="!selectedOptionId" (click)="submitVote()">Submit Vote</button>
+              <button class="btn btn-primary btn-sm" style="margin-top:8px;" [disabled]="!selectedOptionId" (click)="submitVote()">{{ 'citizen.submitVote' | t }}</button>
             </div>
           } @else {
-            <div style="text-align:center;padding:32px;color:var(--text-muted);">No active polls at this time.</div>
+            <div style="text-align:center;padding:32px;color:var(--text-muted);">{{ 'citizen.noPolls' | t }}</div>
           }
         </div>
       </div>
 
       <div class="card">
-        <div class="card-header"><h3>🤖 CivicAssist Chatbot</h3></div>
+        <div class="card-header"><h3>{{ 'citizen.chatbot' | t }}</h3></div>
         <div class="card-body">
           <div style="background:var(--bg-primary);border-radius:var(--radius-lg);padding:20px;min-height:160px;">
             @for (msg of chatMessages; track $index) {
@@ -112,12 +114,12 @@ import { Issue, Poll } from '@dd/shared-types';
               </div>
             }
             @if (chatSending) {
-              <div style="font-size:12px;color:var(--text-muted);">Thinking...</div>
+              <div style="font-size:12px;color:var(--text-muted);">{{ 'citizen.thinking' | t }}</div>
             }
           </div>
           <div style="display:flex;gap:8px;margin-top:12px;">
-            <input type="text" [(ngModel)]="chatInput" (keyup.enter)="sendChat()" placeholder="Type your question..." style="flex:1;padding:10px 16px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" />
-            <button class="btn btn-primary" [disabled]="!chatInput.trim() || chatSending" (click)="sendChat()"><i class="material-icons-outlined" style="font-size:18px;">send</i></button>
+            <input type="text" [(ngModel)]="chatInput" (keyup.enter)="sendChat()" [placeholder]="i18n.t('citizen.chatPlaceholder')" style="flex:1;padding:10px 16px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" />
+            <button class="btn btn-primary" [disabled]="!chatInput.trim() || chatSending" (click)="sendChat()"><i class="material-icons-outlined" style="font-size:18px;">{{ 'citizen.send' | t }}</i></button>
           </div>
         </div>
       </div>
@@ -133,26 +135,27 @@ export class CitizenDashboardComponent implements OnInit {
   chatInput = '';
   chatSending = false;
   upvotingId = '';
-  chatMessages: { role: string; content: string }[] = [
-    { role: 'assistant', content: "Hello! I'm CivicAssist, your municipal AI helper. I can help you report issues, find city services, or answer questions about your neighborhood. How can I help today?" },
-  ];
+  chatMessages: { role: string; content: string }[] = [];
   navItems = [
-    { icon: 'dashboard', label: 'Overview', route: '/citizen' },
-    { icon: 'my_reports', label: 'My Reports', route: '/citizen/reports' },
-    { icon: 'near_me', label: 'Nearby', route: '/citizen/nearby' },
-    { icon: 'how_to_vote', label: 'Polls & Voting', route: '/citizen/polls' },
-    { icon: 'ballot', label: 'Surveys', route: '/citizen/surveys' },
-    { icon: 'forum', label: 'Forums', route: '/citizen/forums' },
-    { icon: 'event', label: 'Events', route: '/citizen/events' },
-  ];
+    { icon: 'dashboard', label: 'nav.overview', route: '/citizen', i18nKey: 'nav.overview' },
+    { icon: 'my_reports', label: 'nav.myReports', route: '/citizen/reports', i18nKey: 'nav.myReports' },
+    { icon: 'near_me', label: 'nav.nearby', route: '/citizen/nearby', i18nKey: 'nav.nearby' },
+    { icon: 'how_to_vote', label: 'nav.polls', route: '/citizen/polls', i18nKey: 'nav.polls' },
+    { icon: 'ballot', label: 'nav.surveys', route: '/citizen/surveys', i18nKey: 'nav.surveys' },
+    { icon: 'forum', label: 'nav.forums', route: '/citizen/forums', i18nKey: 'nav.forums' },
+    { icon: 'event', label: 'nav.events', route: '/citizen/events', i18nKey: 'nav.events' },
+  ] as any;
 
-  constructor(public auth: AuthService, private api: ApiService) {}
+  auth = inject(AuthService);
+  api = inject(ApiService);
+  i18n = inject(TranslationService);
 
   get resolvedCount(): number {
     return this.myIssues.filter(i => i.status === 'RESOLVED' || i.status === 'VERIFIED').length;
   }
 
   ngOnInit() {
+    this.chatMessages = [{ role: 'assistant', content: this.i18n.t('citizen.welcomeMsg') }];
     const userId = this.auth.user()?.id;
     if (userId) {
       this.api.getIssues({ reporterId: userId, pageSize: '5' }).subscribe((res: any) => {
@@ -187,7 +190,7 @@ export class CitizenDashboardComponent implements OnInit {
   }
 
   formatStatus(status: string): string {
-    return status.replace(/_/g, ' ');
+    return this.i18n.tEnum('status', status);
   }
 
   upvoteIssue(issue: Issue, event: Event) {
@@ -224,12 +227,12 @@ export class CitizenDashboardComponent implements OnInit {
     this.chatSending = true;
     this.api.aiChat(this.chatMessages).subscribe({
       next: (res: any) => {
-        const reply = res.data?.response || res.data?.message || 'Sorry, I could not process that request.';
+        const reply = res.data?.response || res.data?.message || this.i18n.t('citizen.chatFallback');
         this.chatMessages.push({ role: 'assistant', content: reply });
         this.chatSending = false;
       },
       error: () => {
-        this.chatMessages.push({ role: 'assistant', content: 'Sorry, the chatbot is temporarily unavailable. Please try again later.' });
+        this.chatMessages.push({ role: 'assistant', content: this.i18n.t('citizen.chatError') });
         this.chatSending = false;
       },
     });

@@ -1,8 +1,9 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
+import { TranslationService } from '../../core/i18n/translation.service';
 
 @Component({
   selector: 'app-reset-password',
@@ -13,8 +14,8 @@ import { AuthService } from '../../core/services/auth.service';
       <div class="login-card">
         <div class="login-header">
           <div class="logo-circle"><span>DD</span></div>
-          <h1>Set New Password</h1>
-          <p>Choose a new password for your account</p>
+          <h1>{{ i18n.t('auth.setNewPassword') }}</h1>
+          <p>{{ i18n.t('auth.setNewPasswordDesc') }}</p>
         </div>
 
         @if (error) { <div class="error-msg">{{ error }}</div> }
@@ -23,23 +24,23 @@ import { AuthService } from '../../core/services/auth.service';
         @if (token) {
           <form (ngSubmit)="onSubmit()">
             <div class="form-group">
-              <label>New Password</label>
-              <input type="password" [(ngModel)]="password" name="password" placeholder="At least 8 characters" required minlength="8" />
+              <label>{{ i18n.t('auth.newPassword') }}</label>
+              <input type="password" [(ngModel)]="password" name="password" [placeholder]="i18n.t('auth.passwordMinLength')" required minlength="8" />
             </div>
             <div class="form-group">
-              <label>Confirm Password</label>
+              <label>{{ i18n.t('auth.confirmPassword') }}</label>
               <input type="password" [(ngModel)]="confirmPassword" name="confirmPassword" required />
             </div>
             <button type="submit" class="btn btn-primary" [disabled]="loading">
-              @if (loading) { Resetting... } @else { Reset Password }
+              @if (loading) { {{ i18n.t('auth.resetting') }} } @else { {{ i18n.t('auth.resetPassword') }} }
             </button>
           </form>
         } @else {
-          <div class="error-msg">Invalid or missing reset token.</div>
+          <div class="error-msg">{{ i18n.t('auth.invalidResetToken') }}</div>
         }
 
         <div class="login-footer" style="margin-top:16px;">
-          <a routerLink="/login">← Back to Sign In</a>
+          <a routerLink="/login">{{ i18n.t('auth.backToLogin') }}</a>
         </div>
       </div>
     </div>
@@ -53,6 +54,8 @@ export class ResetPasswordComponent implements OnInit {
   error = '';
   message = '';
 
+  i18n = inject(TranslationService);
+
   constructor(private auth: AuthService, private route: ActivatedRoute, private router: Router) {}
 
   ngOnInit() {
@@ -63,11 +66,11 @@ export class ResetPasswordComponent implements OnInit {
 
   onSubmit() {
     if (this.password !== this.confirmPassword) {
-      this.error = 'Passwords do not match.';
+      this.error = this.i18n.t('auth.passwordsNoMatch');
       return;
     }
     if (this.password.length < 8) {
-      this.error = 'Password must be at least 8 characters.';
+      this.error = this.i18n.t('auth.passwordTooShort');
       return;
     }
 
@@ -76,12 +79,12 @@ export class ResetPasswordComponent implements OnInit {
     this.auth.resetPassword(this.token, this.password).subscribe({
       next: (res) => {
         this.loading = false;
-        this.message = res.message || 'Password reset successfully. You can now sign in.';
+        this.message = res.message || this.i18n.t('auth.passwordResetSuccess');
         setTimeout(() => this.router.navigate(['/login']), 2000);
       },
       error: (err) => {
         this.loading = false;
-        this.error = err.error?.error || 'Failed to reset password.';
+        this.error = err.error?.error || this.i18n.t('auth.resetFailed');
       },
     });
   }

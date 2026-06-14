@@ -79,4 +79,42 @@ export const userService = {
     ]);
     return { total, active, byRole: Object.fromEntries(byRole.map(r => [r.role, r._count])), recentlyJoined };
   },
+
+  async create(data: {
+    email: string; password: string; firstName: string; lastName: string;
+    phone?: string; role?: string; wardId?: string; departmentId?: string;
+  }) {
+    const existing = await prisma.user.findUnique({ where: { email: data.email } });
+    if (existing) throw new Error('Email already in use');
+    const passwordHash = await bcrypt.hash(data.password, 12);
+    const user = await prisma.user.create({
+      data: {
+        email: data.email,
+        passwordHash,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        phone: data.phone,
+        role: (data.role as any) || 'CITIZEN',
+        wardId: data.wardId,
+        departmentId: data.departmentId,
+        isActive: true,
+        isVerified: true,
+      },
+      select: {
+        id: true, email: true, firstName: true, lastName: true,
+        phone: true, avatarUrl: true, role: true, isActive: true, createdAt: true,
+      },
+    });
+    return user;
+  },
+
+  async changeOwnPassword(id: string, currentPassword: string, newPassword: string) {
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user) throw new Error('User not found');
+    const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!valid) throw new Error('Current password is incorrect');
+    if (newPassword.length < 8) throw new Error('New password must be at least 8 characters');
+    const hash = await bcrypt.hash(newPassword, 12);
+    await prisma.user.update({ where: { id }, data: { passwordHash: hash } });
+  },
 };

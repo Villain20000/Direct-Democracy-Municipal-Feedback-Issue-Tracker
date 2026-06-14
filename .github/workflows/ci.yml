@@ -54,3 +54,21 @@ jobs:
 
       - name: Test
         run: npm test
+
+  test-frontend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies (incl. test runner)
+        run: npm ci
+
+      - name: Frontend unit tests (Karma + ChromeHeadlessCI)
+        # CHROME_BIN points at the pre-installed Chromium on ubuntu-latest runners.
+        run: CHROME_BIN=$(which chromium-browser || which chromium || which google-chrome) npm test --workspace=apps/frontend -- --watch=false --browsers=ChromeHeadlessCI

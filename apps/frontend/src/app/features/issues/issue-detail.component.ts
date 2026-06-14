@@ -1,46 +1,61 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule, DatePipe, DecimalPipe } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
+import { ToastService } from '../../core/services/toast.service';
+import { TranslationService } from '../../core/i18n/translation.service';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { Issue, UserRole } from '@dd/shared-types';
-import { issueStatusClass, formatIssueStatus } from '../../core/utils/issue-ui';
+import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../core/utils/issue-ui';
 
 @Component({
   selector: 'app-issue-detail',
   standalone: true,
-  imports: [CommonModule, RouterLink, LayoutComponent, DatePipe, DecimalPipe],
+  imports: [CommonModule, RouterLink, LayoutComponent, DatePipe, DecimalPipe, TranslatePipe],
   template: `
     <app-layout
-      [pageTitle]="issue?.title || 'Issue Detail'"
+      [pageTitle]="issue?.title || i18n.t('issues.issueDetail')"
       [navItems]="navItems"
       (logout)="auth.logout()">
 
       @if (issue) {
-        <div style="display:flex;gap:24px;">
-          <div style="flex:2;">
+        <div style="display:flex;gap:24px;flex-wrap:wrap;">
+          <div style="flex:2;min-width:320px;">
             <div class="card" style="margin-bottom:24px;">
               <div class="card-body">
-                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap;gap:12px;">
                   <div>
                     <h2 style="font-size:22px;font-weight:800;margin-bottom:8px;">{{ issue.title }}</h2>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                      <span class="badge badge-blue">{{ issue.category }}</span>
+                      <span class="badge badge-blue">{{ i18n.tCategory(issue.category) }}</span>
                       <span class="status-badge" [ngClass]="issueStatusClass(issue.status)">{{ formatIssueStatus(issue.status) }}</span>
                       @if (issue.priority) {
                         <span class="badge" [class]="issue.priority >= 4 ? 'badge-red' : issue.priority >= 3 ? 'badge-amber' : 'badge-green'">
-                          Priority: {{ issue.priority }}/5
+                          {{ 'issues.priority' | t }}: {{ issue.priority }}/5
                         </span>
                       }
+                      @if (predictedDays) {
+                        <span class="badge badge-teal">⏱ {{ i18n.t('ai.days', { n: predictedDays }) }}</span>
+                      }
                     </div>
+                    @if (aiTags.length > 0) {
+                      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+                        @for (tag of aiTags; track tag) {
+                          <span class="badge badge-slate">#{{ tag }}</span>
+                        }
+                      </div>
+                    }
                   </div>
                   <div style="display:flex;gap:8px;">
-                    <button class="btn btn-primary btn-sm" (click)="upvote()">▲ Upvote ({{ issue.upvotes }})</button>
+                    <button class="btn btn-primary btn-sm" (click)="upvote()">{{ 'issues.voteUp' | t }} ({{ issue.upvotes }})</button>
+                    <button class="btn btn-secondary btn-sm" (click)="share()"><i class="material-icons-outlined" style="font-size:16px;">share</i> {{ 'issues.share' | t }}</button>
+                    <button class="btn btn-secondary btn-sm" (click)="print()" [title]="'issues.print' | t"><i class="material-icons-outlined" style="font-size:16px;">print</i></button>
                   </div>
                 </div>
                 <p style="font-size:14px;color:var(--text-secondary);line-height:1.8;margin-bottom:16px;">{{ issue.description }}</p>
-                <div style="display:flex;gap:24px;font-size:13px;color:var(--text-muted);">
+                <div style="display:flex;gap:24px;font-size:13px;color:var(--text-muted);flex-wrap:wrap;">
                   <span>📍 {{ issue.location }}</span>
                   <span>👤 {{ issue.reporter?.firstName }} {{ issue.reporter?.lastName }}</span>
                   <span>📅 {{ issue.createdAt | date:'medium' }}</span>
@@ -49,9 +64,19 @@ import { issueStatusClass, formatIssueStatus } from '../../core/utils/issue-ui';
               </div>
             </div>
 
+            @if (resolutionPlan) {
+              <div class="card" style="margin-bottom:24px;border-left:4px solid #16A34A;">
+                <div class="card-header">
+                  <h3>🛠️ {{ 'issues.suggestResolution' | t }}</h3>
+                  <button class="btn btn-ghost btn-sm" (click)="resolutionPlan = ''">{{ 'issues.resolutionDismiss' | t }}</button>
+                </div>
+                <div class="card-body" style="font-size:13px;line-height:1.7;white-space:pre-line;">{{ resolutionPlan }}</div>
+              </div>
+            }
+
             @if (attachments.length) {
               <div class="card" style="margin-bottom:24px;">
-                <div class="card-header"><h3>Attachments ({{ attachments.length }})</h3></div>
+                <div class="card-header"><h3>{{ i18n.t('detail.attachments', { n: attachments.length }) }}</h3></div>
                 <div class="card-body">
                   @for (att of attachments; track att.id) {
                     <div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border-light);">
@@ -65,7 +90,7 @@ import { issueStatusClass, formatIssueStatus } from '../../core/utils/issue-ui';
             }
 
             <div class="card" style="margin-bottom:24px;">
-              <div class="card-header"><h3>Comments ({{ issue.comments?.length || 0 }})</h3></div>
+              <div class="card-header"><h3>{{ i18n.t('detail.comments', { n: issue.comments?.length || 0 }) }}</h3></div>
               <div class="card-body">
                 @for (comment of issue.comments; track comment.id) {
                   <div style="display:flex;gap:12px;padding:14px 0;border-bottom:1px solid var(--border-light);">
@@ -82,35 +107,32 @@ import { issueStatusClass, formatIssueStatus } from '../../core/utils/issue-ui';
                   </div>
                 }
                 <div style="margin-top:16px;display:flex;gap:8px;">
-                  <input #commentInput type="text" placeholder="Add a comment..." style="flex:1;padding:10px 16px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" />
-                  <button class="btn btn-primary" (click)="postComment(commentInput)">Post</button>
+                  <input #commentInput type="text" [placeholder]="i18n.t('issues.addComment')" style="flex:1;padding:10px 16px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" />
+                  <button class="btn btn-primary" (click)="postComment(commentInput)">{{ 'issues.post' | t }}</button>
                 </div>
               </div>
             </div>
           </div>
 
-          <div style="flex:1;">
+          <div style="flex:1;min-width:280px;">
             @if (canUpdateStatus) {
               <div class="card" style="margin-bottom:24px;">
-                <div class="card-header"><h3>Update Status</h3></div>
+                <div class="card-header"><h3>{{ 'detail.updateStatus' | t }}</h3></div>
                 <div class="card-body">
                   @if (statusError) {
                     <div style="color:var(--danger);font-size:13px;margin-bottom:12px;">{{ statusError }}</div>
                   }
-                  @if (statusMessage) {
-                    <div style="color:var(--success);font-size:13px;margin-bottom:12px;">{{ statusMessage }}</div>
-                  }
                   <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                    <button type="button" class="btn btn-primary btn-sm" [disabled]="statusUpdating || issue.status === 'IN_PROGRESS'" (click)="updateStatus('IN_PROGRESS')">▶ Start</button>
-                    <button type="button" class="btn btn-secondary btn-sm" [disabled]="statusUpdating" (click)="updateStatus('PENDING_REVIEW')">Review</button>
-                    <button type="button" class="btn btn-success btn-sm" [disabled]="statusUpdating || issue.status === 'RESOLVED'" (click)="updateStatus('RESOLVED')">✓ Resolve</button>
+                    <button type="button" class="btn btn-primary btn-sm" [disabled]="statusUpdating || issue.status === 'IN_PROGRESS'" (click)="updateStatus('IN_PROGRESS')">{{ 'status.start' | t }}</button>
+                    <button type="button" class="btn btn-secondary btn-sm" [disabled]="statusUpdating" (click)="updateStatus('PENDING_REVIEW')">{{ 'status.review' | t }}</button>
+                    <button type="button" class="btn btn-success btn-sm" [disabled]="statusUpdating || issue.status === 'RESOLVED'" (click)="updateStatus('RESOLVED')">{{ 'status.resolve' | t }}</button>
                   </div>
                 </div>
               </div>
             }
 
             <div class="card" style="margin-bottom:24px;">
-              <div class="card-header"><h3>Status</h3></div>
+              <div class="card-header"><h3>{{ 'detail.statusTimeline' | t }}</h3></div>
               <div class="card-body">
                 @for (status of statusFlow; track status) {
                   <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
@@ -120,41 +142,48 @@ import { issueStatusClass, formatIssueStatus } from '../../core/utils/issue-ui';
                       @if (isPastStatus(status)) { ✓ } @else if (status === issue.status) { ● } @else { ○ }
                     </div>
                     <span style="font-size:13px;" [style.font-weight]="status === issue.status ? '700' : '400'"
-                      [style.color]="status === issue.status ? 'var(--primary)' : 'var(--text-muted)'">{{ status }}</span>
+                      [style.color]="status === issue.status ? 'var(--primary)' : 'var(--text-muted)'">{{ i18n.tEnum('status', status) }}</span>
                   </div>
                 }
               </div>
             </div>
 
             <div class="card" style="margin-bottom:24px;">
-              <div class="card-header"><h3>Details</h3></div>
+              <div class="card-header"><h3>{{ 'detail.details' | t }}</h3></div>
               <div class="card-body">
-                <div style="font-size:13px;margin-bottom:12px;"><span style="color:var(--text-muted);">Department:</span> <strong>{{ issue.department?.name || 'Unassigned' }}</strong></div>
-                <div style="font-size:13px;margin-bottom:12px;"><span style="color:var(--text-muted);">Ward:</span> <strong>{{ issue.ward?.name || 'N/A' }}</strong></div>
-                <div style="font-size:13px;margin-bottom:12px;"><span style="color:var(--text-muted);">Assigned to:</span> <strong>{{ issue.assignee?.firstName || 'Unassigned' }}</strong></div>
+                <div style="font-size:13px;margin-bottom:12px;"><span style="color:var(--text-muted);">{{ 'detail.department' | t }}</span> <strong>{{ issue.department?.name || i18n.t('common.none') }}</strong></div>                  <div style="font-size:13px;margin-bottom:12px;"><span style="color:var(--text-muted);">{{ 'detail.ward' | t }}</span> <strong>{{ issue.ward?.name || i18n.t('detail.na') }}</strong></div>
+                <div style="font-size:13px;margin-bottom:12px;"><span style="color:var(--text-muted);">{{ 'detail.assignedTo' | t }}</span> <strong>{{ issue.assignee?.firstName || i18n.t('common.none') }}</strong></div>
                 @if (issue.resolvedAt) {
-                  <div style="font-size:13px;"><span style="color:var(--text-muted);">Resolved:</span> <strong>{{ issue.resolvedAt | date:'medium' }}</strong></div>
+                  <div style="font-size:13px;"><span style="color:var(--text-muted);">{{ 'detail.resolved' | t }}</span> <strong>{{ issue.resolvedAt | date:'medium' }}</strong></div>
                 }
               </div>
             </div>
 
             <div class="card">
-              <div class="card-header"><h3>🤖 AI Analysis</h3></div>
+              <div class="card-header"><h3>{{ 'detail.aiAnalysis' | t }}</h3></div>
               <div class="card-body">
                 <div style="padding:12px;background:var(--bg-primary);border-radius:var(--radius);margin-bottom:10px;">
-                  <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">AI Category</div>
-                  <div style="font-size:14px;font-weight:600;">{{ aiCategory || issue.aiCategory || 'Pending analysis...' }}</div>
+                  <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">{{ 'detail.aiCategory' | t }}</div>
+                  <div style="font-size:14px;font-weight:600;">{{ aiCategory || issue.aiCategory || i18n.t('detail.pending') }}</div>
                 </div>
                 <div style="padding:12px;background:var(--bg-primary);border-radius:var(--radius);margin-bottom:10px;">
-                  <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Sentiment</div>
-                  <div style="font-size:14px;font-weight:600;">{{ aiSentiment || issue.aiSentiment || 'Pending analysis...' }}</div>
+                  <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">{{ 'detail.sentiment' | t }}</div>
+                  <div style="font-size:14px;font-weight:600;">{{ aiSentiment || issue.aiSentiment || i18n.t('detail.pending') }}</div>
                 </div>
                 @if (aiSummary) {
                   <div style="padding:12px;background:var(--bg-primary);border-radius:var(--radius);margin-bottom:10px;font-size:13px;">{{ aiSummary }}</div>
                 }
-                <button class="btn btn-secondary btn-sm" style="width:100%;" (click)="runAiAnalysis()" [disabled]="aiLoading">
+                <button class="btn btn-secondary btn-sm" style="width:100%;margin-bottom:8px;" (click)="runAiAnalysis()" [disabled]="aiLoading">
                   <i class="material-icons-outlined" style="font-size:16px;">auto_awesome</i>
-                  @if (aiLoading) { Analyzing... } @else { Run AI Analysis }
+                  @if (aiLoading) { {{ 'issues.analyzing' | t }} } @else { {{ 'issues.runAiAnalysis' | t }} }
+                </button>
+                <button class="btn btn-success btn-sm" style="width:100%;margin-bottom:8px;" (click)="suggestResolution()" [disabled]="resolutionLoading">
+                  <i class="material-icons-outlined" style="font-size:16px;">build</i>
+                  @if (resolutionLoading) { {{ 'issues.drafting' | t }} } @else { {{ 'issues.suggestResolution' | t }} }
+                </button>
+                <button class="btn btn-secondary btn-sm" style="width:100%;" (click)="predictResolutionTime()" [disabled]="predictionLoading">
+                  <i class="material-icons-outlined" style="font-size:16px;">schedule</i>
+                  @if (predictionLoading) { {{ 'issues.predicting' | t }} } @else { {{ 'issues.predictResolution' | t }} }
                 </button>
               </div>
             </div>
@@ -174,16 +203,24 @@ export class IssueDetailComponent implements OnInit {
   aiSummary = '';
   aiCategory = '';
   aiSentiment = '';
+  aiTags: string[] = [];
+  predictedDays: number | null = null;
+  resolutionPlan = '';
+  resolutionLoading = false;
+  predictionLoading = false;
   statusUpdating = false;
   statusError = '';
-  statusMessage = '';
   statusFlow = ['SUBMITTED', 'ACKNOWLEDGED', 'IN_PROGRESS', 'PENDING_REVIEW', 'RESOLVED', 'VERIFIED'];
-  navItems = [{ icon: 'arrow_back', label: 'Back to Issues', route: '/issues' }];
+  navItems = [{ icon: 'arrow_back', label: 'nav.backToIssues', route: '/issues' }] as any;
 
   issueStatusClass = issueStatusClass;
-  formatIssueStatus = formatIssueStatus;
+  formatIssueStatus(status: string) { return formatStatusI18n(status, this.i18n); }
 
-  constructor(public auth: AuthService, private api: ApiService, private route: ActivatedRoute) {}
+  auth = inject(AuthService);
+  api = inject(ApiService);
+  toast = inject(ToastService);
+  route = inject(ActivatedRoute);
+  i18n = inject(TranslationService);
 
   get canUpdateStatus(): boolean {
     return this.auth.hasRole(
@@ -204,7 +241,7 @@ export class IssueDetailComponent implements OnInit {
           this.attachments = (res.data as any).attachments || [];
         }
       },
-      error: (err) => { this.loadError = err.error?.error || 'Failed to load issue.'; },
+      error: (err) => { this.loadError = err.error?.error || this.i18n.t('issues.issueNotLoaded'); },
     });
   }
 
@@ -220,8 +257,17 @@ export class IssueDetailComponent implements OnInit {
             if (sent.success) this.aiSentiment = sent.data?.sentiment || '';
             this.api.aiSummarize(text, 200).subscribe({
               next: (sum: any) => {
-                this.aiLoading = false;
                 if (sum.success) this.aiSummary = sum.data?.summary || '';
+                this.api.aiExtractTags(text).subscribe({
+                  next: (tags: any) => {
+                    this.aiLoading = false;
+                    if (tags.success && tags.data?.tags) {
+                      this.aiTags = tags.data.tags;
+                    }
+                    this.toast.success(this.i18n.t('ai.analysisComplete'));
+                  },
+                  error: () => { this.aiLoading = false; },
+                });
               },
               error: () => { this.aiLoading = false; },
             });
@@ -233,13 +279,69 @@ export class IssueDetailComponent implements OnInit {
     });
   }
 
+  suggestResolution() {
+    if (!this.issue) return;
+    this.resolutionLoading = true;
+    const text = `${this.issue.title}. ${this.issue.description}`;
+    this.api.aiSuggestResolution(text, this.issue.category).subscribe({
+      next: (res: any) => {
+        this.resolutionLoading = false;
+        if (res.success && res.data?.plan) {
+          this.resolutionPlan = res.data.plan;
+          this.toast.success(this.i18n.t('ai.resolutionGenerated'));
+        }
+      },
+      error: () => {
+        this.resolutionLoading = false;
+        this.toast.error(this.i18n.t('issues.draftResolution'));
+      },
+    });
+  }
+
+  predictResolutionTime() {
+    if (!this.issue) return;
+    this.predictionLoading = true;
+    const text = `${this.issue.title}. ${this.issue.description}`;
+    this.api.aiResolutionTime(text, this.issue.category).subscribe({
+      next: (res: any) => {
+        this.predictionLoading = false;
+        if (res.success && res.data?.days) {
+          this.predictedDays = res.data.days;
+          this.toast.info(this.i18n.t('ai.predicted', { n: res.data.days }));
+        }
+      },
+      error: () => {
+        this.predictionLoading = false;
+        this.toast.error(this.i18n.t('issues.predictionFailed'));
+      },
+    });
+  }
+
   upvote() {
     if (!this.issue) return;
     this.api.upvoteIssue(this.issue.id).subscribe(res => {
       if (res.success && this.issue) {
         this.issue.upvotes += res.data.voted ? 1 : -1;
+        this.toast.success(res.data.voted ? this.i18n.t('issues.upvoteSuccess') : this.i18n.t('issues.voteRemoved'));
       }
     });
+  }
+
+  share() {
+    if (!this.issue) return;
+    const url = window.location.href;
+    if (navigator.share) {
+      navigator.share({ title: this.issue.title, text: this.issue.description?.slice(0, 120), url })
+        .then(() => this.toast.success(this.i18n.t('issues.shared')))
+        .catch(() => {});
+    } else {
+      navigator.clipboard.writeText(url).then(() => this.toast.success(this.i18n.t('issues.linkCopied')))
+        .catch(() => this.toast.error(this.i18n.t('issues.shareFailed')));
+    }
+  }
+
+  print() {
+    window.print();
   }
 
   isPastStatus(status: string): boolean {
@@ -253,18 +355,17 @@ export class IssueDetailComponent implements OnInit {
     if (!this.issue || this.statusUpdating) return;
     this.statusUpdating = true;
     this.statusError = '';
-    this.statusMessage = '';
     this.api.updateIssueStatus(this.issue.id, status).subscribe({
       next: (res) => {
         if (res.success) {
           this.issue = { ...this.issue!, ...res.data };
-          this.statusMessage = `Status updated to ${formatIssueStatus(status)}.`;
-          setTimeout(() => { this.statusMessage = ''; }, 4000);
+          this.toast.success(this.i18n.t('issues.statusUpdateSuccess', { status: this.formatIssueStatus(status) }));
         }
         this.statusUpdating = false;
       },
       error: (err) => {
-        this.statusError = err.error?.error || 'Failed to update status.';
+        this.statusError = err.error?.error || this.i18n.t('staff.updateFailed');
+        this.toast.error(this.statusError);
         this.statusUpdating = false;
       },
     });
@@ -276,8 +377,12 @@ export class IssueDetailComponent implements OnInit {
       next: (res: any) => {
         if (res.success) {
           input.value = '';
+          this.toast.success(this.i18n.t('issues.commentPosted'));
           this.reloadIssue();
         }
+      },
+      error: () => {
+        this.toast.error(this.i18n.t('issues.commentPostedError'));
       },
     });
   }

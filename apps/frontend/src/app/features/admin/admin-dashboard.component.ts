@@ -1,18 +1,20 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule, TitleCasePipe, DatePipe } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
+import { TranslationService } from '../../core/i18n/translation.service';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { DashboardStats, User, Issue } from '@dd/shared-types';
 
 @Component({
   selector: 'app-admin-dashboard',
   standalone: true,
-  imports: [CommonModule, RouterLink, LayoutComponent, TitleCasePipe, DatePipe],
+  imports: [CommonModule, RouterLink, LayoutComponent, TitleCasePipe, DatePipe, TranslatePipe],
   template: `
     <app-layout
-      pageTitle="Super Admin Dashboard"
+      [pageTitle]="i18n.t('admin.pageTitle')"
       [navItems]="navItems"
       (logout)="auth.logout()">
       <div class="stats-grid">
@@ -20,7 +22,7 @@ import { DashboardStats, User, Issue } from '@dd/shared-types';
           <div class="stat-icon blue"><i class="material-icons-outlined">report_problem</i></div>
           <div class="stat-info">
             <div class="stat-value">{{ stats?.totalIssues || 0 }}</div>
-            <div class="stat-label">Total Issues</div>
+            <div class="stat-label">{{ 'admin.totalIssues' | t }}</div>
 
           </div>
         </div>
@@ -28,14 +30,14 @@ import { DashboardStats, User, Issue } from '@dd/shared-types';
           <div class="stat-icon amber"><i class="material-icons-outlined">pending_actions</i></div>
           <div class="stat-info">
             <div class="stat-value">{{ stats?.openIssues || 0 }}</div>
-            <div class="stat-label">Open Issues</div>
+            <div class="stat-label">{{ 'admin.openIssues' | t }}</div>
           </div>
         </div>
         <div class="stat-card">
           <div class="stat-icon green"><i class="material-icons-outlined">check_circle</i></div>
           <div class="stat-info">
             <div class="stat-value">{{ stats?.resolvedIssues || 0 }}</div>
-            <div class="stat-label">Resolved</div>
+            <div class="stat-label">{{ 'admin.resolved' | t }}</div>
 
           </div>
         </div>
@@ -43,7 +45,7 @@ import { DashboardStats, User, Issue } from '@dd/shared-types';
           <div class="stat-icon purple"><i class="material-icons-outlined">people</i></div>
           <div class="stat-info">
             <div class="stat-value">{{ userStats?.total || 0 }}</div>
-            <div class="stat-label">Total Users</div>
+            <div class="stat-label">{{ 'admin.totalUsers' | t }}</div>
           </div>
         </div>
       </div>
@@ -51,7 +53,7 @@ import { DashboardStats, User, Issue } from '@dd/shared-types';
       <div class="content-grid">
         <div class="card">
           <div class="card-header">
-            <h3>Issues by Category</h3>
+            <h3>{{ 'admin.issuesByCategory' | t }}</h3>
           </div>
           <div class="card-body">
             @for (entry of categoryEntries; track entry[0]) {
@@ -67,12 +69,12 @@ import { DashboardStats, User, Issue } from '@dd/shared-types';
         </div>
         <div class="card">
           <div class="card-header">
-            <h3>User Distribution by Role</h3>
+            <h3>{{ 'admin.userByRole' | t }}</h3>
           </div>
           <div class="card-body">
             @for (entry of roleEntries; track entry[0]) {
               <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
-                <span style="font-size: 13px; width: 140px; color: var(--text-secondary);">{{ entry[0] | titlecase }}</span>
+                <span style="font-size: 13px; width: 140px; color: var(--text-secondary);">{{ i18n.tEnum('roles', entry[0]) }}</span>
                 <div style="flex: 1; background: var(--bg-primary); border-radius: 4px; height: 8px;">
                   <div [style.width.%]="getRoleBarWidth(entry[1])" [style.background]="getRoleColor(entry[0])" style="height: 100%; border-radius: 4px; transition: width 0.5s ease;"></div>
                 </div>
@@ -86,13 +88,13 @@ import { DashboardStats, User, Issue } from '@dd/shared-types';
       <div class="content-grid">
         <div class="card">
           <div class="card-header">
-            <h3>Recent Issues</h3>
-            <button class="btn btn-secondary btn-sm" routerLink="/issues">View All</button>
+            <h3>{{ 'admin.recentIssues' | t }}</h3>
+            <button class="btn btn-secondary btn-sm" routerLink="/issues">{{ 'common.viewAll' | t }}</button>
           </div>
           <div class="card-body" style="padding: 0;">
             <table class="data-table">
               <thead>
-                <tr><th>Title</th><th>Status</th><th>Priority</th><th>Date</th></tr>
+                <tr><th>{{ 'admin.title' | t }}</th><th>{{ 'admin.status' | t }}</th><th>{{ 'admin.priority' | t }}</th><th>{{ 'admin.date' | t }}</th></tr>
               </thead>
               <tbody>
                 @for (issue of recentIssues; track issue.id) {
@@ -109,29 +111,29 @@ import { DashboardStats, User, Issue } from '@dd/shared-types';
         </div>
         <div class="card">
           <div class="card-header">
-            <h3>System Health</h3>
+            <h3>{{ 'admin.systemHealth' | t }}</h3>
           </div>
           <div class="card-body">
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
               <div style="text-align: center; padding: 16px; background: var(--bg-primary); border-radius: var(--radius);">
                 <i class="material-icons-outlined" style="font-size: 32px; color: var(--success);">check_circle</i>
-                <div style="font-size: 13px; font-weight: 600; margin-top: 8px;">API Server</div>
-                <div style="font-size: 11px;" [style.color]="apiHealthy ? 'var(--success)' : 'var(--danger)'">{{ apiHealthy ? 'Operational' : 'Unreachable' }}</div>
+                <div style="font-size: 13px; font-weight: 600; margin-top: 8px;">{{ 'admin.apiServer' | t }}</div>
+                <div style="font-size: 11px;" [style.color]="apiHealthy ? 'var(--success)' : 'var(--danger)'">{{ apiHealthy ? i18n.t('admin.operational') : i18n.t('admin.unreachable') }}</div>
               </div>
               <div style="text-align: center; padding: 16px; background: var(--bg-primary); border-radius: var(--radius);">
                 <i class="material-icons-outlined" style="font-size: 32px; color: var(--success);">storage</i>
-                <div style="font-size: 13px; font-weight: 600; margin-top: 8px;">Database</div>
-                <div style="font-size: 11px; color: var(--success);">Connected</div>
+                <div style="font-size: 13px; font-weight: 600; margin-top: 8px;">{{ 'admin.database' | t }}</div>
+                <div style="font-size: 11px; color: var(--success);">{{ 'admin.connected' | t }}</div>
               </div>
               <div style="text-align: center; padding: 16px; background: var(--bg-primary); border-radius: var(--radius);">
                 <i class="material-icons-outlined" style="font-size: 32px; color: var(--warning);">smart_toy</i>
-                <div style="font-size: 13px; font-weight: 600; margin-top: 8px;">AI Engine</div>
-                <div style="font-size: 11px; color: var(--warning);">Gemma 2B</div>
+                <div style="font-size: 13px; font-weight: 600; margin-top: 8px;">{{ 'admin.aiEngine' | t }}</div>
+                <div style="font-size: 11px; color: var(--warning);">{{ 'admin.aiEngineModel' | t }}</div>
               </div>
               <div style="text-align: center; padding: 16px; background: var(--bg-primary); border-radius: var(--radius);">
                 <i class="material-icons-outlined" style="font-size: 32px; color: var(--success);">security</i>
-                <div style="font-size: 13px; font-weight: 600; margin-top: 8px;">Security</div>
-                <div style="font-size: 11px; color: var(--success);">All Clear</div>
+                <div style="font-size: 13px; font-weight: 600; margin-top: 8px;">{{ 'admin.security' | t }}</div>
+                <div style="font-size: 11px; color: var(--success);">{{ 'admin.allClear' | t }}</div>
               </div>
             </div>
           </div>
@@ -149,14 +151,17 @@ export class AdminDashboardComponent implements OnInit {
   apiHealthy = true;
 
   navItems = [
-    { icon: 'dashboard', label: 'Overview', route: '/admin' },
-    { icon: 'people', label: 'Users', route: '/admin/users' },
-    { icon: 'apartment', label: 'Departments', route: '/admin/departments' },
-    { icon: 'map', label: 'Wards', route: '/admin/wards' },
-    { icon: 'settings', label: 'Settings', route: '/admin/settings' },
-  ];
+    { icon: 'dashboard', label: 'nav.overview', route: '/admin' },
+    { icon: 'people', label: 'nav.users', route: '/admin/users' },
+    { icon: 'apartment', label: 'nav.departments', route: '/admin/departments' },
+    { icon: 'map', label: 'nav.wards', route: '/admin/wards' },
+    { icon: 'settings', label: 'nav.settings', route: '/admin/settings' },
+  ] as any;
 
-  constructor(public auth: AuthService, private api: ApiService, private router: Router) {}
+  auth = inject(AuthService);
+  api = inject(ApiService);
+  i18n = inject(TranslationService);
+  router = inject(Router);
 
   ngOnInit() {
     fetch('/health').then(r => { this.apiHealthy = r.ok; }).catch(() => { this.apiHealthy = false; });
@@ -191,7 +196,7 @@ export class AdminDashboardComponent implements OnInit {
   }
 
   formatStatus(status: string): string {
-    return status.replace(/_/g, ' ');
+    return this.i18n.tEnum('status', status);
   }
 
   getRoleColor(role: string): string {

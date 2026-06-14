@@ -1,9 +1,11 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule, DatePipe, formatDate } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
+import { TranslationService } from '../../core/i18n/translation.service';
+import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { AuditLog } from '@dd/shared-types';
 
 interface AuditLogRow {
@@ -31,49 +33,54 @@ interface DeptScore {
 @Component({
   selector: 'app-auditor-dashboard',
   standalone: true,
-  imports: [CommonModule, RouterLink, LayoutComponent, DatePipe],
+  imports: [CommonModule, RouterLink, LayoutComponent, DatePipe, TranslatePipe],
   template: `
     <app-layout
-      pageTitle="Audit Center"
+      [pageTitle]="i18n.t('auditor.pageTitle')"
       [navItems]="navItems"
       (logout)="auth.logout()">
 
       <div class="stats-grid">
-        <div class="stat-card"><div class="stat-icon slate" style="background:#F1F5F9;color:#475569;"><i class="material-icons-outlined">fact_check</i></div><div class="stat-info"><div class="stat-value">{{ auditTotal | number }}</div><div class="stat-label">Audit Trail Entries</div></div></div>
-        <div class="stat-card"><div class="stat-icon red"><i class="material-icons-outlined">warning</i></div><div class="stat-info"><div class="stat-value">{{ anomalies.length }}</div><div class="stat-label">Anomalies Detected</div></div></div>
-        <div class="stat-card"><div class="stat-icon green"><i class="material-icons-outlined">verified</i></div><div class="stat-info"><div class="stat-value">{{ complianceScore }}%</div><div class="stat-label">Compliance Score</div></div></div>
-        <div class="stat-card"><div class="stat-icon blue"><i class="material-icons-outlined">description</i></div><div class="stat-info"><div class="stat-value">{{ resolvedIssues }}</div><div class="stat-label">Issues Resolved</div></div></div>
+        <div class="stat-card"><div class="stat-icon slate" style="background:#F1F5F9;color:#475569;"><i class="material-icons-outlined">fact_check</i></div><div class="stat-info"><div class="stat-value">{{ auditTotal | number }}</div><div class="stat-label">{{ 'auditor.auditEntries' | t }}</div></div></div>
+        <div class="stat-card"><div class="stat-icon red"><i class="material-icons-outlined">warning</i></div><div class="stat-info"><div class="stat-value">{{ anomalies.length }}</div><div class="stat-label">{{ 'auditor.anomalies' | t }}</div></div></div>
+        <div class="stat-card"><div class="stat-icon green"><i class="material-icons-outlined">verified</i></div><div class="stat-info"><div class="stat-value">{{ complianceScore }}%</div><div class="stat-label">{{ 'auditor.compliance' | t }}</div></div></div>
+        <div class="stat-card"><div class="stat-icon blue"><i class="material-icons-outlined">description</i></div><div class="stat-info"><div class="stat-value">{{ resolvedIssues }}</div><div class="stat-label">{{ 'auditor.issuesResolved' | t }}</div></div></div>
       </div>
 
       <div class="content-grid">
         <div class="card">
-          <div class="card-header"><h3>🔍 Audit Log Explorer</h3><div class="card-actions">
-            <a class="btn btn-secondary btn-sm" routerLink="/auditor/logs">View All</a>
+          <div class="card-header"><h3>{{ 'auditor.explorer' | t }}</h3><div class="card-actions">
+            <a class="btn btn-secondary btn-sm" routerLink="/auditor/logs">{{ 'common.viewAll' | t }}</a>
             <button class="btn btn-primary btn-sm" (click)="exportAudit()" [disabled]="exporting">
-              @if (exporting) { Exporting... } @else { <i class="material-icons-outlined" style="font-size:16px;">download</i> Export }
+              @if (exporting) { {{ 'auditor.exporting' | t }} } @else { <i class="material-icons-outlined" style="font-size:16px;">download</i> {{ 'auditor.export' | t }} }
             </button>
           </div></div>
           <div class="card-body" style="padding:0;">
             <table class="data-table">
-              <thead><tr><th>Timestamp</th><th>User</th><th>Action</th><th>Entity</th><th>Details</th></tr></thead>
+              <thead><tr><th>{{ 'auditor.timestamp' | t }}</th><th>{{ 'auditor.user' | t }}</th><th>{{ 'auditor.action' | t }}</th><th>{{ 'auditor.entity' | t }}</th><th>{{ 'auditor.details' | t }}</th></tr></thead>
               <tbody>
                 @for (log of auditLogs; track log.id) {
-                  <tr>
+                  <tr style="cursor:pointer;" (click)="toggleLogDetails(log.id)">
                     <td style="font-size:12px;color:var(--text-muted);">{{ log.timestamp }}</td>
                     <td><strong>{{ log.user }}</strong></td>
                     <td><span class="badge" [class]="log.actionBadge">{{ log.action }}</span></td>
                     <td>{{ log.entity }}</td>
                     <td style="font-size:12px;color:var(--text-secondary);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ log.details }}</td>
                   </tr>
+                  @if (expandedLogId === log.id) {
+                    <tr>
+                      <td colspan="5" style="background:var(--bg-primary);padding:12px 16px;font-size:12px;font-family:monospace;word-break:break-all;">{{ log.details }}</td>
+                    </tr>
+                  }
                 } @empty {
-                  <tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text-muted);">No audit logs found.</td></tr>
+                  <tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text-muted);">{{ 'auditor.empty' | t }}</td></tr>
                 }
               </tbody>
             </table>
           </div>
         </div>
         <div class="card">
-          <div class="card-header"><h3>⚠️ Anomaly Detection</h3></div>
+          <div class="card-header"><h3>{{ 'auditor.anomalyTitle' | t }}</h3></div>
           <div class="card-body">
             @for (anomaly of anomalies; track anomaly.title) {
               <div style="padding:14px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;border-left:4px solid var(--danger);">
@@ -82,13 +89,13 @@ interface DeptScore {
                   <span class="badge badge-red">{{ anomaly.severity }}</span>
                 </div>
                 <p style="font-size:12px;color:var(--text-secondary);">{{ anomaly.desc }}</p>
-                <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">Detected: {{ anomaly.date | date:'mediumDate' }}</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">{{ i18n.t('auditor.detected', { date: (anomaly.date | date:'mediumDate') || '' }) }}</div>
               </div>
             } @empty {
-              <div style="text-align:center;padding:24px;color:var(--text-muted);">No anomalies detected in the past 7 days.</div>
+              <div style="text-align:center;padding:24px;color:var(--text-muted);">{{ 'auditor.anomalyEmpty' | t }}</div>
             }
             <div style="margin-top:16px;">
-              <div style="font-size:13px;font-weight:600;margin-bottom:12px;">Resolution Quality Scores</div>
+              <div style="font-size:13px;font-weight:600;margin-bottom:12px;">{{ 'auditor.quality' | t }}</div>
               @for (score of qualityScores; track score.dept) {
                 <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
                   <span style="font-size:12px;width:100px;color:var(--text-secondary);">{{ score.dept }}</span>
@@ -98,7 +105,7 @@ interface DeptScore {
                   <span style="font-size:12px;font-weight:700;width:40px;text-align:right;">{{ score.pct }}%</span>
                 </div>
               } @empty {
-                <div style="font-size:12px;color:var(--text-muted);">No department data available.</div>
+                <div style="font-size:12px;color:var(--text-muted);">{{ 'auditor.noDeptData' | t }}</div>
               }
             </div>
           </div>
@@ -106,14 +113,14 @@ interface DeptScore {
       </div>
 
       <div class="card">
-        <div class="card-header"><h3>📊 Report Generator</h3></div>
+        <div class="card-header"><h3>{{ 'auditor.reportGen' | t }}</h3></div>
         <div class="card-body">
           <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
-            @for (report of reportTypes; track report.title) {
+            @for (report of reportTypes; track report.titleKey) {
               <button type="button" class="btn btn-secondary" style="padding:20px;text-align:center;height:auto;" (click)="exportReport(report.type)" [disabled]="exporting">
                 <i class="material-icons-outlined" style="font-size:32px;color:var(--primary);">{{ report.icon }}</i>
-                <div style="font-size:13px;font-weight:600;margin-top:8px;">{{ report.title }}</div>
-                <div style="font-size:11px;color:var(--text-muted);">{{ report.format }}</div>
+                <div style="font-size:13px;font-weight:600;margin-top:8px;">{{ i18n.t(report.titleKey) }}</div>
+                <div style="font-size:11px;color:var(--text-muted);">{{ 'auditor.csv' | t }}</div>
               </button>
             }
           </div>
@@ -124,6 +131,7 @@ interface DeptScore {
 })
 export class AuditorDashboardComponent implements OnInit {
   auditLogs: AuditLogRow[] = [];
+  expandedLogId = '';
   auditTotal = 0;
   anomalies: Anomaly[] = [];
   qualityScores: DeptScore[] = [];
@@ -131,20 +139,22 @@ export class AuditorDashboardComponent implements OnInit {
   resolvedIssues = 0;
   exporting = false;
   navItems = [
-    { icon: 'dashboard', label: 'Overview', route: '/auditor' },
-    { icon: 'fact_check', label: 'Audit Log', route: '/auditor/logs' },
-    { icon: 'warning', label: 'Anomalies', route: '/auditor/anomalies' },
-    { icon: 'description', label: 'Reports', route: '/auditor/reports' },
-    { icon: 'verified', label: 'Compliance', route: '/auditor/compliance' },
-  ];
+    { icon: 'dashboard', label: 'nav.overview', route: '/auditor' },
+    { icon: 'fact_check', label: 'nav.auditLog', route: '/auditor/logs' },
+    { icon: 'warning', label: 'nav.anomalies', route: '/auditor/anomalies' },
+    { icon: 'description', label: 'nav.reports', route: '/auditor/reports' },
+    { icon: 'verified', label: 'nav.compliance', route: '/auditor/compliance' },
+  ] as any;
   reportTypes = [
-    { icon: 'assessment', title: 'Issue Summary', format: 'CSV', type: 'issues' as const },
-    { icon: 'history', title: 'Audit Trail Export', format: 'CSV', type: 'audit' as const },
+    { icon: 'assessment', titleKey: 'auditor.issueSummary', type: 'issues' as const },
+    { icon: 'history', titleKey: 'auditor.auditExport', type: 'audit' as const },
   ];
 
   private readonly locale = 'en-US';
 
-  constructor(public auth: AuthService, private api: ApiService) {}
+  auth = inject(AuthService);
+  api = inject(ApiService);
+  i18n = inject(TranslationService);
 
   ngOnInit() {
     this.api.getAuditLogs({ pageSize: '10' }).subscribe((res: any) => {
@@ -177,6 +187,9 @@ export class AuditorDashboardComponent implements OnInit {
   }
 
   exportAudit() { this.downloadCsv('audit-export.csv', () => this.api.exportAuditCsv()); }
+  toggleLogDetails(id: string) {
+    this.expandedLogId = this.expandedLogId === id ? '' : id;
+  }
   exportReport(type: 'issues' | 'audit') {
     if (type === 'issues') this.downloadCsv('issues-export.csv', () => this.api.exportIssuesCsv());
     else this.exportAudit();

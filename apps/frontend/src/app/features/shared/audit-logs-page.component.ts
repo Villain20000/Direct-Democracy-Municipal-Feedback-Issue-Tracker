@@ -1,8 +1,9 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { LayoutComponent, NavItem } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
+import { TranslationService } from '../../core/i18n/translation.service';
 import { AuditLog, UserRole } from '@dd/shared-types';
 
 @Component({
@@ -10,11 +11,11 @@ import { AuditLog, UserRole } from '@dd/shared-types';
   standalone: true,
   imports: [CommonModule, LayoutComponent, DatePipe],
   template: `
-    <app-layout pageTitle="Audit Logs" [navItems]="navItems" (logout)="auth.logout()">
+    <app-layout [pageTitle]="i18n.t('auditLogs.pageTitle')" [navItems]="navItems" (logout)="auth.logout()">
       @if (!authorized) {
         <div class="card">
           <div class="card-body" style="text-align:center;padding:48px;color:var(--danger);">
-            Access denied. Audit logs are available to auditors and administrators only.
+            {{ i18n.t('auditLogs.accessDenied') }}
           </div>
         </div>
       } @else {
@@ -25,19 +26,19 @@ import { AuditLog, UserRole } from '@dd/shared-types';
         }
 
         @if (loading) {
-          <div class="card"><div class="card-body" style="text-align:center;padding:48px;color:var(--text-muted);">Loading audit logs...</div></div>
+          <div class="card"><div class="card-body" style="text-align:center;padding:48px;color:var(--text-muted);">{{ i18n.t('auditLogs.loading') }}</div></div>
         } @else {
           <div class="card">
             <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
-              <h3>🔍 System Audit Trail</h3>
+              <h3>{{ i18n.t('auditLogs.header') }}</h3>
               <button class="btn btn-secondary btn-sm" (click)="exportCsv()" [disabled]="exporting">
-                @if (exporting) { Exporting... } @else { ⬇ Export CSV }
+                @if (exporting) { {{ i18n.t('auditLogs.exporting') }} } @else { {{ i18n.t('auditLogs.exportCsv') }} }
               </button>
             </div>
             <div class="card-body" style="padding:0;">
               <table class="data-table">
                 <thead>
-                  <tr><th>Timestamp</th><th>User</th><th>Action</th><th>Entity</th><th>Entity ID</th><th>IP</th></tr>
+                  <tr><th>{{ i18n.t('auditLogs.colTimestamp') }}</th><th>{{ i18n.t('auditLogs.colUser') }}</th><th>{{ i18n.t('auditLogs.colAction') }}</th><th>{{ i18n.t('auditLogs.colEntity') }}</th><th>{{ i18n.t('auditLogs.colEntityId') }}</th><th>{{ i18n.t('auditLogs.colIp') }}</th></tr>
                 </thead>
                 <tbody>
                   @for (log of logs; track log.id) {
@@ -56,7 +57,7 @@ import { AuditLog, UserRole } from '@dd/shared-types';
                       <td style="font-size:11px;color:var(--text-muted);">{{ log.ipAddress || '-' }}</td>
                     </tr>
                   } @empty {
-                    <tr><td colspan="6" style="text-align:center;padding:48px;color:var(--text-muted);">No audit logs found.</td></tr>
+                    <tr><td colspan="6" style="text-align:center;padding:48px;color:var(--text-muted);">{{ i18n.t('auditLogs.noLogs') }}</td></tr>
                   }
                 </tbody>
               </table>
@@ -75,8 +76,10 @@ export class AuditLogsPageComponent implements OnInit {
   authorized = false;
   navItems: NavItem[] = [];
 
+  i18n = inject(TranslationService);
+
   constructor(public auth: AuthService, private api: ApiService) {
-    this.navItems = [{ icon: 'dashboard', label: 'Dashboard', route: auth.getDashboardRoute() }];
+    this.navItems = [{ icon: 'dashboard', label: 'nav.dashboard', route: auth.getDashboardRoute() }];
     this.authorized = auth.hasRole(UserRole.SUPER_ADMIN, UserRole.AUDITOR);
   }
 
@@ -94,7 +97,7 @@ export class AuditLogsPageComponent implements OnInit {
         this.loading = false;
       },
       error: (err) => {
-        this.error = err.error?.error || 'Failed to load audit logs.';
+        this.error = err.error?.error || this.i18n.t('auditLogs.loadFailed');
         this.loading = false;
       },
     });
@@ -113,7 +116,7 @@ export class AuditLogsPageComponent implements OnInit {
         this.exporting = false;
       },
       error: () => {
-        this.error = 'Failed to export audit logs.';
+        this.error = this.i18n.t('auditLogs.exportFailed');
         this.exporting = false;
       },
     });

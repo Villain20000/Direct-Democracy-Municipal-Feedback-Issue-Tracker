@@ -1,20 +1,25 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
+import { TranslationService } from '../../core/i18n/translation.service';
+import { LanguageSwitcherComponent } from '../../shared/language-switcher.component';
 
 @Component({
   selector: 'app-login',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink, LanguageSwitcherComponent],
   template: `
     <div class="login-page">
       <div class="login-card">
+        <div style="position:absolute;top:16px;right:16px;">
+          <app-language-switcher />
+        </div>
         <div class="login-header">
           <div class="logo-circle"><span>DD</span></div>
-          <h1>Direct Democracy</h1>
-          <p>Municipal Feedback & Issue Tracker</p>
+          <h1>{{ i18n.t('app.name') }}</h1>
+          <p>{{ i18n.t('app.tagline') }}</p>
         </div>
 
         @if (error) {
@@ -23,28 +28,28 @@ import { AuthService } from '../../core/services/auth.service';
 
         <form (ngSubmit)="onSubmit()">
           <div class="form-group">
-            <label>Email</label>
-            <input type="email" [(ngModel)]="email" name="email" placeholder="Enter your email" required />
+            <label>{{ i18n.t('auth.email') }}</label>
+            <input type="email" [(ngModel)]="email" name="email" [placeholder]="i18n.t('auth.email')" required />
           </div>
           <div class="form-group">
-            <label>Password</label>
-            <input type="password" [(ngModel)]="password" name="password" placeholder="Enter your password" required />
+            <label>{{ i18n.t('auth.password') }}</label>
+            <input type="password" [(ngModel)]="password" name="password" [placeholder]="i18n.t('auth.password')" required />
             <div style="text-align:right;margin-top:6px;">
-              <a routerLink="/forgot-password" style="font-size:12px;">Forgot password?</a>
+              <a routerLink="/forgot-password" style="font-size:12px;">{{ i18n.t('auth.forgotPassword') }}</a>
             </div>
           </div>
           <button type="submit" class="btn btn-primary" [disabled]="loading">
-            @if (loading) { <i class="material-icons-outlined" style="font-size:18px">hourglass_top</i> Signing in... }
-            @else { <i class="material-icons-outlined" style="font-size:18px">login</i> Sign In }
+            @if (loading) { <i class="material-icons-outlined" style="font-size:18px">hourglass_top</i> {{ i18n.t('auth.loggingIn') }} }
+            @else { <i class="material-icons-outlined" style="font-size:18px">login</i> {{ i18n.t('auth.login') }} }
           </button>
         </form>
 
         <div class="login-footer">
-          Don't have an account? <a routerLink="/register">Register here</a>
+          {{ i18n.t('auth.noAccount') }} <a routerLink="/register">{{ i18n.t('auth.registerHere') }}</a>
         </div>
 
         <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border);">
-          <p style="font-size: 11px; color: var(--text-muted); text-align: center; margin-bottom: 8px;">Demo Accounts</p>
+          <p style="font-size: 11px; color: var(--text-muted); text-align: center; margin-bottom: 8px;">{{ i18n.t('auth.demoAccounts') }}</p>
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
             @for (account of demoAccounts; track account.email) {
               <button class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 6px 8px;" (click)="fillDemo(account)">
@@ -76,6 +81,8 @@ export class LoginComponent {
     { email: 'press@herald.com', password: 'password123', label: '📰 Media' },
   ];
 
+  i18n = inject(TranslationService);
+
   constructor(private auth: AuthService, private router: Router) {}
 
   fillDemo(account: { email: string; password: string }) {
@@ -92,12 +99,12 @@ export class LoginComponent {
         if (res.success) {
           this.router.navigate([this.auth.getDashboardRoute()]);
         } else {
-          this.error = 'Login failed';
+          this.error = this.i18n.t('auth.loginFailed');
         }
       },
       error: (err) => {
         this.loading = false;
-        this.error = err.error?.error || 'Login failed. Please try again.';
+        this.error = err.error?.error || this.i18n.t('auth.loginFailed');
       },
     });
   }

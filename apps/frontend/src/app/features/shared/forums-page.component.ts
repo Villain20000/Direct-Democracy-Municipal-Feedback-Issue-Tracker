@@ -1,9 +1,10 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { LayoutComponent, NavItem } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
+import { TranslationService } from '../../core/i18n/translation.service';
 import { Forum, ForumPost, UserRole } from '@dd/shared-types';
 
 @Component({
@@ -11,7 +12,7 @@ import { Forum, ForumPost, UserRole } from '@dd/shared-types';
   standalone: true,
   imports: [CommonModule, FormsModule, LayoutComponent, DatePipe],
   template: `
-    <app-layout pageTitle="Community Forums" [navItems]="navItems" (logout)="auth.logout()">
+    <app-layout [pageTitle]="i18n.t('forums.pageTitle')" [navItems]="navItems" (logout)="auth.logout()">
       @if (error) {
         <div class="card" style="margin-bottom:24px;border-color:var(--danger);">
           <div class="card-body" style="color:var(--danger);">{{ error }}</div>
@@ -25,28 +26,28 @@ import { Forum, ForumPost, UserRole } from '@dd/shared-types';
 
       @if (canCreateForum) {
         <div class="card" style="margin-bottom:24px;">
-          <div class="card-header"><h3>➕ Start a Discussion</h3></div>
+          <div class="card-header"><h3>{{ i18n.t('forums.startDiscussion') }}</h3></div>
           <div class="card-body">
             <div class="form-group">
-              <label>Topic Title</label>
-              <input type="text" [(ngModel)]="newTitle" placeholder="What should we discuss?" />
+              <label>{{ i18n.t('forums.topicTitle') }}</label>
+              <input type="text" [(ngModel)]="newTitle" [placeholder]="i18n.t('forums.topicPlaceholder')" />
             </div>
             <div class="form-group">
-              <label>Description (optional)</label>
+              <label>{{ i18n.t('forums.descriptionField') }}</label>
               <textarea [(ngModel)]="newDescription" rows="2" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></textarea>
             </div>
-            <button class="btn btn-primary btn-sm" (click)="createForum()" [disabled]="!newTitle.trim() || creating">Create Forum</button>
+            <button class="btn btn-primary btn-sm" (click)="createForum()" [disabled]="!newTitle.trim() || creating">{{ i18n.t('forums.createBtn') }}</button>
           </div>
         </div>
       }
 
       @if (loading) {
-        <div class="card"><div class="card-body" style="text-align:center;padding:48px;color:var(--text-muted);">Loading forums...</div></div>
+        <div class="card"><div class="card-body" style="text-align:center;padding:48px;color:var(--text-muted);">{{ i18n.t('forums.loading') }}</div></div>
       } @else if (selectedForum) {
         <div class="card" style="margin-bottom:16px;">
           <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
             <h3>💬 {{ selectedForum.title }}</h3>
-            <button class="btn btn-secondary btn-sm" (click)="selectedForum = null">← Back</button>
+            <button class="btn btn-secondary btn-sm" (click)="selectedForum = null">{{ i18n.t('forums.back') }}</button>
           </div>
           @if (selectedForum.description) {
             <div class="card-body" style="padding-bottom:0;font-size:13px;color:var(--text-secondary);">{{ selectedForum.description }}</div>
@@ -61,17 +62,17 @@ import { Forum, ForumPost, UserRole } from '@dd/shared-types';
                 <p style="font-size:13px;margin:0;">{{ post.content }}</p>
               </div>
             } @empty {
-              <div style="text-align:center;padding:24px;color:var(--text-muted);">No posts yet. Be the first to reply!</div>
+              <div style="text-align:center;padding:24px;color:var(--text-muted);">{{ i18n.t('forums.noPostsYet') }}</div>
             }
             <div style="margin-top:16px;">
-              <textarea [(ngModel)]="newPost" rows="3" placeholder="Share your thoughts..." style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;margin-bottom:8px;"></textarea>
-              <button class="btn btn-primary btn-sm" (click)="submitPost()" [disabled]="!newPost.trim() || posting">Post Reply</button>
+              <textarea [(ngModel)]="newPost" rows="3" [placeholder]="i18n.t('forums.replyPlaceholder')" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;margin-bottom:8px;"></textarea>
+              <button class="btn btn-primary btn-sm" (click)="submitPost()" [disabled]="!newPost.trim() || posting">{{ i18n.t('forums.postReply') }}</button>
             </div>
           </div>
         </div>
       } @else {
         <div class="card">
-          <div class="card-header"><h3>💬 Community Forums</h3></div>
+          <div class="card-header"><h3>{{ i18n.t('forums.header') }}</h3></div>
           <div class="card-body">
             @for (forum of forums; track forum.id) {
               <div style="padding:16px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;cursor:pointer;" (click)="openForum(forum.id)">
@@ -83,12 +84,12 @@ import { Forum, ForumPost, UserRole } from '@dd/shared-types';
                   <p style="font-size:13px;color:var(--text-secondary);margin-bottom:4px;">{{ forum.description }}</p>
                 }
                 <div style="font-size:11px;color:var(--text-muted);">
-                  {{ forum._count?.posts || 0 }} posts
-                  @if (forum.creator) { · Started by {{ forum.creator.firstName }} {{ forum.creator.lastName }} }
+                  {{ i18n.t('forums.postsCount', { n: forum._count?.posts || 0 }) }}
+                  @if (forum.creator) { · {{ i18n.t('forums.startedBy', { name: forum.creator.firstName + ' ' + forum.creator.lastName }) }} }
                 </div>
               </div>
             } @empty {
-              <div style="text-align:center;padding:48px;color:var(--text-muted);">No forums yet.</div>
+              <div style="text-align:center;padding:48px;color:var(--text-muted);">{{ i18n.t('forums.noForums') }}</div>
             }
           </div>
         </div>
@@ -110,8 +111,10 @@ export class ForumsPageComponent implements OnInit {
   canCreateForum = false;
   navItems: NavItem[] = [];
 
+  i18n = inject(TranslationService);
+
   constructor(public auth: AuthService, private api: ApiService) {
-    this.navItems = [{ icon: 'dashboard', label: 'Dashboard', route: auth.getDashboardRoute() }];
+    this.navItems = [{ icon: 'dashboard', label: 'nav.dashboard', route: auth.getDashboardRoute() }];
     this.canCreateForum = auth.hasRole(UserRole.SUPER_ADMIN, UserRole.MAYOR, UserRole.COUNCIL_MEMBER, UserRole.WARD_REP);
   }
 
@@ -126,7 +129,7 @@ export class ForumsPageComponent implements OnInit {
         this.loading = false;
       },
       error: (err) => {
-        this.error = err.error?.error || 'Failed to load forums.';
+        this.error = err.error?.error || this.i18n.t('forums.loadFailed');
         this.loading = false;
       },
     });
@@ -135,7 +138,7 @@ export class ForumsPageComponent implements OnInit {
   openForum(id: string) {
     this.api.getForum(id).subscribe({
       next: (res) => { this.selectedForum = res.data; },
-      error: (err) => { this.error = err.error?.error || 'Failed to load forum.'; },
+      error: (err) => { this.error = err.error?.error || this.i18n.t('forums.loadFailed'); },
     });
   }
 
@@ -147,11 +150,11 @@ export class ForumsPageComponent implements OnInit {
         this.newTitle = '';
         this.newDescription = '';
         this.creating = false;
-        this.success = 'Forum created successfully.';
+        this.success = this.i18n.t('forums.created');
         this.loadForums();
       },
       error: (err) => {
-        this.error = err.error?.error || 'Failed to create forum.';
+        this.error = err.error?.error || this.i18n.t('forums.createFailed');
         this.creating = false;
       },
     });
@@ -167,7 +170,7 @@ export class ForumsPageComponent implements OnInit {
         this.posting = false;
       },
       error: (err) => {
-        this.error = err.error?.error || 'Failed to post reply.';
+        this.error = err.error?.error || this.i18n.t('forums.postFailed');
         this.posting = false;
       },
     });

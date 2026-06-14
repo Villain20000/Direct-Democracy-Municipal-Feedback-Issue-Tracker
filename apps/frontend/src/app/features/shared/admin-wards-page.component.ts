@@ -1,9 +1,10 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { LayoutComponent, NavItem } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
+import { TranslationService } from '../../core/i18n/translation.service';
 import { Ward, UserRole } from '@dd/shared-types';
 
 @Component({
@@ -11,11 +12,11 @@ import { Ward, UserRole } from '@dd/shared-types';
   standalone: true,
   imports: [CommonModule, FormsModule, LayoutComponent],
   template: `
-    <app-layout pageTitle="Wards" [navItems]="navItems" (logout)="auth.logout()">
+    <app-layout [pageTitle]="i18n.t('adminWards.pageTitle')" [navItems]="navItems" (logout)="auth.logout()">
       @if (!authorized) {
         <div class="card">
           <div class="card-body" style="text-align:center;padding:48px;color:var(--danger);">
-            Access denied. Ward management is available to administrators only.
+            {{ i18n.t('adminWards.accessDenied') }}
           </div>
         </div>
       } @else {
@@ -27,14 +28,14 @@ import { Ward, UserRole } from '@dd/shared-types';
 
         <div class="content-grid">
           <div class="card">
-            <div class="card-header"><h3>🗺 Wards</h3></div>
+            <div class="card-header"><h3>{{ i18n.t('adminWards.header') }}</h3></div>
             <div class="card-body" style="padding:0;">
               @if (loading) {
-                <div style="text-align:center;padding:48px;color:var(--text-muted);">Loading wards...</div>
+                <div style="text-align:center;padding:48px;color:var(--text-muted);">{{ i18n.t('adminWards.loading') }}</div>
               } @else {
                 <table class="data-table">
                   <thead>
-                    <tr><th>Name</th><th>Code</th><th>Description</th></tr>
+                    <tr><th>{{ i18n.t('adminWards.colName') }}</th><th>{{ i18n.t('adminWards.colCode') }}</th><th>{{ i18n.t('adminWards.colDescription') }}</th></tr>
                   </thead>
                   <tbody>
                     @for (ward of wards; track ward.id) {
@@ -44,7 +45,7 @@ import { Ward, UserRole } from '@dd/shared-types';
                         <td style="font-size:12px;color:var(--text-secondary);">{{ ward.description || '-' }}</td>
                       </tr>
                     } @empty {
-                      <tr><td colspan="3" style="text-align:center;padding:48px;color:var(--text-muted);">No wards found.</td></tr>
+                      <tr><td colspan="3" style="text-align:center;padding:48px;color:var(--text-muted);">{{ i18n.t('adminWards.noWards') }}</td></tr>
                     }
                   </tbody>
                 </table>
@@ -53,14 +54,14 @@ import { Ward, UserRole } from '@dd/shared-types';
           </div>
 
           <div class="card">
-            <div class="card-header"><h3>➕ Create Ward</h3></div>
+            <div class="card-header"><h3>{{ i18n.t('adminWards.createHeader') }}</h3></div>
             <div class="card-body">
               <div style="display:flex;flex-direction:column;gap:12px;">
-                <input type="text" [(ngModel)]="newWard.name" placeholder="Ward name" style="padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" />
-                <input type="text" [(ngModel)]="newWard.code" placeholder="Code (e.g. WD-1)" style="padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" />
-                <textarea [(ngModel)]="newWard.description" placeholder="Description (optional)" rows="3" style="padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;resize:vertical;"></textarea>
+                <input type="text" [(ngModel)]="newWard.name" [placeholder]="i18n.t('adminWards.namePlaceholder')" style="padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" />
+                <input type="text" [(ngModel)]="newWard.code" [placeholder]="i18n.t('adminWards.codePlaceholder')" style="padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" />
+                <textarea [(ngModel)]="newWard.description" [placeholder]="i18n.t('adminWards.descPlaceholder')" rows="3" style="padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;resize:vertical;"></textarea>
                 <button class="btn btn-primary" [disabled]="creating || !newWard.name || !newWard.code" (click)="createWard()">
-                  {{ creating ? 'Creating...' : 'Create Ward' }}
+                  {{ creating ? i18n.t('adminWards.creating') : i18n.t('adminWards.createBtn') }}
                 </button>
               </div>
             </div>
@@ -79,10 +80,12 @@ export class AdminWardsPageComponent implements OnInit {
   newWard = { name: '', code: '', description: '' };
   navItems: NavItem[] = [];
 
+  i18n = inject(TranslationService);
+
   constructor(public auth: AuthService, private api: ApiService) {
     this.navItems = [
-      { icon: 'dashboard', label: 'Dashboard', route: '/admin' },
-      { icon: 'map', label: 'Wards', route: '/admin/wards' },
+      { icon: 'dashboard', label: 'nav.dashboard', route: '/admin' },
+      { icon: 'map', label: 'nav.wards', route: '/admin/wards' },
     ];
     this.authorized = auth.hasRole(UserRole.SUPER_ADMIN);
   }
@@ -101,7 +104,7 @@ export class AdminWardsPageComponent implements OnInit {
         this.loading = false;
       },
       error: (err) => {
-        this.error = err.error?.error || 'Failed to load wards.';
+        this.error = err.error?.error || this.i18n.t('adminWards.loadFailed');
         this.loading = false;
       },
     });
@@ -123,7 +126,7 @@ export class AdminWardsPageComponent implements OnInit {
         this.creating = false;
       },
       error: (err) => {
-        this.error = err.error?.error || 'Failed to create ward.';
+        this.error = err.error?.error || this.i18n.t('adminWards.createFailed');
         this.creating = false;
       },
     });

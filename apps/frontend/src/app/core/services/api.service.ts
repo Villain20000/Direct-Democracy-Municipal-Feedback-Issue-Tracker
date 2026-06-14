@@ -82,12 +82,20 @@ export class ApiService {
     return this.http.get<{ success: boolean; data: User }>(`${this.apiUrl}/users/${id}`);
   }
 
+  createUser(data: any): Observable<any> {
+    return this.http.post(`${this.apiUrl}/users`, data);
+  }
+
   updateUser(id: string, data: Partial<User>): Observable<{ success: boolean; data: User }> {
     return this.http.patch<{ success: boolean; data: User }>(`${this.apiUrl}/users/${id}`, data);
   }
 
   getUserStats(): Observable<{ success: boolean; data: any }> {
     return this.http.get<{ success: boolean; data: any }>(`${this.apiUrl}/users/stats`);
+  }
+
+  changePassword(currentPassword: string, newPassword: string): Observable<any> {
+    return this.http.post(`${this.apiUrl}/users/change-password`, { currentPassword, newPassword });
   }
 
   // Notifications
@@ -165,6 +173,38 @@ export class ApiService {
 
   aiChat(messages: { role: string; content: string }[]): Observable<any> {
     return this.http.post(`${this.apiUrl}/ai/chat`, { messages });
+  }
+
+  aiDuplicates(text: string, candidates: Array<{ id: string; title: string; description: string; category: string }>): Observable<any> {
+    return this.http.post(`${this.apiUrl}/ai/duplicates`, { text, candidates });
+  }
+
+  aiSuggestResolution(text: string, category?: string): Observable<any> {
+    return this.http.post(`${this.apiUrl}/ai/resolve`, { text, category });
+  }
+
+  aiGenerateDescription(title: string, category?: string): Observable<any> {
+    return this.http.post(`${this.apiUrl}/ai/describe`, { title, category });
+  }
+
+  aiExtractTags(text: string): Observable<any> {
+    return this.http.post(`${this.apiUrl}/ai/tags`, { text });
+  }
+
+  aiResolutionTime(text: string, category?: string): Observable<any> {
+    return this.http.post(`${this.apiUrl}/ai/resolution-time`, { text, category });
+  }
+
+  aiSuggestDepartment(text: string, category?: string): Observable<any> {
+    return this.http.post(`${this.apiUrl}/ai/department`, { text, category });
+  }
+
+  aiTranslate(text: string, language: string): Observable<any> {
+    return this.http.post(`${this.apiUrl}/ai/translate`, { text, language });
+  }
+
+  aiSmartSearch(query: string, issues: Array<{ id: string; title: string; description: string; category: string }>): Observable<any> {
+    return this.http.post(`${this.apiUrl}/ai/search`, { query, issues });
   }
 
   // Comments
@@ -278,6 +318,10 @@ export class ApiService {
     return this.http.post(`${this.apiUrl}/resolutions/${id}/vote`, { voteFor });
   }
 
+  updateResolutionStatus(id: string, status: string): Observable<any> {
+    return this.http.patch(`${this.apiUrl}/resolutions/${id}/status`, { status });
+  }
+
   // Messages
   getConversations(): Observable<any> {
     return this.http.get(`${this.apiUrl}/messages/conversations`);
@@ -319,8 +363,16 @@ export class ApiService {
     return this.http.get<{ success: boolean; data: Survey }>(`${this.apiUrl}/surveys/${id}`);
   }
 
+  createSurvey(data: any): Observable<any> {
+    return this.http.post(`${this.apiUrl}/surveys`, data);
+  }
+
   submitSurveyResponse(id: string, answers: Record<string, unknown>): Observable<any> {
     return this.http.post(`${this.apiUrl}/surveys/${id}/respond`, { answers });
+  }
+
+  closeSurvey(id: string): Observable<any> {
+    return this.http.patch(`${this.apiUrl}/surveys/${id}/close`, {});
   }
 
   // Forums

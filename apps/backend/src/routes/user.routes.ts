@@ -46,4 +46,38 @@ router.patch('/:id', authenticate, authorize('SUPER_ADMIN'), async (req: Authent
   }
 });
 
+// Create user (admin only)
+router.post('/', authenticate, authorize('SUPER_ADMIN'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const { email, password, firstName, lastName, phone, role, wardId, departmentId } = req.body;
+    if (!email || !password || !firstName || !lastName) {
+      res.status(400).json({ error: 'email, password, firstName, and lastName are required' });
+      return;
+    }
+    if (password.length < 8) {
+      res.status(400).json({ error: 'Password must be at least 8 characters' });
+      return;
+    }
+    const user = await userService.create({ email, password, firstName, lastName, phone, role, wardId, departmentId });
+    res.status(201).json({ success: true, data: user });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Change own password (any authenticated user)
+router.post('/change-password', authenticate, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      res.status(400).json({ error: 'currentPassword and newPassword are required' });
+      return;
+    }
+    await userService.changeOwnPassword(req.user!.id, currentPassword, newPassword);
+    res.json({ success: true, message: 'Password changed successfully' });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
 export default router;

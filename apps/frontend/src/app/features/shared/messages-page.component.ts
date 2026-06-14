@@ -1,9 +1,10 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { LayoutComponent, NavItem } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
+import { TranslationService } from '../../core/i18n/translation.service';
 import { Message } from '@dd/shared-types';
 
 interface Conversation {
@@ -17,7 +18,7 @@ interface Conversation {
   standalone: true,
   imports: [CommonModule, FormsModule, LayoutComponent, DatePipe],
   template: `
-    <app-layout pageTitle="Messages" [navItems]="navItems" (logout)="auth.logout()">
+    <app-layout [pageTitle]="i18n.t('messages.pageTitle')" [navItems]="navItems" (logout)="auth.logout()">
       @if (error) {
         <div class="card" style="margin-bottom:24px;border-color:var(--danger);">
           <div class="card-body" style="color:var(--danger);">{{ error }}</div>
@@ -26,10 +27,10 @@ interface Conversation {
 
       <div class="content-grid">
         <div class="card">
-          <div class="card-header"><h3>💬 Conversations</h3></div>
+          <div class="card-header"><h3>{{ i18n.t('messages.conversations') }}</h3></div>
           <div class="card-body" style="padding:0;">
             @if (loadingConversations) {
-              <div style="text-align:center;padding:48px;color:var(--text-muted);">Loading conversations...</div>
+              <div style="text-align:center;padding:48px;color:var(--text-muted);">{{ i18n.t('messages.loadingConversations') }}</div>
             } @else {
               @for (conv of conversations; track conv.partnerId) {
                 <div style="display:flex;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border-light);cursor:pointer;"
@@ -42,12 +43,12 @@ interface Conversation {
                       @if (conv.unreadCount > 0) { <span class="badge">{{ conv.unreadCount }}</span> }
                     </div>
                     <div style="font-size:12px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                      {{ conv.lastMessage?.content || 'No messages yet' }}
+                      {{ conv.lastMessage?.content || i18n.t('messages.noMessagesYet') }}
                     </div>
                   </div>
                 </div>
               } @empty {
-                <div style="text-align:center;padding:48px;color:var(--text-muted);">No conversations yet.</div>
+                <div style="text-align:center;padding:48px;color:var(--text-muted);">{{ i18n.t('messages.noConversations') }}</div>
               }
             }
           </div>
@@ -55,13 +56,13 @@ interface Conversation {
 
         <div class="card">
           <div class="card-header">
-            <h3>{{ selectedUserId ? 'Conversation' : 'Select a conversation' }}</h3>
+            <h3>{{ selectedUserId ? i18n.t('messages.conversation') : i18n.t('messages.selectConversation') }}</h3>
           </div>
           <div class="card-body">
             @if (!selectedUserId) {
-              <div style="text-align:center;padding:48px;color:var(--text-muted);">Select a conversation to view messages.</div>
+              <div style="text-align:center;padding:48px;color:var(--text-muted);">{{ i18n.t('messages.selectConversationHint') }}</div>
             } @else if (loadingMessages) {
-              <div style="text-align:center;padding:48px;color:var(--text-muted);">Loading messages...</div>
+              <div style="text-align:center;padding:48px;color:var(--text-muted);">{{ i18n.t('messages.loadingMessages') }}</div>
             } @else {
               <div style="max-height:400px;overflow-y:auto;margin-bottom:16px;">
                 @for (msg of messages; track msg.id) {
@@ -74,11 +75,11 @@ interface Conversation {
                     <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">{{ msg.createdAt | date:'short' }}</div>
                   </div>
                 } @empty {
-                  <div style="text-align:center;padding:32px;color:var(--text-muted);">No messages in this conversation.</div>
+                  <div style="text-align:center;padding:32px;color:var(--text-muted);">{{ i18n.t('messages.noMessagesInConv') }}</div>
                 }
               </div>
               <div style="display:flex;gap:8px;">
-                <input type="text" [(ngModel)]="newMessage" placeholder="Type a message..." (keyup.enter)="sendMessage()"
+                <input type="text" [(ngModel)]="newMessage" [placeholder]="i18n.t('messages.typePlaceholder')" (keyup.enter)="sendMessage()"
                   style="flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" />
                 <button class="btn btn-primary" [disabled]="!newMessage.trim() || sending" (click)="sendMessage()">
                   <i class="material-icons-outlined" style="font-size:18px;">send</i>
@@ -102,8 +103,10 @@ export class MessagesPageComponent implements OnInit {
   error = '';
   navItems: NavItem[] = [];
 
+  i18n = inject(TranslationService);
+
   constructor(public auth: AuthService, private api: ApiService) {
-    this.navItems = [{ icon: 'dashboard', label: 'Dashboard', route: auth.getDashboardRoute() }];
+    this.navItems = [{ icon: 'dashboard', label: 'nav.dashboard', route: auth.getDashboardRoute() }];
   }
 
   get currentUserId(): string {
@@ -121,7 +124,7 @@ export class MessagesPageComponent implements OnInit {
         this.loadingConversations = false;
       },
       error: (err) => {
-        this.error = err.error?.error || 'Failed to load conversations.';
+        this.error = err.error?.error || this.i18n.t('messages.loadConversationsFailed');
         this.loadingConversations = false;
       },
     });
@@ -137,7 +140,7 @@ export class MessagesPageComponent implements OnInit {
         this.loadingMessages = false;
       },
       error: (err) => {
-        this.error = err.error?.error || 'Failed to load messages.';
+        this.error = err.error?.error || this.i18n.t('messages.loadMessagesFailed');
         this.loadingMessages = false;
       },
     });
@@ -156,7 +159,7 @@ export class MessagesPageComponent implements OnInit {
         this.sending = false;
       },
       error: (err) => {
-        this.error = err.error?.error || 'Failed to send message.';
+        this.error = err.error?.error || this.i18n.t('messages.sendFailed');
         this.sending = false;
       },
     });
