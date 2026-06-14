@@ -5,7 +5,7 @@ import { commentService } from '../services/comment.service';
 const router = Router();
 
 // Get comments for an issue
-router.get('/:issueId/comments', async (req, res) => {
+router.get('/issues/:issueId/comments', async (req, res) => {
   try {
     const result = await commentService.getByIssue(req.params.issueId as string, {
       page: parseInt(req.query.page as string) || 1,
@@ -18,7 +18,7 @@ router.get('/:issueId/comments', async (req, res) => {
 });
 
 // Create comment on an issue
-router.post('/:issueId/comments', authenticate, async (req: AuthenticatedRequest, res) => {
+router.post('/issues/:issueId/comments', authenticate, async (req: AuthenticatedRequest, res) => {
   try {
     const comment = await commentService.create({
       content: req.body.content,

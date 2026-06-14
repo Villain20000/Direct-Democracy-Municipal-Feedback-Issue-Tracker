@@ -90,6 +90,8 @@ interface WardEvent {
                 <div style="display:flex;gap:8px;margin-top:8px;"><span class="badge" [class]="fb.sentimentBadge">{{ fb.sentiment }}</span><span class="badge badge-slate">{{ fb.category }}</span></div>
               </div>
             </div>
+          } @empty {
+            <div style="text-align:center;padding:32px;color:var(--text-muted);">No recent ward feedback.</div>
           }
         </div>
       </div>
@@ -119,16 +121,8 @@ export class WardDashboardComponent implements OnInit {
   wardCategories: WardCategory[] = [];
   events: WardEvent[] = [];
   wardTitle = 'Ward Dashboard';
-  mapPins = [
-    { x: 20, y: 30, color: '#DC2626' }, { x: 45, y: 60, color: '#D97706' },
-    { x: 70, y: 25, color: '#2563EB' }, { x: 30, y: 75, color: '#16A34A' },
-    { x: 80, y: 50, color: '#DC2626' }, { x: 55, y: 40, color: '#D97706' },
-  ];
-  feedback = [
-    { id: '1', name: 'Maria Gonzalez', initials: 'MG', time: '2h ago', text: 'The new crosswalk on 5th Street is much safer. Thank you for listening!', sentiment: 'Positive', sentimentBadge: 'badge-green', category: 'Infrastructure' },
-    { id: '2', name: 'James Park', initials: 'JP', time: '5h ago', text: 'Still waiting on the recycling pickup for our block. It has been 3 weeks now.', sentiment: 'Negative', sentimentBadge: 'badge-red', category: 'Sanitation' },
-    { id: '3', name: 'Angela Torres', initials: 'AT', time: '1d ago', text: 'Would love to see more lighting in the park area near the playground.', sentiment: 'Neutral', sentimentBadge: 'badge-slate', category: 'Safety' },
-  ];
+  mapPins: Array<{ x: number; y: number; color: string }> = [];
+  feedback: Array<{ id: string; name: string; initials: string; time: string; text: string; sentiment: string; sentimentBadge: string; category: string }> = [];
   navItems = [
     { icon: 'dashboard', label: 'Overview', route: '/ward' },
     { icon: 'map', label: 'Ward Map', route: '/ward/map' },
@@ -156,6 +150,8 @@ export class WardDashboardComponent implements OnInit {
         if (res.data) {
           this.wardIssues = res.data;
           this.buildCategories();
+          this.buildFeedback();
+          this.buildMapPins();
         }
       });
     }
@@ -177,6 +173,48 @@ export class WardDashboardComponent implements OnInit {
       count,
       pct: (count / max) * 100,
       color: this.categoryColors[cat] || '#64748B',
+    }));
+  }
+
+  private buildFeedback() {
+    this.feedback = this.wardIssues.slice(0, 5).map(issue => {
+      const reporter = issue.reporter;
+      const first = reporter?.firstName?.[0] || '?';
+      const last = reporter?.lastName?.[0] || '';
+      const sentiment = issue.status === 'RESOLVED' || issue.status === 'VERIFIED'
+        ? { label: 'Positive', badge: 'badge-green' }
+        : issue.status === 'REJECTED'
+          ? { label: 'Negative', badge: 'badge-red' }
+          : { label: 'Open', badge: 'badge-slate' };
+      return {
+        id: issue.id,
+        name: reporter ? `${reporter.firstName} ${reporter.lastName}` : 'Resident',
+        initials: `${first}${last}`,
+        time: this.datePipe.transform(issue.createdAt, 'mediumDate') || '',
+        text: issue.description?.slice(0, 160) + (issue.description && issue.description.length > 160 ? '...' : ''),
+        sentiment: sentiment.label,
+        sentimentBadge: sentiment.badge,
+        category: issue.category.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase()),
+      };
+    });
+  }
+
+  private buildMapPins() {
+    const withCoords = this.wardIssues.filter(i => i.latitude != null && i.longitude != null);
+    if (!withCoords.length) {
+      this.mapPins = [];
+      return;
+    }
+    const lats = withCoords.map(i => Number(i.latitude));
+    const lngs = withCoords.map(i => Number(i.longitude));
+    const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+    const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+    const latRange = maxLat - minLat || 1;
+    const lngRange = maxLng - minLng || 1;
+    this.mapPins = withCoords.map(issue => ({
+      x: 10 + ((Number(issue.longitude) - minLng) / lngRange) * 80,
+      y: 10 + ((maxLat - Number(issue.latitude)) / latRange) * 80,
+      color: this.categoryColors[issue.category] || '#64748B',
     }));
   }
 

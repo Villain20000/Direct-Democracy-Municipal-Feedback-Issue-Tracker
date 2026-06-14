@@ -14,7 +14,6 @@ import { DashboardStats, User, Issue } from '@dd/shared-types';
     <app-layout
       pageTitle="Super Admin Dashboard"
       [navItems]="navItems"
-      [notifCount]="3"
       (logout)="auth.logout()">
       <div class="stats-grid">
         <div class="stat-card">
@@ -22,7 +21,7 @@ import { DashboardStats, User, Issue } from '@dd/shared-types';
           <div class="stat-info">
             <div class="stat-value">{{ stats?.totalIssues || 0 }}</div>
             <div class="stat-label">Total Issues</div>
-            <div class="stat-change up">↑ 12% this month</div>
+
           </div>
         </div>
         <div class="stat-card">
@@ -37,7 +36,7 @@ import { DashboardStats, User, Issue } from '@dd/shared-types';
           <div class="stat-info">
             <div class="stat-value">{{ stats?.resolvedIssues || 0 }}</div>
             <div class="stat-label">Resolved</div>
-            <div class="stat-change up">↑ 8% this week</div>
+
           </div>
         </div>
         <div class="stat-card">
@@ -117,7 +116,7 @@ import { DashboardStats, User, Issue } from '@dd/shared-types';
               <div style="text-align: center; padding: 16px; background: var(--bg-primary); border-radius: var(--radius);">
                 <i class="material-icons-outlined" style="font-size: 32px; color: var(--success);">check_circle</i>
                 <div style="font-size: 13px; font-weight: 600; margin-top: 8px;">API Server</div>
-                <div style="font-size: 11px; color: var(--success);">Operational</div>
+                <div style="font-size: 11px;" [style.color]="apiHealthy ? 'var(--success)' : 'var(--danger)'">{{ apiHealthy ? 'Operational' : 'Unreachable' }}</div>
               </div>
               <div style="text-align: center; padding: 16px; background: var(--bg-primary); border-radius: var(--radius);">
                 <i class="material-icons-outlined" style="font-size: 32px; color: var(--success);">storage</i>
@@ -147,6 +146,7 @@ export class AdminDashboardComponent implements OnInit {
   recentIssues: Issue[] = [];
   categoryEntries: [string, number][] = [];
   roleEntries: [string, number][] = [];
+  apiHealthy = true;
 
   navItems = [
     { icon: 'dashboard', label: 'Overview', route: '/admin' },
@@ -159,6 +159,8 @@ export class AdminDashboardComponent implements OnInit {
   constructor(public auth: AuthService, private api: ApiService, private router: Router) {}
 
   ngOnInit() {
+    fetch('/health').then(r => { this.apiHealthy = r.ok; }).catch(() => { this.apiHealthy = false; });
+
     this.api.getIssueStats().subscribe(res => {
       if (res.success) {
         this.stats = res.data;

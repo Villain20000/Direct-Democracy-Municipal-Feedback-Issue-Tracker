@@ -1,5 +1,5 @@
 import { Component, OnInit } from '@angular/core';
-import { CommonModule, TitleCasePipe } from '@angular/common';
+import { CommonModule, TitleCasePipe, DatePipe } from '@angular/common';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
@@ -24,7 +24,7 @@ interface PublicStat {
 @Component({
   selector: 'app-media-dashboard',
   standalone: true,
-  imports: [CommonModule, LayoutComponent, TitleCasePipe],
+  imports: [CommonModule, LayoutComponent, TitleCasePipe, DatePipe],
   template: `
     <app-layout
       pageTitle="Press Center"
@@ -85,8 +85,7 @@ interface PublicStat {
                 <div style="font-size:14px;font-weight:700;margin-top:12px;">{{ report.title }}</div>
                 <div style="font-size:12px;color:var(--text-muted);margin:4px 0;">{{ report.desc }}</div>
                 <div style="display:flex;gap:8px;justify-content:center;margin-top:12px;">
-                  <button class="btn btn-primary btn-sm">📄 PDF</button>
-                  <button class="btn btn-secondary btn-sm">📊 CSV</button>
+                  <button class="btn btn-secondary btn-sm" (click)="exportCsv()" [disabled]="exporting">📊 CSV</button>
                 </div>
               </div>
             }
@@ -102,7 +101,7 @@ interface PublicStat {
               <div style="padding:14px;border-bottom:1px solid var(--border-light);">
                 <div style="display:flex;justify-content:space-between;">
                   <strong style="font-size:13px;">{{ pr.title }}</strong>
-                  <span style="font-size:11px;color:var(--text-muted);">{{ pr.date }}</span>
+                  <span style="font-size:11px;color:var(--text-muted);">{{ pr.date | date:'mediumDate' }}</span>
                 </div>
                 <p style="font-size:12px;color:var(--text-secondary);margin-top:4px;">{{ pr.summary }}</p>
               </div>
@@ -136,11 +135,8 @@ export class MediaDashboardComponent implements OnInit {
     { icon: 'account_balance', title: 'Budget Transparency', desc: 'Department spending and allocations' },
     { icon: 'groups', title: 'Community Engagement', desc: 'Citizen participation statistics' },
   ];
-  pressReleases = [
-    { title: 'Emergency Water Main Repair Completed', date: 'Jun 12', summary: 'City crews successfully repaired the water main break on Cedar Lane. Service fully restored.' },
-    { title: 'Summer Road Repair Program Begins', date: 'Jun 10', summary: 'DPW announces the start of the annual summer road repair program covering 15 miles.' },
-    { title: 'Record Citizen Engagement in Q2', date: 'Jun 8', summary: 'Municipal platform sees 34% increase in citizen reports and feedback submissions.' },
-  ];
+  pressReleases: Array<{ title: string; date: string; summary: string }> = [];
+  exporting = false;
   navItems = [
     { icon: 'dashboard', label: 'Overview', route: '/media' },
     { icon: 'trending_up', label: 'Trending', route: '/media/trending' },
@@ -169,6 +165,14 @@ export class MediaDashboardComponent implements OnInit {
         this.buildPublicStats(stats);
       }
     });
+    this.api.getAnnouncements({ pageSize: '5' }).subscribe((res: any) => {
+      this.pressReleases = (res.data || []).map((a: any) => ({
+        title: a.title,
+        date: a.publishedAt || a.createdAt,
+        summary: a.content?.slice(0, 120) + (a.content?.length > 120 ? '...' : ''),
+      }));
+    });
+
     this.api.getIssues({ sortBy: 'upvotes', pageSize: '5' }).subscribe((res: any) => {
       if (res.data) {
         this.trendingIssues = (res.data as Issue[]).map((issue, i) => ({
@@ -180,6 +184,22 @@ export class MediaDashboardComponent implements OnInit {
           badge: issue.status === 'RESOLVED' || issue.status === 'VERIFIED' ? 'badge-green' : i < 2 ? 'badge-red' : 'badge-amber',
         }));
       }
+    });
+  }
+
+  exportCsv() {
+    this.exporting = true;
+    this.api.exportIssuesCsv().subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'issues-export.csv';
+        a.click();
+        URL.revokeObjectURL(url);
+        this.exporting = false;
+      },
+      error: () => { this.exporting = false; },
     });
   }
 
