@@ -13,14 +13,13 @@ import { Issue } from '@dd/shared-types';
     <app-layout
       pageTitle="Staff Dashboard"
       [navItems]="navItems"
-      [notifCount]="2"
       (logout)="auth.logout()">
 
       <div class="stats-grid">
-        <div class="stat-card"><div class="stat-icon orange" style="background:#FFF7ED;color:#EA580C;"><i class="material-icons-outlined">assignment_ind</i></div><div class="stat-info"><div class="stat-value">8</div><div class="stat-label">My Assigned Issues</div></div></div>
-        <div class="stat-card"><div class="stat-icon amber"><i class="material-icons-outlined">pending</i></div><div class="stat-info"><div class="stat-value">5</div><div class="stat-label">In Progress</div></div></div>
-        <div class="stat-card"><div class="stat-icon green"><i class="material-icons-outlined">task_alt</i></div><div class="stat-info"><div class="stat-value">3</div><div class="stat-label">Completed Today</div></div></div>
-        <div class="stat-card"><div class="stat-icon red"><i class="material-icons-outlined">priority_high</i></div><div class="stat-info"><div class="stat-value">1</div><div class="stat-label">High Priority</div></div></div>
+        <div class="stat-card"><div class="stat-icon orange" style="background:#FFF7ED;color:#EA580C;"><i class="material-icons-outlined">assignment_ind</i></div><div class="stat-info"><div class="stat-value">{{ myIssues.length }}</div><div class="stat-label">My Assigned Issues</div></div></div>
+        <div class="stat-card"><div class="stat-icon amber"><i class="material-icons-outlined">pending</i></div><div class="stat-info"><div class="stat-value">{{ inProgressCount }}</div><div class="stat-label">In Progress</div></div></div>
+        <div class="stat-card"><div class="stat-icon green"><i class="material-icons-outlined">task_alt</i></div><div class="stat-info"><div class="stat-value">{{ completedTodayCount }}</div><div class="stat-label">Completed Today</div></div></div>
+        <div class="stat-card"><div class="stat-icon red"><i class="material-icons-outlined">priority_high</i></div><div class="stat-info"><div class="stat-value">{{ highPriorityCount }}</div><div class="stat-label">High Priority</div></div></div>
       </div>
 
       <div class="card" style="margin-bottom: 24px;">
@@ -36,9 +35,9 @@ import { Issue } from '@dd/shared-types';
                 <tr>
                   <td><strong>{{ issue.title }}</strong><br><span style="font-size:11px;color:var(--text-muted);">{{ issue.location }}</span></td>
                   <td><span class="status-badge" [class]="issue.status.toLowerCase()">{{ issue.status }}</span></td>
-                  <td><span class="priority-dot" [class]="'p' + (issue.priority || 3)"></span> {{ issue.priority }}/5</td>
-                  <td>{{ issue.reporter }}</td>
-                  <td style="color:var(--text-muted);">{{ issue.date }}</td>
+                  <td><span class="priority-dot" [class]="'p' + (issue.priority || 3)"></span> {{ issue.priority || '-' }}/5</td>
+                  <td>{{ issue.reporter?.firstName || 'Anonymous' }} {{ issue.reporter?.lastName || '' }}</td>
+                  <td style="color:var(--text-muted);">{{ issue.createdAt | date:'mediumDate' }}</td>
                   <td>
                     <div style="display:flex;gap:4px;">
                       <button class="btn btn-primary btn-sm" (click)="updateStatus(issue, 'IN_PROGRESS')">▶ Start</button>
@@ -46,6 +45,8 @@ import { Issue } from '@dd/shared-types';
                     </div>
                   </td>
                 </tr>
+              } @empty {
+                <tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-muted);">No assigned issues.</td></tr>
               }
             </tbody>
           </table>
@@ -82,7 +83,7 @@ import { Issue } from '@dd/shared-types';
   `,
 })
 export class StaffDashboardComponent implements OnInit {
-  myIssues: any[] = [];
+  myIssues: Issue[] = [];
   todayActivity = [
     { time: '9:15 AM', text: 'Resolved pothole repair on Main St', note: 'Completed ahead of schedule' },
     { time: '10:30 AM', text: 'Started work on broken streetlight', note: 'Oak Avenue - awaiting parts' },
@@ -98,14 +99,38 @@ export class StaffDashboardComponent implements OnInit {
 
   constructor(public auth: AuthService, private api: ApiService) {}
 
-  ngOnInit() {
-    this.myIssues = [
-      { id: '1', title: 'Large pothole on Main Street', location: 'Main St & 5th Ave', status: 'IN_PROGRESS', priority: 4, reporter: 'John Smith', date: 'Jun 10' },
-      { id: '2', title: 'Broken streetlight on Oak Ave', location: '1234 Oak Avenue', status: 'ACKNOWLEDGED', priority: 3, reporter: 'Jane Doe', date: 'Jun 11' },
-      { id: '3', title: 'Tree blocking sidewalk', location: '456 Maple Drive', status: 'SUBMITTED', priority: 3, reporter: 'Mike Brown', date: 'Jun 12' },
-      { id: '4', title: 'Graffiti on community center', location: 'Westfield Community Center', status: 'SUBMITTED', priority: 1, reporter: 'Patricia Wilson', date: 'Jun 12' },
-    ];
+  get inProgressCount(): number {
+    return this.myIssues.filter(i => i.status === 'IN_PROGRESS').length;
   }
 
-  updateStatus(issue: any, status: string) { issue.status = status; }
+  get completedTodayCount(): number {
+    const today = new Date().toDateString();
+    return this.myIssues.filter(i => {
+      if (!i.resolvedAt) return false;
+      return new Date(i.resolvedAt).toDateString() === today;
+    }).length;
+  }
+
+  get highPriorityCount(): number {
+    return this.myIssues.filter(i => (i.priority || 0) >= 4).length;
+  }
+
+  ngOnInit() {
+    const userId = this.auth.user()?.id;
+    if (!userId) return;
+    this.api.getIssues({ assigneeId: userId, pageSize: '8' }).subscribe((res: any) => {
+      if (res.data) this.myIssues = res.data;
+    });
+  }
+
+  updateStatus(issue: Issue, status: string) {
+    this.api.updateIssueStatus(issue.id, status).subscribe({
+      next: (res) => {
+        if (res.success) {
+          issue.status = res.data.status;
+          if (res.data.resolvedAt) issue.resolvedAt = res.data.resolvedAt;
+        }
+      },
+    });
+  }
 }

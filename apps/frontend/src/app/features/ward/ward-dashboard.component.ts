@@ -1,27 +1,41 @@
 import { Component, OnInit } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { CommonModule, DatePipe } from '@angular/common';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
-import { Issue } from '@dd/shared-types';
+import { ApiService } from '../../core/services/api.service';
+import { Event, Issue } from '@dd/shared-types';
+
+interface WardCategory {
+  name: string;
+  count: number;
+  pct: number;
+  color: string;
+}
+
+interface WardEvent {
+  title: string;
+  month: string;
+  day: string;
+  time: string;
+}
 
 @Component({
   selector: 'app-ward-dashboard',
   standalone: true,
-  imports: [CommonModule, LayoutComponent],
+  imports: [CommonModule, LayoutComponent, DatePipe],
   template: `
     <app-layout
       pageTitle="Ward Dashboard"
       [navItems]="navItems"
-      [notifCount]="2"
       (logout)="auth.logout()">
 
       <div style="background:linear-gradient(135deg,#0D9488,#0891B2);border-radius:var(--radius-xl);padding:28px;color:white;margin-bottom:24px;">
-        <h2 style="font-size:22px;font-weight:800;">Ward 4 — Southgate District</h2>
-        <p style="opacity:0.8;font-size:13px;">Representing 12,400 residents across 6 neighborhoods</p>
+        <h2 style="font-size:22px;font-weight:800;">{{ wardTitle }}</h2>
+        <p style="opacity:0.8;font-size:13px;">Ward representative dashboard</p>
         <div style="display:flex;gap:24px;margin-top:16px;">
-          <div><div style="font-size:28px;font-weight:800;">23</div><div style="opacity:0.7;font-size:12px;">Active Issues</div></div>
-          <div><div style="font-size:28px;font-weight:800;">156</div><div style="opacity:0.7;font-size:12px;">Residents Engaged</div></div>
-          <div><div style="font-size:28px;font-weight:800;">89%</div><div style="opacity:0.7;font-size:12px;">Response Rate</div></div>
+          <div><div style="font-size:28px;font-weight:800;">{{ activeIssueCount }}</div><div style="opacity:0.7;font-size:12px;">Active Issues</div></div>
+          <div><div style="font-size:28px;font-weight:800;">{{ wardIssues.length }}</div><div style="opacity:0.7;font-size:12px;">Total Ward Issues</div></div>
+          <div><div style="font-size:28px;font-weight:800;">{{ events.length }}</div><div style="opacity:0.7;font-size:12px;">Upcoming Events</div></div>
         </div>
       </div>
 
@@ -38,7 +52,7 @@ import { Issue } from '@dd/shared-types';
               <div style="text-align:center;z-index:1;background:rgba(255,255,255,0.9);padding:16px 24px;border-radius:var(--radius-lg);">
                 <i class="material-icons-outlined" style="font-size:48px;color:var(--primary);">map</i>
                 <div style="font-size:13px;font-weight:600;margin-top:8px;">Interactive Heat Map</div>
-                <div style="font-size:11px;color:var(--text-muted);">23 issues · 6 neighborhoods</div>
+                <div style="font-size:11px;color:var(--text-muted);">{{ activeIssueCount }} issues tracked</div>
               </div>
             </div>
           </div>
@@ -54,6 +68,8 @@ import { Issue } from '@dd/shared-types';
                 </div>
                 <span style="font-size:13px;font-weight:700;width:30px;text-align:right;">{{ cat.count }}</span>
               </div>
+            } @empty {
+              <div style="text-align:center;padding:32px;color:var(--text-muted);">No ward issues found.</div>
             }
           </div>
         </div>
@@ -89,6 +105,8 @@ import { Issue } from '@dd/shared-types';
                 <div style="font-size:13px;font-weight:600;margin-top:4px;">{{ evt.title }}</div>
                 <div style="font-size:11px;color:var(--text-muted);">{{ evt.time }}</div>
               </div>
+            } @empty {
+              <div style="grid-column:1/-1;text-align:center;padding:32px;color:var(--text-muted);">No upcoming events.</div>
             }
           </div>
         </div>
@@ -96,28 +114,20 @@ import { Issue } from '@dd/shared-types';
     </app-layout>
   `,
 })
-export class WardDashboardComponent {
+export class WardDashboardComponent implements OnInit {
+  wardIssues: Issue[] = [];
+  wardCategories: WardCategory[] = [];
+  events: WardEvent[] = [];
+  wardTitle = 'Ward Dashboard';
   mapPins = [
     { x: 20, y: 30, color: '#DC2626' }, { x: 45, y: 60, color: '#D97706' },
     { x: 70, y: 25, color: '#2563EB' }, { x: 30, y: 75, color: '#16A34A' },
     { x: 80, y: 50, color: '#DC2626' }, { x: 55, y: 40, color: '#D97706' },
   ];
-  wardCategories = [
-    { name: 'Infrastructure', count: 8, pct: 80, color: '#2563EB' },
-    { name: 'Sanitation', count: 6, pct: 60, color: '#16A34A' },
-    { name: 'Safety', count: 4, pct: 40, color: '#DC2626' },
-    { name: 'Utilities', count: 3, pct: 30, color: '#7C3AED' },
-    { name: 'Other', count: 2, pct: 20, color: '#64748B' },
-  ];
   feedback = [
     { id: '1', name: 'Maria Gonzalez', initials: 'MG', time: '2h ago', text: 'The new crosswalk on 5th Street is much safer. Thank you for listening!', sentiment: 'Positive', sentimentBadge: 'badge-green', category: 'Infrastructure' },
     { id: '2', name: 'James Park', initials: 'JP', time: '5h ago', text: 'Still waiting on the recycling pickup for our block. It has been 3 weeks now.', sentiment: 'Negative', sentimentBadge: 'badge-red', category: 'Sanitation' },
     { id: '3', name: 'Angela Torres', initials: 'AT', time: '1d ago', text: 'Would love to see more lighting in the park area near the playground.', sentiment: 'Neutral', sentimentBadge: 'badge-slate', category: 'Safety' },
-  ];
-  events = [
-    { title: 'Cleanup Day', month: 'Jul', day: '4', time: '8:00 AM' },
-    { title: 'Town Hall', month: 'Jul', day: '10', time: '7:00 PM' },
-    { title: 'Block Party', month: 'Jul', day: '18', time: '2:00 PM' },
   ];
   navItems = [
     { icon: 'dashboard', label: 'Overview', route: '/ward' },
@@ -126,5 +136,57 @@ export class WardDashboardComponent {
     { icon: 'groups', label: 'Residents', route: '/ward/residents' },
     { icon: 'event', label: 'Events', route: '/ward/events' },
   ];
-  constructor(public auth: AuthService) {}
+
+  private readonly categoryColors: Record<string, string> = {
+    INFRASTRUCTURE: '#2563EB', PUBLIC_SAFETY: '#DC2626', SANITATION: '#16A34A',
+    UTILITIES: '#7C3AED', HOUSING: '#D97706', ENVIRONMENT: '#059669',
+    TRANSPORTATION: '#0891B2', EDUCATION: '#4F46E5', HEALTH: '#E11D48', OTHER: '#64748B',
+  };
+
+  constructor(public auth: AuthService, private api: ApiService, private datePipe: DatePipe) {}
+
+  get activeIssueCount(): number {
+    return this.wardIssues.filter(i => i.status !== 'RESOLVED' && i.status !== 'VERIFIED' && i.status !== 'REJECTED').length;
+  }
+
+  ngOnInit() {
+    const wardId = this.auth.user()?.wardId;
+    if (wardId) {
+      this.api.getIssues({ wardId, pageSize: '20' }).subscribe((res: any) => {
+        if (res.data) {
+          this.wardIssues = res.data;
+          this.buildCategories();
+        }
+      });
+    }
+    this.api.getEvents({ upcoming: 'true', pageSize: '3' }).subscribe((res: any) => {
+      const evts: Event[] = res.data || [];
+      this.events = evts.map(e => this.mapEvent(e));
+    });
+  }
+
+  private buildCategories() {
+    const counts: Record<string, number> = {};
+    for (const issue of this.wardIssues) {
+      counts[issue.category] = (counts[issue.category] || 0) + 1;
+    }
+    const entries = Object.entries(counts);
+    const max = Math.max(...entries.map(([, c]) => c), 1);
+    this.wardCategories = entries.map(([cat, count]) => ({
+      name: cat.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase()),
+      count,
+      pct: (count / max) * 100,
+      color: this.categoryColors[cat] || '#64748B',
+    }));
+  }
+
+  private mapEvent(event: Event): WardEvent {
+    const start = new Date(event.startTime);
+    return {
+      title: event.title,
+      month: this.datePipe.transform(start, 'MMM') || '',
+      day: this.datePipe.transform(start, 'd') || '',
+      time: this.datePipe.transform(start, 'shortTime') || '',
+    };
+  }
 }

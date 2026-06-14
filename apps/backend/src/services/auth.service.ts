@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../db/client';
 import { config } from '../config';
 import { AuthUser } from '../middleware/auth.middleware';
+import { emailService } from './email.service';
 
 const SALT_ROUNDS = 12;
 
@@ -13,6 +14,22 @@ function generateAccessToken(user: AuthUser): string {
     config.jwt.secret,
     { expiresIn: config.jwt.expiresIn } as jwt.SignOptions
   );
+}
+
+function toAuthResponse(user: {
+  id: string; email: string; role: string;
+  firstName: string; lastName: string;
+  departmentId?: string | null; wardId?: string | null;
+}) {
+  return {
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    departmentId: user.departmentId ?? undefined,
+    wardId: user.wardId ?? undefined,
+  };
 }
 
 function parseExpiresIn(ms: string): number {
@@ -51,7 +68,7 @@ export const authService = {
     const accessToken = generateAccessToken(authUser);
     const refreshToken = await this.createRefreshToken(user.id);
 
-    return { accessToken, refreshToken, user: { ...authUser, id: user.id } };
+    return { accessToken, refreshToken, user: toAuthResponse(user) };
   },
 
   async login(email: string, password: string) {
@@ -71,7 +88,7 @@ export const authService = {
     const accessToken = generateAccessToken(authUser);
     const refreshToken = await this.createRefreshToken(user.id);
 
-    return { accessToken, refreshToken, user: authUser };
+    return { accessToken, refreshToken, user: toAuthResponse(user) };
   },
 
   async createRefreshToken(userId: string) {
@@ -101,7 +118,7 @@ export const authService = {
     const accessToken = generateAccessToken(authUser);
     const newRefreshToken = await this.createRefreshToken(record.user.id);
 
-    return { accessToken, refreshToken: newRefreshToken, user: authUser };
+    return { accessToken, refreshToken: newRefreshToken, user: toAuthResponse(record.user) };
   },
 
   async logout(refreshToken: string) {
@@ -120,5 +137,38 @@ export const authService = {
     });
     if (!user) throw new Error('User not found');
     return user;
+  },
+
+  async forgotPassword(email: string) {
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) return { message: 'If that email exists, a reset link has been sent.' };
+
+    await prisma.passwordResetToken.deleteMany({ where: { userId: user.id } });
+
+    const token = uuidv4();
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+    await prisma.passwordResetToken.create({ data: { token, userId: user.id, expiresAt } });
+    await emailService.sendPasswordReset(user.email, token);
+
+    return { message: 'If that email exists, a reset link has been sent.' };
+  },
+
+  async resetPassword(token: string, newPassword: string) {
+    const record = await prisma.passwordResetToken.findUnique({
+      where: { token },
+      include: { user: true },
+    });
+    if (!record || record.expiresAt < new Date()) {
+      throw new Error('Invalid or expired reset token');
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    await prisma.$transaction([
+      prisma.user.update({ where: { id: record.userId }, data: { passwordHash } }),
+      prisma.passwordResetToken.delete({ where: { id: record.id } }),
+      prisma.refreshToken.deleteMany({ where: { userId: record.userId } }),
+    ]);
+
+    return { message: 'Password reset successfully' };
   },
 };

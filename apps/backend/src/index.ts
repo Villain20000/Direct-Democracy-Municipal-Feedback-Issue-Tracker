@@ -19,6 +19,9 @@ import resolutionRoutes from './routes/resolution.routes';
 import messageRoutes from './routes/message.routes';
 import auditRoutes from './routes/audit.routes';
 import attachmentRoutes from './routes/attachment.routes';
+import surveyRoutes from './routes/survey.routes';
+import forumRoutes from './routes/forum.routes';
+import reportsRoutes from './routes/reports.routes';
 
 const app = express();
 
@@ -60,6 +63,9 @@ app.use('/api/v1/polls', pollRoutes);
 app.use('/api/v1/resolutions', resolutionRoutes);
 app.use('/api/v1/messages', messageRoutes);
 app.use('/api/v1/audit', auditRoutes);
+app.use('/api/v1/surveys', surveyRoutes);
+app.use('/api/v1/forums', forumRoutes);
+app.use('/api/v1/reports', reportsRoutes);
 app.use('/api/v1', attachmentRoutes);
 
 // Static uploads

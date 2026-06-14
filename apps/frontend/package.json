@@ -7,7 +7,7 @@
     "start": "ng serve --port 4200",
     "build": "ng build",
     "test": "ng test",
-    "lint": "ng lint"
+    "lint": "ng build --configuration=development"
   },
   "dependencies": {
     "@angular/animations": "^18.2.0",

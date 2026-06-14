@@ -1,7 +1,9 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth.middleware';
 import { authorize } from '../middleware/rbac.middleware';
 import { issueService } from '../services/issue.service';
+import { createIssueSchema, updateStatusSchema } from '../validators/issue.validators';
 
 const router = Router();
 
@@ -24,6 +26,26 @@ router.get('/', async (req, res) => {
     res.json({ success: true, ...result });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Issue templates
+router.get('/templates', authenticate, async (_req: AuthenticatedRequest, res) => {
+  res.json({ success: true, data: issueService.getTemplates() });
+});
+
+// Bulk update (staff+ only) — must be before /:id
+router.patch('/bulk', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMENT_HEAD', 'STAFF'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const { ids, status, assigneeId, departmentId } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      res.status(400).json({ error: 'ids array is required' });
+      return;
+    }
+    const results = await issueService.bulkUpdate(ids, { status, assigneeId, departmentId }, req.user!.id);
+    res.json({ success: true, data: results });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
   }
 });
 
@@ -53,12 +75,17 @@ router.get('/:id', async (req, res) => {
 // Create issue (authenticated)
 router.post('/', authenticate, async (req: AuthenticatedRequest, res) => {
   try {
+    const data = createIssueSchema.parse(req.body);
     const issue = await issueService.create({
-      ...req.body,
+      ...data,
       reporterId: req.user!.id,
     });
     res.status(201).json({ success: true, data: issue });
   } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ error: 'Validation failed', details: error.issues });
+      return;
+    }
     res.status(400).json({ error: error.message });
   }
 });
@@ -66,10 +93,14 @@ router.post('/', authenticate, async (req: AuthenticatedRequest, res) => {
 // Update status (staff+ only)
 router.patch('/:id/status', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMENT_HEAD', 'STAFF'), async (req: AuthenticatedRequest, res) => {
   try {
-    const { status, note } = req.body;
+    const { status, note } = updateStatusSchema.parse(req.body);
     const issue = await issueService.updateStatus(req.params.id as string, status, req.user!.id, note);
     res.json({ success: true, data: issue });
   } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ error: 'Validation failed', details: error.issues });
+      return;
+    }
     res.status(400).json({ error: error.message });
   }
 });

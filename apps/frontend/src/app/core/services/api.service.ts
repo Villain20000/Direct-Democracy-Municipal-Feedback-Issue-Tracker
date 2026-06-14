@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { Issue, PaginatedResponse, DashboardStats, User, Notification, Department, Ward, Resolution, Poll, Event, Announcement } from '@dd/shared-types';
+import { Issue, PaginatedResponse, DashboardStats, User, Notification, Department, Ward, Resolution, Poll, Event, Announcement, Attachment, Survey, Forum, ForumPost, IssueTemplate } from '@dd/shared-types';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -45,6 +45,26 @@ export class ApiService {
     return this.http.get<{ success: boolean; data: DashboardStats }>(`${this.apiUrl}/issues/stats`, { params: httpParams });
   }
 
+  getIssueTemplates(): Observable<{ success: boolean; data: IssueTemplate[] }> {
+    return this.http.get<{ success: boolean; data: IssueTemplate[] }>(`${this.apiUrl}/issues/templates`);
+  }
+
+  bulkUpdateIssues(ids: string[], updates: { status?: string; assigneeId?: string; departmentId?: string }): Observable<{ success: boolean; data: Issue[] }> {
+    return this.http.patch<{ success: boolean; data: Issue[] }>(`${this.apiUrl}/issues/bulk`, { ids, ...updates });
+  }
+
+  exportIssuesCsv(params: Record<string, string> = {}): Observable<Blob> {
+    let httpParams = new HttpParams();
+    Object.entries(params).forEach(([key, value]) => { if (value) httpParams = httpParams.set(key, value); });
+    return this.http.get(`${this.apiUrl}/reports/issues.csv`, { params: httpParams, responseType: 'blob' });
+  }
+
+  exportAuditCsv(params: Record<string, string> = {}): Observable<Blob> {
+    let httpParams = new HttpParams();
+    Object.entries(params).forEach(([key, value]) => { if (value) httpParams = httpParams.set(key, value); });
+    return this.http.get(`${this.apiUrl}/reports/audit.csv`, { params: httpParams, responseType: 'blob' });
+  }
+
   // Users
   getUsers(params: Record<string, string> = {}): Observable<PaginatedResponse<User>> {
     let httpParams = new HttpParams();
@@ -77,6 +97,26 @@ export class ApiService {
 
   markAllNotificationsRead(): Observable<any> {
     return this.http.patch(`${this.apiUrl}/notifications/read-all`, {});
+  }
+
+  // Attachments
+  uploadAttachment(issueId: string, file: File): Observable<{ success: boolean; data: Attachment }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    return this.http.post<{ success: boolean; data: Attachment }>(
+      `${this.apiUrl}/issues/${issueId}/attachments`,
+      formData
+    );
+  }
+
+  getAttachments(issueId: string): Observable<{ success: boolean; data: Attachment[] }> {
+    return this.http.get<{ success: boolean; data: Attachment[] }>(
+      `${this.apiUrl}/issues/${issueId}/attachments`
+    );
+  }
+
+  deleteAttachment(id: string): Observable<any> {
+    return this.http.delete(`${this.apiUrl}/attachments/${id}`);
   }
 
   // Departments
@@ -254,5 +294,48 @@ export class ApiService {
 
   getAuditTrail(entity: string, entityId: string): Observable<any> {
     return this.http.get(`${this.apiUrl}/audit/entity/${entity}/${entityId}`);
+  }
+
+  // Surveys
+  getSurveys(params: Record<string, string> = {}): Observable<PaginatedResponse<Survey>> {
+    let httpParams = new HttpParams();
+    Object.entries(params).forEach(([key, value]) => { if (value) httpParams = httpParams.set(key, value); });
+    return this.http.get<PaginatedResponse<Survey>>(`${this.apiUrl}/surveys`, { params: httpParams }) as any;
+  }
+
+  getSurvey(id: string): Observable<{ success: boolean; data: Survey }> {
+    return this.http.get<{ success: boolean; data: Survey }>(`${this.apiUrl}/surveys/${id}`);
+  }
+
+  submitSurveyResponse(id: string, answers: Record<string, unknown>): Observable<any> {
+    return this.http.post(`${this.apiUrl}/surveys/${id}/respond`, { answers });
+  }
+
+  // Forums
+  getForums(params: Record<string, string> = {}): Observable<PaginatedResponse<Forum>> {
+    let httpParams = new HttpParams();
+    Object.entries(params).forEach(([key, value]) => { if (value) httpParams = httpParams.set(key, value); });
+    return this.http.get<PaginatedResponse<Forum>>(`${this.apiUrl}/forums`, { params: httpParams }) as any;
+  }
+
+  getForum(id: string): Observable<{ success: boolean; data: Forum }> {
+    return this.http.get<{ success: boolean; data: Forum }>(`${this.apiUrl}/forums/${id}`);
+  }
+
+  createForum(data: { title: string; description?: string }): Observable<{ success: boolean; data: Forum }> {
+    return this.http.post<{ success: boolean; data: Forum }>(`${this.apiUrl}/forums`, data);
+  }
+
+  addForumPost(forumId: string, content: string): Observable<{ success: boolean; data: ForumPost }> {
+    return this.http.post<{ success: boolean; data: ForumPost }>(`${this.apiUrl}/forums/${forumId}/posts`, { content });
+  }
+
+  // Auth password reset
+  forgotPassword(email: string): Observable<{ success: boolean; message: string }> {
+    return this.http.post<{ success: boolean; message: string }>(`${this.apiUrl}/auth/forgot-password`, { email });
+  }
+
+  resetPassword(token: string, password: string): Observable<{ success: boolean; message: string }> {
+    return this.http.post<{ success: boolean; message: string }>(`${this.apiUrl}/auth/reset-password`, { token, password });
   }
 }

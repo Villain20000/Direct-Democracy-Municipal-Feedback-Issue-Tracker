@@ -140,4 +140,61 @@ describe('Auth Endpoints', () => {
       expect(res.status).toBe(401);
     });
   });
+
+  describe('POST /api/v1/auth/forgot-password', () => {
+    it('should accept forgot password for existing user', async () => {
+      await createTestUser({ email: 'forgot@test.com' });
+
+      const res = await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .send({ email: 'forgot@test.com' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+    });
+
+    it('should not reveal whether email exists', async () => {
+      const res = await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .send({ email: 'missing@test.com' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+    });
+  });
+
+  describe('POST /api/v1/auth/reset-password', () => {
+    it('should reset password with valid token', async () => {
+      const { user } = await createTestUser({ email: 'reset@test.com', password: 'oldpass123' });
+      const forgotRes = await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .send({ email: 'reset@test.com' });
+
+      expect(forgotRes.status).toBe(200);
+
+      const tokenRecord = await prisma.passwordResetToken.findFirst({ where: { userId: user.id } });
+      expect(tokenRecord).toBeTruthy();
+
+      const res = await request(app)
+        .post('/api/v1/auth/reset-password')
+        .send({ token: tokenRecord!.token, password: 'newpass123' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+
+      const loginRes = await request(app)
+        .post('/api/v1/auth/login')
+        .send({ email: 'reset@test.com', password: 'newpass123' });
+
+      expect(loginRes.status).toBe(200);
+    });
+
+    it('should reject invalid reset token', async () => {
+      const res = await request(app)
+        .post('/api/v1/auth/reset-password')
+        .send({ token: 'invalid-token', password: 'newpass123' });
+
+      expect(res.status).toBe(400);
+    });
+  });
 });

@@ -26,10 +26,11 @@ export const notificationService = {
   },
 
   async markAsRead(id: string, userId: string) {
-    return prisma.notification.update({
-      where: { id },
+    const result = await prisma.notification.updateMany({
+      where: { id, userId },
       data: { isRead: true },
     });
+    if (result.count === 0) throw new Error('Notification not found');
   },
 
   async markAllAsRead(userId: string) {
@@ -39,7 +40,10 @@ export const notificationService = {
     });
   },
 
-  async delete(id: string) {
-    return prisma.notification.delete({ where: { id } });
+  async delete(id: string, userId: string) {
+    const result = await prisma.notification.deleteMany({
+      where: { id, userId },
+    });
+    if (result.count === 0) throw new Error('Notification not found');
   },
 };

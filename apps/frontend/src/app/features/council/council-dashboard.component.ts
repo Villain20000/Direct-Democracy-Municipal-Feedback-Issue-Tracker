@@ -108,16 +108,12 @@ export class CouncilDashboardComponent implements OnInit {
   }
 
   loadResolutions() {
-    this.api.getResolutions().subscribe((res: any) => {
-      if (res.success) {
-        this.resolutions = res.data || [];
-      }
+    this.api.getResolutions().subscribe({
+      next: (res: any) => {
+        if (res.success) this.resolutions = res.data || [];
+      },
+      error: () => { this.resolutions = []; },
     });
-    // Fallback demo data if API fails
-    this.resolutions = [
-      { id: '1', title: 'Allocate Emergency Funds for Water Main Repair', description: 'Resolution to allocate $150,000 from the emergency infrastructure fund.', status: 'VOTING', votesFor: 5, votesAgainst: 1, proposedByName: 'David Chen' },
-      { id: '2', title: 'Expand Community Center Hours', description: 'Extend Westfield Community Center operating hours to 9 PM on weekdays.', status: 'PROPOSED', votesFor: 2, votesAgainst: 0, proposedByName: 'Lisa Thompson' },
-    ];
   }
 
   voteOnResolution(resolution: any, voteFor: boolean) {

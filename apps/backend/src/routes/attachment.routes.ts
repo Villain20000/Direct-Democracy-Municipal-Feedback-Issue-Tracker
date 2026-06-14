@@ -3,14 +3,17 @@ import { authenticate, AuthenticatedRequest } from '../middleware/auth.middlewar
 import multer from 'multer';
 import { prisma } from '../db/client';
 import path from 'path';
+import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
+
+const uploadDir = path.join(__dirname, '../../uploads');
 
 const upload = multer({
   storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, path.join(__dirname, '../../uploads')),
+    destination: (_req, _file, cb) => cb(null, uploadDir),
     filename: (_req, file, cb) => cb(null, `${uuidv4()}${path.extname(file.originalname)}`),
   }),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const allowed = /jpeg|jpg|png|gif|pdf|doc|docx|txt|csv/;
     const ext = allowed.test(path.extname(file.originalname).toLowerCase());
@@ -19,12 +22,20 @@ const upload = multer({
   },
 });
 
+const ADMIN_ROLES = new Set(['SUPER_ADMIN', 'MAYOR', 'DEPARTMENT_HEAD']);
+
 const router = Router();
 
-// Upload attachment to an issue
 router.post('/:issueId/attachments', authenticate, upload.single('file') as any, async (req: AuthenticatedRequest, res) => {
   try {
     if (!req.file) { res.status(400).json({ error: 'No file uploaded' }); return; }
+
+    const issue = await prisma.issue.findUnique({ where: { id: req.params.issueId as string } });
+    if (!issue) {
+      fs.unlink(req.file.path, () => {});
+      res.status(404).json({ error: 'Issue not found' });
+      return;
+    }
 
     const attachment = await prisma.attachment.create({
       data: {
@@ -32,18 +43,18 @@ router.post('/:issueId/attachments', authenticate, upload.single('file') as any,
         fileUrl: `/uploads/${req.file.filename}`,
         fileSize: req.file.size,
         mimeType: req.file.mimetype,
-        issueId: req.params.issueId as string,
+        issueId: issue.id,
         uploadedBy: req.user!.id,
       },
     });
 
     res.status(201).json({ success: true, data: attachment });
   } catch (error: any) {
+    if (req.file) fs.unlink(req.file.path, () => {});
     res.status(400).json({ error: error.message });
   }
 });
 
-// Get attachments for an issue
 router.get('/:issueId/attachments', async (req, res) => {
   try {
     const attachments = await prisma.attachment.findMany({
@@ -56,10 +67,33 @@ router.get('/:issueId/attachments', async (req, res) => {
   }
 });
 
-// Delete attachment
 router.delete('/attachments/:id', authenticate, async (req: AuthenticatedRequest, res) => {
   try {
-    await prisma.attachment.delete({ where: { id: req.params.id as string } });
+    const attachment = await prisma.attachment.findUnique({
+      where: { id: req.params.id as string },
+      include: { issue: { select: { reporterId: true } } },
+    });
+    if (!attachment) {
+      res.status(404).json({ error: 'Attachment not found' });
+      return;
+    }
+
+    const userId = req.user!.id;
+    const canDelete =
+      attachment.uploadedBy === userId ||
+      attachment.issue.reporterId === userId ||
+      ADMIN_ROLES.has(req.user!.role);
+
+    if (!canDelete) {
+      res.status(403).json({ error: 'Not authorized to delete this attachment' });
+      return;
+    }
+
+    await prisma.attachment.delete({ where: { id: attachment.id } });
+
+    const filePath = path.join(uploadDir, path.basename(attachment.fileUrl));
+    fs.unlink(filePath, () => {});
+
     res.json({ success: true });
   } catch (error: any) {
     res.status(400).json({ error: error.message });

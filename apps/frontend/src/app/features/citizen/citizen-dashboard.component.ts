@@ -1,33 +1,35 @@
-import { Component } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
+import { ApiService } from '../../core/services/api.service';
+import { Issue, Poll } from '@dd/shared-types';
 
 @Component({
   selector: 'app-citizen-dashboard',
   standalone: true,
-  imports: [CommonModule, RouterLink, LayoutComponent, DatePipe],
+  imports: [CommonModule, FormsModule, RouterLink, LayoutComponent, DatePipe],
   template: `
     <app-layout
       pageTitle="My Dashboard"
       [navItems]="navItems"
-      [notifCount]="1"
       (logout)="auth.logout()">
 
       <div style="display:flex;gap:16px;margin-bottom:24px;">
         <button class="btn btn-primary btn-lg" style="flex:1;" routerLink="/issues/new">
           <i class="material-icons-outlined">add_circle</i> Report New Issue
         </button>
-        <button class="btn btn-secondary btn-lg">
+        <button class="btn btn-secondary btn-lg" routerLink="/citizen/polls">
           <i class="material-icons-outlined">poll</i> Vote on Polls
         </button>
       </div>
 
       <div class="stats-grid">
         <div class="stat-card"><div class="stat-icon blue"><i class="material-icons-outlined">my_reports</i></div><div class="stat-info"><div class="stat-value">{{ myIssues.length }}</div><div class="stat-label">My Reports</div></div></div>
-        <div class="stat-card"><div class="stat-icon green"><i class="material-icons-outlined">check_circle</i></div><div class="stat-info"><div class="stat-value">2</div><div class="stat-label">Resolved</div></div></div>
-        <div class="stat-card"><div class="stat-icon amber"><i class="material-icons-outlined">how_to_vote</i></div><div class="stat-info"><div class="stat-value">5</div><div class="stat-label">Votes Cast</div></div></div>
+        <div class="stat-card"><div class="stat-icon green"><i class="material-icons-outlined">check_circle</i></div><div class="stat-info"><div class="stat-value">{{ resolvedCount }}</div><div class="stat-label">Resolved</div></div></div>
+        <div class="stat-card"><div class="stat-icon amber"><i class="material-icons-outlined">how_to_vote</i></div><div class="stat-info"><div class="stat-value">{{ votesCast }}</div><div class="stat-label">Votes Cast</div></div></div>
         <div class="stat-card"><div class="stat-icon teal"><i class="material-icons-outlined">near_me</i></div><div class="stat-info"><div class="stat-value">{{ nearbyIssues.length }}</div><div class="stat-label">Nearby Issues</div></div></div>
       </div>
 
@@ -42,8 +44,10 @@ import { AuthService } from '../../core/services/auth.service';
                   <tr>
                     <td><strong>{{ issue.title }}</strong></td>
                     <td><span class="status-badge" [class]="issue.status.toLowerCase()">{{ issue.status }}</span></td>
-                    <td style="color:var(--text-muted);">{{ issue.date }}</td>
+                    <td style="color:var(--text-muted);">{{ issue.createdAt | date:'mediumDate' }}</td>
                   </tr>
+                } @empty {
+                  <tr><td colspan="3" style="text-align:center;padding:32px;color:var(--text-muted);">No reported issues yet.</td></tr>
                 }
               </tbody>
             </table>
@@ -54,13 +58,15 @@ import { AuthService } from '../../core/services/auth.service';
           <div class="card-body">
             @for (issue of nearbyIssues; track issue.id) {
               <div style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-light);">
-                <div style="width:8px;height:8px;border-radius:50;margin-top:6px;" [style.background]="issue.color"></div>
+                <div style="width:8px;height:8px;border-radius:50%;margin-top:6px;" [style.background]="getCategoryColor(issue.category)"></div>
                 <div style="flex:1;">
                   <div style="font-size:13px;font-weight:600;">{{ issue.title }}</div>
-                  <div style="font-size:11px;color:var(--text-muted);">{{ issue.distance }} · {{ issue.votes }} votes</div>
+                  <div style="font-size:11px;color:var(--text-muted);">{{ issue.location }} · {{ issue.upvotes }} votes</div>
                 </div>
                 <button class="btn btn-ghost btn-sm">▲</button>
               </div>
+            } @empty {
+              <div style="text-align:center;padding:32px;color:var(--text-muted);">No nearby issues found.</div>
             }
           </div>
         </div>
@@ -69,19 +75,25 @@ import { AuthService } from '../../core/services/auth.service';
       <div class="card" style="margin-bottom:24px;">
         <div class="card-header"><h3>🗳 Active Polls</h3></div>
         <div class="card-body">
-          <div style="padding:16px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;">
-            <strong>What should be our top infrastructure priority?</strong>
-            <p style="font-size:12px;color:var(--text-muted);margin:8px 0;">Closes July 31, 2026</p>
-            @for (opt of pollOptions; track opt.text) {
-              <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-                <input type="radio" name="poll" style="width:16px;height:16px;" />
-                <span style="font-size:13px;flex:1;">{{ opt.text }}</span>
-                <span style="font-size:13px;font-weight:700;">{{ opt.votes }}</span>
-                <div style="width:80px;background:var(--bg-primary);border-radius:3px;height:6px;"><div [style.width.%]="opt.pct" style="background:var(--primary);height:100%;border-radius:3px;"></div></div>
-              </div>
-            }
-            <button class="btn btn-primary btn-sm" style="margin-top:8px;">Submit Vote</button>
-          </div>
+          @if (activePoll) {
+            <div style="padding:16px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;">
+              <strong>{{ activePoll.title }}</strong>
+              @if (activePoll.closesAt) {
+                <p style="font-size:12px;color:var(--text-muted);margin:8px 0;">Closes {{ activePoll.closesAt | date:'mediumDate' }}</p>
+              }
+              @for (opt of activePoll.options || []; track opt.id) {
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+                  <input type="radio" name="poll" [value]="opt.id" [(ngModel)]="selectedOptionId" style="width:16px;height:16px;" />
+                  <span style="font-size:13px;flex:1;">{{ opt.text }}</span>
+                  <span style="font-size:13px;font-weight:700;">{{ opt.votes }}</span>
+                  <div style="width:80px;background:var(--bg-primary);border-radius:3px;height:6px;"><div [style.width.%]="getVotePct(opt.votes)" style="background:var(--primary);height:100%;border-radius:3px;"></div></div>
+                </div>
+              }
+              <button class="btn btn-primary btn-sm" style="margin-top:8px;" [disabled]="!selectedOptionId" (click)="submitVote()">Submit Vote</button>
+            </div>
+          } @else {
+            <div style="text-align:center;padding:32px;color:var(--text-muted);">No active polls at this time.</div>
+          }
         </div>
       </div>
 
@@ -89,39 +101,37 @@ import { AuthService } from '../../core/services/auth.service';
         <div class="card-header"><h3>🤖 CivicAssist Chatbot</h3></div>
         <div class="card-body">
           <div style="background:var(--bg-primary);border-radius:var(--radius-lg);padding:20px;min-height:160px;">
-            <div style="display:flex;gap:10px;margin-bottom:16px;">
-              <div style="width:32px;height:32px;border-radius:50%;background:var(--primary);color:white;display:flex;align-items:center;justify-content:center;font-size:14px;">🤖</div>
-              <div style="background:white;padding:12px 16px;border-radius:var(--radius-lg);font-size:13px;max-width:80%;box-shadow:var(--shadow-sm);">
-                Hello! I'm CivicAssist, your municipal AI helper. I can help you report issues, find city services, or answer questions about your neighborhood. How can I help today?
+            @for (msg of chatMessages; track $index) {
+              <div style="display:flex;gap:10px;margin-bottom:16px;" [style.flex-direction]="msg.role === 'user' ? 'row-reverse' : 'row'">
+                <div style="width:32px;height:32px;border-radius:50%;background:var(--primary);color:white;display:flex;align-items:center;justify-content:center;font-size:14px;">{{ msg.role === 'user' ? '👤' : '🤖' }}</div>
+                <div style="background:white;padding:12px 16px;border-radius:var(--radius-lg);font-size:13px;max-width:80%;box-shadow:var(--shadow-sm);">
+                  {{ msg.content }}
+                </div>
               </div>
-            </div>
+            }
+            @if (chatSending) {
+              <div style="font-size:12px;color:var(--text-muted);">Thinking...</div>
+            }
           </div>
           <div style="display:flex;gap:8px;margin-top:12px;">
-            <input type="text" placeholder="Type your question..." style="flex:1;padding:10px 16px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" />
-            <button class="btn btn-primary"><i class="material-icons-outlined" style="font-size:18px;">send</i></button>
+            <input type="text" [(ngModel)]="chatInput" (keyup.enter)="sendChat()" placeholder="Type your question..." style="flex:1;padding:10px 16px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" />
+            <button class="btn btn-primary" [disabled]="!chatInput.trim() || chatSending" (click)="sendChat()"><i class="material-icons-outlined" style="font-size:18px;">send</i></button>
           </div>
         </div>
       </div>
     </app-layout>
   `,
 })
-export class CitizenDashboardComponent {
-  myIssues = [
-    { id: '1', title: 'Pothole on Main Street', status: 'IN_PROGRESS', date: 'Jun 8' },
-    { id: '2', title: 'Streetlight out on Oak Ave', status: 'ACKNOWLEDGED', date: 'Jun 11' },
-    { id: '3', title: 'Illegal dumping in park', status: 'SUBMITTED', date: 'Jun 12' },
-  ];
-  nearbyIssues = [
-    { id: '1', title: 'Broken sidewalk tile', distance: '0.2 mi', votes: 14, color: '#2563EB' },
-    { id: '2', title: 'Loud construction noise', distance: '0.3 mi', votes: 8, color: '#D97706' },
-    { id: '3', title: 'Stray dog near school', distance: '0.5 mi', votes: 22, color: '#DC2626' },
-    { id: '4', title: 'Park bench needs repair', distance: '0.1 mi', votes: 5, color: '#16A34A' },
-  ];
-  pollOptions = [
-    { text: 'Road Repairs & Potholes', votes: 156, pct: 78 },
-    { text: 'Bridge Maintenance', votes: 89, pct: 44 },
-    { text: 'Water System Upgrades', votes: 203, pct: 100 },
-    { text: 'Pedestrian Safety', votes: 134, pct: 67 },
+export class CitizenDashboardComponent implements OnInit {
+  myIssues: Issue[] = [];
+  nearbyIssues: Issue[] = [];
+  activePoll: Poll | null = null;
+  selectedOptionId = '';
+  votesCast = 0;
+  chatInput = '';
+  chatSending = false;
+  chatMessages: { role: string; content: string }[] = [
+    { role: 'assistant', content: "Hello! I'm CivicAssist, your municipal AI helper. I can help you report issues, find city services, or answer questions about your neighborhood. How can I help today?" },
   ];
   navItems = [
     { icon: 'dashboard', label: 'Overview', route: '/citizen' },
@@ -131,5 +141,71 @@ export class CitizenDashboardComponent {
     { icon: 'forum', label: 'Forums', route: '/citizen/forums' },
     { icon: 'event', label: 'Events', route: '/citizen/events' },
   ];
-  constructor(public auth: AuthService) {}
+
+  constructor(public auth: AuthService, private api: ApiService) {}
+
+  get resolvedCount(): number {
+    return this.myIssues.filter(i => i.status === 'RESOLVED' || i.status === 'VERIFIED').length;
+  }
+
+  ngOnInit() {
+    const userId = this.auth.user()?.id;
+    if (userId) {
+      this.api.getIssues({ reporterId: userId, pageSize: '5' }).subscribe((res: any) => {
+        if (res.data) this.myIssues = res.data;
+      });
+    }
+    this.api.getIssues({ pageSize: '4', sortBy: 'upvotes' }).subscribe((res: any) => {
+      if (res.data) this.nearbyIssues = res.data;
+    });
+    this.api.getPolls({ activeOnly: 'true' }).subscribe((res: any) => {
+      const polls: Poll[] = res.data || [];
+      if (polls.length) this.activePoll = polls[0];
+    });
+  }
+
+  getCategoryColor(category: string): string {
+    const colors: Record<string, string> = {
+      INFRASTRUCTURE: '#2563EB', PUBLIC_SAFETY: '#DC2626', SANITATION: '#16A34A',
+      UTILITIES: '#7C3AED', HOUSING: '#D97706', ENVIRONMENT: '#059669',
+      TRANSPORTATION: '#0891B2', EDUCATION: '#4F46E5', HEALTH: '#E11D48', OTHER: '#64748B',
+    };
+    return colors[category] || '#64748B';
+  }
+
+  getVotePct(votes: number): number {
+    const total = (this.activePoll?.options || []).reduce((sum, o) => sum + o.votes, 0);
+    return total > 0 ? (votes / total) * 100 : 0;
+  }
+
+  submitVote() {
+    if (!this.activePoll || !this.selectedOptionId) return;
+    this.api.votePoll(this.activePoll.id, this.selectedOptionId).subscribe({
+      next: (res: any) => {
+        if (res.success && res.data) {
+          this.activePoll = res.data;
+          this.votesCast++;
+        }
+      },
+    });
+  }
+
+  sendChat() {
+    const text = this.chatInput.trim();
+    if (!text || this.chatSending) return;
+    this.chatMessages.push({ role: 'user', content: text });
+    this.chatInput = '';
+    this.chatSending = true;
+    this.api.aiChat(this.chatMessages).subscribe({
+      next: (res: any) => {
+        const reply = res.data?.response || res.data?.message || 'Sorry, I could not process that request.';
+        this.chatMessages.push({ role: 'assistant', content: reply });
+        this.chatSending = false;
+      },
+      error: () => {
+        this.chatMessages.push({ role: 'assistant', content: 'Sorry, the chatbot is temporarily unavailable. Please try again later.' });
+        this.chatSending = false;
+      },
+    });
+  }
 }

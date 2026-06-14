@@ -100,6 +100,9 @@ export async function cleanupDatabase() {
   await prisma.eventRSVP.deleteMany();
   await prisma.event.deleteMany();
   await prisma.announcement.deleteMany();
+  await prisma.forumPost.deleteMany();
+  await prisma.forum.deleteMany();
+  await prisma.passwordResetToken.deleteMany();
   await prisma.surveyResponse.deleteMany();
   await prisma.surveyQuestion.deleteMany();
   await prisma.survey.deleteMany();

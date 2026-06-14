@@ -90,4 +90,41 @@ router.get('/profile', authenticate, async (req: AuthenticatedRequest, res) => {
   }
 });
 
+const forgotPasswordSchema = z.object({
+  email: z.string().email(),
+});
+
+const resetPasswordSchema = z.object({
+  token: z.string().min(1),
+  password: z.string().min(8),
+});
+
+router.post('/forgot-password', authLimiter as any, async (req, res) => {
+  try {
+    const { email } = forgotPasswordSchema.parse(req.body);
+    const result = await authService.forgotPassword(email);
+    res.json({ success: true, message: result.message });
+  } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ error: 'Validation failed', details: error.issues });
+      return;
+    }
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.post('/reset-password', authLimiter as any, async (req, res) => {
+  try {
+    const { token, password } = resetPasswordSchema.parse(req.body);
+    const result = await authService.resetPassword(token, password);
+    res.json({ success: true, message: result.message });
+  } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ error: 'Validation failed', details: error.issues });
+      return;
+    }
+    res.status(400).json({ error: error.message });
+  }
+});
+
 export default router;

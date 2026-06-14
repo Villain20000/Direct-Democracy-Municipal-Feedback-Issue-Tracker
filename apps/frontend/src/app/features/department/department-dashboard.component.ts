@@ -4,7 +4,7 @@ import { RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
-import { Issue } from '@dd/shared-types';
+import { DashboardStats, Issue } from '@dd/shared-types';
 
 @Component({
   selector: 'app-department-dashboard',
@@ -14,14 +14,13 @@ import { Issue } from '@dd/shared-types';
     <app-layout
       pageTitle="Department Dashboard"
       [navItems]="navItems"
-      [notifCount]="3"
       (logout)="auth.logout()">
 
       <div class="stats-grid">
-        <div class="stat-card"><div class="stat-icon blue"><i class="material-icons-outlined">assignment</i></div><div class="stat-info"><div class="stat-value">42</div><div class="stat-label">Department Issues</div></div></div>
-        <div class="stat-card"><div class="stat-icon amber"><i class="material-icons-outlined">pending</i></div><div class="stat-info"><div class="stat-value">18</div><div class="stat-label">In Progress</div></div></div>
-        <div class="stat-card"><div class="stat-icon green"><i class="material-icons-outlined">task_alt</i></div><div class="stat-info"><div class="stat-value">21</div><div class="stat-label">Resolved</div><div class="stat-change up">↑ 15% vs last month</div></div></div>
-        <div class="stat-card"><div class="stat-icon red"><i class="material-icons-outlined">warning</i></div><div class="stat-info"><div class="stat-value">3</div><div class="stat-label">Escalated</div></div></div>
+        <div class="stat-card"><div class="stat-icon blue"><i class="material-icons-outlined">assignment</i></div><div class="stat-info"><div class="stat-value">{{ stats?.totalIssues || 0 }}</div><div class="stat-label">Department Issues</div></div></div>
+        <div class="stat-card"><div class="stat-icon amber"><i class="material-icons-outlined">pending</i></div><div class="stat-info"><div class="stat-value">{{ inProgressCount }}</div><div class="stat-label">In Progress</div></div></div>
+        <div class="stat-card"><div class="stat-icon green"><i class="material-icons-outlined">task_alt</i></div><div class="stat-info"><div class="stat-value">{{ stats?.resolvedIssues || 0 }}</div><div class="stat-label">Resolved</div></div></div>
+        <div class="stat-card"><div class="stat-icon red"><i class="material-icons-outlined">warning</i></div><div class="stat-info"><div class="stat-value">{{ escalatedCount }}</div><div class="stat-label">Escalated</div></div></div>
       </div>
 
       <div class="content-grid">
@@ -84,6 +83,8 @@ import { Issue } from '@dd/shared-types';
                   <td>{{ issue.assignee?.firstName || 'Unassigned' }}</td>
                   <td>▲ {{ issue.upvotes }}</td>
                 </tr>
+              } @empty {
+                <tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-muted);">No department issues found.</td></tr>
               }
             </tbody>
           </table>
@@ -94,6 +95,7 @@ import { Issue } from '@dd/shared-types';
 })
 export class DepartmentDashboardComponent implements OnInit {
   issues: Issue[] = [];
+  stats: DashboardStats | null = null;
   staffWorkload = [
     { name: 'Tom Wilson', initials: 'TW', active: 8, capacity: 12 },
     { name: 'Sarah Adams', initials: 'SA', active: 6, capacity: 12 },
@@ -116,6 +118,25 @@ export class DepartmentDashboardComponent implements OnInit {
   ];
 
   constructor(public auth: AuthService, private api: ApiService) {}
-  ngOnInit() { this.api.getIssues({ departmentId: '', pageSize: '8' }).subscribe((res: any) => { if (res.data) this.issues = res.data; }); }
+
+  get inProgressCount(): number {
+    return this.stats?.issuesByStatus?.IN_PROGRESS || 0;
+  }
+
+  get escalatedCount(): number {
+    return this.issues.filter(i => (i.priority || 0) >= 4).length;
+  }
+
+  ngOnInit() {
+    const departmentId = this.auth.user()?.departmentId;
+    if (!departmentId) return;
+    this.api.getIssues({ departmentId, pageSize: '8' }).subscribe((res: any) => {
+      if (res.data) this.issues = res.data;
+    });
+    this.api.getIssueStats({ departmentId }).subscribe(res => {
+      if (res.success) this.stats = res.data;
+    });
+  }
+
   getStars(count: number): number[] { return Array(Math.max(0, count)); }
 }

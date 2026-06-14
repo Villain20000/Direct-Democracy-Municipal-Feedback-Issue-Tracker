@@ -1,5 +1,5 @@
 import { Component, OnInit } from '@angular/core';
-import { CommonModule, DatePipe } from '@angular/common';
+import { CommonModule, DatePipe, DecimalPipe } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
@@ -9,7 +9,7 @@ import { Issue } from '@dd/shared-types';
 @Component({
   selector: 'app-issue-detail',
   standalone: true,
-  imports: [CommonModule, RouterLink, LayoutComponent, DatePipe],
+  imports: [CommonModule, RouterLink, LayoutComponent, DatePipe, DecimalPipe],
   template: `
     <app-layout
       [pageTitle]="issue?.title || 'Issue Detail'"
@@ -47,6 +47,21 @@ import { Issue } from '@dd/shared-types';
                 </div>
               </div>
             </div>
+
+            @if (attachments.length) {
+              <div class="card" style="margin-bottom:24px;">
+                <div class="card-header"><h3>Attachments ({{ attachments.length }})</h3></div>
+                <div class="card-body">
+                  @for (att of attachments; track att.id) {
+                    <div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border-light);">
+                      <i class="material-icons-outlined">attach_file</i>
+                      <a [href]="att.fileUrl" target="_blank" style="flex:1;font-size:13px;">{{ att.fileName }}</a>
+                      <span style="font-size:11px;color:var(--text-muted);">{{ (att.fileSize / 1024) | number:'1.0-0' }} KB</span>
+                    </div>
+                  }
+                </div>
+              </div>
+            }
 
             <div class="card" style="margin-bottom:24px;">
               <div class="card-header"><h3>Comments ({{ issue.comments?.length || 0 }})</h3></div>
@@ -108,35 +123,82 @@ import { Issue } from '@dd/shared-types';
               <div class="card-body">
                 <div style="padding:12px;background:var(--bg-primary);border-radius:var(--radius);margin-bottom:10px;">
                   <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">AI Category</div>
-                  <div style="font-size:14px;font-weight:600;">{{ issue.aiCategory || 'Pending analysis...' }}</div>
+                  <div style="font-size:14px;font-weight:600;">{{ aiCategory || issue.aiCategory || 'Pending analysis...' }}</div>
                 </div>
                 <div style="padding:12px;background:var(--bg-primary);border-radius:var(--radius);margin-bottom:10px;">
                   <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Sentiment</div>
-                  <div style="font-size:14px;font-weight:600;">{{ issue.aiSentiment || 'Pending analysis...' }}</div>
+                  <div style="font-size:14px;font-weight:600;">{{ aiSentiment || issue.aiSentiment || 'Pending analysis...' }}</div>
                 </div>
-                <button class="btn btn-secondary btn-sm" style="width:100%;"><i class="material-icons-outlined" style="font-size:16px;">auto_awesome</i> Run AI Analysis</button>
+                @if (aiSummary) {
+                  <div style="padding:12px;background:var(--bg-primary);border-radius:var(--radius);margin-bottom:10px;font-size:13px;">{{ aiSummary }}</div>
+                }
+                <button class="btn btn-secondary btn-sm" style="width:100%;" (click)="runAiAnalysis()" [disabled]="aiLoading">
+                  <i class="material-icons-outlined" style="font-size:16px;">auto_awesome</i>
+                  @if (aiLoading) { Analyzing... } @else { Run AI Analysis }
+                </button>
               </div>
             </div>
           </div>
         </div>
+      } @else if (loadError) {
+        <div class="card"><div class="card-body" style="color:var(--danger);">{{ loadError }}</div></div>
       }
     </app-layout>
   `,
 })
 export class IssueDetailComponent implements OnInit {
   issue: Issue | null = null;
+  attachments: { id: string; fileName: string; fileUrl: string; fileSize: number }[] = [];
+  loadError = '';
+  aiLoading = false;
+  aiSummary = '';
+  aiCategory = '';
+  aiSentiment = '';
   statusFlow = ['SUBMITTED', 'ACKNOWLEDGED', 'IN_PROGRESS', 'PENDING_REVIEW', 'RESOLVED', 'VERIFIED'];
   navItems = [{ icon: 'arrow_back', label: 'Back to Issues', route: '/issues' }];
 
   constructor(public auth: AuthService, private api: ApiService, private route: ActivatedRoute) {}
 
-  ngOnInit() {
+  ngOnInit() { this.reloadIssue(); }
+
+  reloadIssue() {
     const id = this.route.snapshot.paramMap.get('id');
-    if (id) {
-      this.api.getIssue(id).subscribe(res => {
-        if (res.success) this.issue = res.data;
-      });
-    }
+    if (!id) return;
+    this.loadError = '';
+    this.api.getIssue(id).subscribe({
+      next: (res) => {
+        if (res.success) {
+          this.issue = res.data;
+          this.attachments = (res.data as any).attachments || [];
+        }
+      },
+      error: (err) => { this.loadError = err.error?.error || 'Failed to load issue.'; },
+    });
+  }
+
+  runAiAnalysis() {
+    if (!this.issue) return;
+    this.aiLoading = true;
+    const text = `${this.issue.title}. ${this.issue.description}`;
+    this.api.aiCategorize(text).subscribe({
+      next: (cat: any) => {
+        if (cat.success) this.aiCategory = cat.data?.category || '';
+        this.api.aiSentiment(text).subscribe({
+          next: (sent: any) => {
+            if (sent.success) this.aiSentiment = sent.data?.sentiment || '';
+            this.api.aiSummarize(text, 200).subscribe({
+              next: (sum: any) => {
+                this.aiLoading = false;
+                if (sum.success) this.aiSummary = sum.data?.summary || '';
+              },
+              error: () => { this.aiLoading = false; },
+            });
+          },
+          error: () => { this.aiLoading = false; },
+        });
+      },
+      error: () => { this.aiLoading = false; },
+    });
   }
 
   upvote() {
@@ -161,7 +223,7 @@ export class IssueDetailComponent implements OnInit {
       next: (res: any) => {
         if (res.success) {
           input.value = '';
-          this.ngOnInit(); // Reload to get new comment
+          this.reloadIssue();
         }
       },
     });

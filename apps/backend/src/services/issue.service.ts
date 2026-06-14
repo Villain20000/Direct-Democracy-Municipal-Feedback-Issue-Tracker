@@ -1,15 +1,36 @@
 import { prisma } from '../db/client';
+import { cache } from '../cache/redis';
+import { routingService } from './routing.service';
+
+const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'priority', 'upvotes', 'status', 'title'] as const;
+
+export const ISSUE_TEMPLATES = [
+  { id: 'pothole', title: 'Pothole Report', description: 'There is a pothole on [street name] that is causing damage to vehicles. It has been present for [duration] and is growing larger.', category: 'INFRASTRUCTURE', location: '' },
+  { id: 'streetlight', title: 'Broken Streetlight', description: 'Streetlight #[number] on [street] has been out for [duration]. The area is dark and feels unsafe at night.', category: 'INFRASTRUCTURE', location: '' },
+  { id: 'illegal-dumping', title: 'Illegal Dumping', description: 'Someone has been dumping [type of waste] at [location]. This has been happening for [duration].', category: 'SANITATION', location: '' },
+  { id: 'water-main', title: 'Water Main Break', description: 'Water is leaking from a broken water main at [location]. The street may be flooding.', category: 'UTILITIES', location: '' },
+  { id: 'noise', title: 'Noise Complaint', description: 'Excessive noise from [source] at [location] during [hours]. This violates local noise ordinances.', category: 'OTHER', location: '' },
+  { id: 'graffiti', title: 'Graffiti / Vandalism', description: 'Graffiti or vandalism has appeared at [location]. Please arrange for cleanup.', category: 'PUBLIC_SAFETY', location: '' },
+  { id: 'sidewalk', title: 'Sidewalk Obstruction', description: 'A [tree branch / debris / object] is blocking the sidewalk at [location], making it inaccessible.', category: 'ENVIRONMENT', location: '' },
+  { id: 'traffic', title: 'Traffic Safety Concern', description: 'There is a traffic safety issue at [intersection/location]. [Describe the hazard].', category: 'TRANSPORTATION', location: '' },
+];
 
 export const issueService = {
+  getTemplates() {
+    return ISSUE_TEMPLATES;
+  },
+
   async create(data: {
     title: string; description: string; category: string;
     location: string; latitude?: number; longitude?: number;
     reporterId: string; wardId?: string; isPublic?: boolean;
   }) {
+    const departmentId = await routingService.resolveDepartmentId(data.category);
     const issue = await prisma.issue.create({
       data: {
         ...data,
         category: data.category as any,
+        departmentId,
         isPublic: data.isPublic ?? true,
       },
       include: {
@@ -18,6 +39,7 @@ export const issueService = {
       },
     });
     await this.recordHistory(issue.id, null, 'SUBMITTED', data.reporterId);
+    await cache.invalidatePattern('issues:stats');
     return issue;
   },
 
@@ -47,12 +69,16 @@ export const issueService = {
       ];
     }
 
+    const safeSortBy = ALLOWED_SORT_FIELDS.includes(sortBy as typeof ALLOWED_SORT_FIELDS[number])
+      ? sortBy
+      : 'createdAt';
+
     const [data, total] = await Promise.all([
       prisma.issue.findMany({
         where,
         skip: (page - 1) * pageSize,
         take: pageSize,
-        orderBy: { [sortBy]: sortOrder },
+        orderBy: { [safeSortBy]: sortOrder },
         include: {
           reporter: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } },
           assignee: { select: { id: true, firstName: true, lastName: true } },
@@ -69,6 +95,13 @@ export const issueService = {
   },
 
   async getById(id: string) {
+    const cacheKey = `issues:detail:${id}`;
+    const cached = await cache.get<any>(cacheKey);
+    if (cached) {
+      await prisma.issue.update({ where: { id }, data: { viewCount: { increment: 1 } } });
+      return { ...cached, viewCount: (cached.viewCount || 0) + 1 };
+    }
+
     const issue = await prisma.issue.findUnique({
       where: { id },
       include: {
@@ -87,8 +120,8 @@ export const issueService = {
     });
     if (!issue) throw new Error('Issue not found');
 
-    // Increment view count
     await prisma.issue.update({ where: { id }, data: { viewCount: { increment: 1 } } });
+    await cache.set(cacheKey, issue, 120);
     return issue;
   },
 
@@ -104,7 +137,36 @@ export const issueService = {
       },
     });
     await this.recordHistory(id, issue.status, newStatus, changedBy, note);
+    await cache.del(`issues:detail:${id}`);
+    await cache.invalidatePattern('issues:stats');
     return updated;
+  },
+
+  async bulkUpdate(ids: string[], updates: { status?: string; assigneeId?: string; departmentId?: string }, changedBy: string) {
+    if (!ids.length) throw new Error('No issue IDs provided');
+    if (ids.length > 100) throw new Error('Cannot update more than 100 issues at once');
+
+    const results = [];
+    for (const id of ids) {
+      const issue = await prisma.issue.findUnique({ where: { id } });
+      if (!issue) continue;
+
+      const data: any = {};
+      if (updates.assigneeId) data.assigneeId = updates.assigneeId;
+      if (updates.departmentId) data.departmentId = updates.departmentId;
+      if (updates.status) {
+        data.status = updates.status;
+        if (updates.status === 'RESOLVED') data.resolvedAt = new Date();
+        await this.recordHistory(id, issue.status, updates.status, changedBy, 'Bulk update');
+      }
+
+      const updated = await prisma.issue.update({ where: { id }, data });
+      await cache.del(`issues:detail:${id}`);
+      results.push(updated);
+    }
+
+    await cache.invalidatePattern('issues:stats');
+    return results;
   },
 
   async assign(id: string, assigneeId: string, departmentId?: string) {
@@ -136,10 +198,15 @@ export const issueService = {
   },
 
   async getStats(filters?: { departmentId?: string; wardId?: string }) {
+    const cacheKey = `issues:stats:${JSON.stringify(filters || {})}`;
+    const cached = await cache.get<any>(cacheKey);
+    if (cached) return cached;
+
     const where = filters || {};
     const [
       totalIssues, openIssues, resolvedIssues,
       byCategory, byStatus, recentIssues,
+      resolvedWithDates, totalUsers,
     ] = await Promise.all([
       prisma.issue.count({ where }),
       prisma.issue.count({ where: { ...where, status: { notIn: ['RESOLVED', 'VERIFIED', 'REJECTED'] } } }),
@@ -150,14 +217,30 @@ export const issueService = {
         where, take: 10, orderBy: { createdAt: 'desc' },
         include: { reporter: { select: { firstName: true, lastName: true } } },
       }),
+      prisma.issue.findMany({
+        where: { ...where, resolvedAt: { not: null } },
+        select: { createdAt: true, resolvedAt: true },
+      }),
+      prisma.user.count(),
     ]);
 
-    return {
+    const avgResolutionTimeDays = resolvedWithDates.length
+      ? resolvedWithDates.reduce((sum, issue) => {
+          const days = (issue.resolvedAt!.getTime() - issue.createdAt.getTime()) / (1000 * 60 * 60 * 24);
+          return sum + days;
+        }, 0) / resolvedWithDates.length
+      : 0;
+
+    const stats = {
       totalIssues, openIssues, resolvedIssues,
+      avgResolutionTimeDays: Math.round(avgResolutionTimeDays * 10) / 10,
+      totalUsers,
       issuesByCategory: Object.fromEntries(byCategory.map(c => [c.category, c._count])),
       issuesByStatus: Object.fromEntries(byStatus.map(s => [s.status, s._count])),
       recentIssues,
     };
+    await cache.set(cacheKey, stats, 300);
+    return stats;
   },
 
   async recordHistory(issueId: string, oldStatus: string | null, newStatus: string, changedBy: string, note?: string) {

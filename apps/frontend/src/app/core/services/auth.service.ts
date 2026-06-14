@@ -102,6 +102,14 @@ export class AuthService {
     return !!user && roles.includes(user.role);
   }
 
+  forgotPassword(email: string): Observable<{ success: boolean; message: string }> {
+    return this.http.post<{ success: boolean; message: string }>(`${this.apiUrl}/auth/forgot-password`, { email });
+  }
+
+  resetPassword(token: string, password: string): Observable<{ success: boolean; message: string }> {
+    return this.http.post<{ success: boolean; message: string }>(`${this.apiUrl}/auth/reset-password`, { token, password });
+  }
+
   getDashboardRoute(): string {
     const role = this.currentUser()?.role;
     switch (role) {

@@ -37,7 +37,7 @@ router.patch('/read-all', authenticate, async (req: AuthenticatedRequest, res) =
 
 router.delete('/:id', authenticate, async (req: AuthenticatedRequest, res) => {
   try {
-    await notificationService.delete(req.params.id as string);
+    await notificationService.delete(req.params.id as string, req.user!.id);
     res.json({ success: true });
   } catch (error: any) {
     res.status(400).json({ error: error.message });

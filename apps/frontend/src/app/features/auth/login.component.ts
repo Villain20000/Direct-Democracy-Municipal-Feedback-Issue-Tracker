@@ -29,6 +29,9 @@ import { AuthService } from '../../core/services/auth.service';
           <div class="form-group">
             <label>Password</label>
             <input type="password" [(ngModel)]="password" name="password" placeholder="Enter your password" required />
+            <div style="text-align:right;margin-top:6px;">
+              <a routerLink="/forgot-password" style="font-size:12px;">Forgot password?</a>
+            </div>
           </div>
           <button type="submit" class="btn btn-primary" [disabled]="loading">
             @if (loading) { <i class="material-icons-outlined" style="font-size:18px">hourglass_top</i> Signing in... }

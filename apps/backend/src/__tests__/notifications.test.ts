@@ -134,6 +134,21 @@ describe('Notification Endpoints', () => {
       const res = await request(app).patch('/api/v1/notifications/fake-id/read');
       expect(res.status).toBe(401);
     });
+
+    it('should reject marking another user notification as read', async () => {
+      const owner = await createTestUser({ email: 'owner-read@test.com' });
+      const other = await createTestUser({ email: 'other-read@test.com' });
+      const notif = await createTestNotification(owner.user.id, { isRead: false });
+
+      const res = await request(app)
+        .patch(`/api/v1/notifications/${notif.id}/read`)
+        .set('Authorization', `Bearer ${other.accessToken}`);
+
+      expect(res.status).toBeGreaterThanOrEqual(400);
+
+      const unchanged = await prisma.notification.findUnique({ where: { id: notif.id } });
+      expect(unchanged!.isRead).toBe(false);
+    });
   });
 
   describe('PATCH /api/v1/notifications/read-all', () => {
@@ -191,6 +206,21 @@ describe('Notification Endpoints', () => {
     it('should reject without authentication', async () => {
       const res = await request(app).delete('/api/v1/notifications/fake-id');
       expect(res.status).toBe(401);
+    });
+
+    it('should reject deleting another user notification', async () => {
+      const owner = await createTestUser({ email: 'owner-del@test.com' });
+      const other = await createTestUser({ email: 'other-del@test.com' });
+      const notif = await createTestNotification(owner.user.id);
+
+      const res = await request(app)
+        .delete(`/api/v1/notifications/${notif.id}`)
+        .set('Authorization', `Bearer ${other.accessToken}`);
+
+      expect(res.status).toBeGreaterThanOrEqual(400);
+
+      const stillExists = await prisma.notification.findUnique({ where: { id: notif.id } });
+      expect(stillExists).not.toBeNull();
     });
   });
 });

@@ -1,17 +1,34 @@
-import { Component } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, OnInit } from '@angular/core';
+import { CommonModule, TitleCasePipe } from '@angular/common';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
+import { ApiService } from '../../core/services/api.service';
+import { DashboardStats, Issue } from '@dd/shared-types';
+
+interface TrendingIssue {
+  title: string;
+  category: string;
+  votes: number;
+  views: number;
+  trend: string;
+  badge: string;
+}
+
+interface PublicStat {
+  label: string;
+  pct: number;
+  value: string;
+  color: string;
+}
 
 @Component({
   selector: 'app-media-dashboard',
   standalone: true,
-  imports: [CommonModule, LayoutComponent],
+  imports: [CommonModule, LayoutComponent, TitleCasePipe],
   template: `
     <app-layout
       pageTitle="Press Center"
       [navItems]="navItems"
-      [notifCount]="0"
       (logout)="auth.logout()">
 
       <div style="background:linear-gradient(135deg,#4F46E5,#7C3AED);border-radius:var(--radius-xl);padding:28px;color:white;margin-bottom:24px;">
@@ -19,8 +36,8 @@ import { AuthService } from '../../core/services/auth.service';
         <p style="opacity:0.8;font-size:13px;">Public statistics, trending issues, and downloadable reports for journalists</p>
         <div style="display:flex;gap:24px;margin-top:16px;">
           <div><div style="font-size:28px;font-weight:800;">{{ totalIssues }}</div><div style="opacity:0.7;font-size:12px;">Total Issues</div></div>
-          <div><div style="font-size:28px;font-weight:800;">67%</div><div style="opacity:0.7;font-size:12px;">Resolution Rate</div></div>
-          <div><div style="font-size:28px;font-weight:800;">2,340</div><div style="opacity:0.7;font-size:12px;">Active Citizens</div></div>
+          <div><div style="font-size:28px;font-weight:800;">{{ resolutionRate }}%</div><div style="opacity:0.7;font-size:12px;">Resolution Rate</div></div>
+          <div><div style="font-size:28px;font-weight:800;">{{ activeCitizens | number }}</div><div style="opacity:0.7;font-size:12px;">Active Citizens</div></div>
         </div>
       </div>
 
@@ -37,6 +54,8 @@ import { AuthService } from '../../core/services/auth.service';
                 </div>
                 <span class="badge" [class]="issue.badge">{{ issue.trend }}</span>
               </div>
+            } @empty {
+              <div style="text-align:center;padding:32px;color:var(--text-muted);">No trending issues found.</div>
             }
           </div>
         </div>
@@ -97,7 +116,7 @@ import { AuthService } from '../../core/services/auth.service';
               <div style="text-align:center;background:rgba(255,255,255,0.9);padding:16px;border-radius:var(--radius-lg);">
                 <i class="material-icons-outlined" style="font-size:48px;color:#4F46E5;">map</i>
                 <div style="font-size:13px;font-weight:600;margin-top:8px;">Issue Heat Map</div>
-                <div style="font-size:11px;color:var(--text-muted);">6 wards · 128 issues</div>
+                <div style="font-size:11px;color:var(--text-muted);">{{ totalIssues }} issues tracked</div>
               </div>
             </div>
           </div>
@@ -106,22 +125,12 @@ import { AuthService } from '../../core/services/auth.service';
     </app-layout>
   `,
 })
-export class MediaDashboardComponent {
-  totalIssues = 128;
-  trendingIssues = [
-    { title: 'Water main break on Cedar Lane', category: 'Utilities', votes: 42, views: 312, trend: '↑ Hot', badge: 'badge-red' },
-    { title: 'Large pothole on Main Street', category: 'Infrastructure', votes: 24, views: 156, trend: '↑ Rising', badge: 'badge-amber' },
-    { title: 'Missing manhole cover', category: 'Infrastructure', votes: 38, views: 267, trend: '✓ Resolved', badge: 'badge-green' },
-    { title: 'Illegal dumping in Riverside Park', category: 'Sanitation', votes: 8, views: 45, trend: '→ Stable', badge: 'badge-slate' },
-    { title: 'Tree blocking sidewalk', category: 'Parks', votes: 19, views: 98, trend: '↑ Rising', badge: 'badge-amber' },
-  ];
-  publicStats = [
-    { label: 'Infrastructure', pct: 75, value: '45', color: '#2563EB' },
-    { label: 'Public Safety', pct: 50, value: '30', color: '#DC2626' },
-    { label: 'Sanitation', pct: 40, value: '24', color: '#16A34A' },
-    { label: 'Utilities', pct: 35, value: '21', color: '#7C3AED' },
-    { label: 'Other', pct: 15, value: '8', color: '#64748B' },
-  ];
+export class MediaDashboardComponent implements OnInit {
+  totalIssues = 0;
+  resolutionRate = 0;
+  activeCitizens = 0;
+  trendingIssues: TrendingIssue[] = [];
+  publicStats: PublicStat[] = [];
   downloads = [
     { icon: 'assessment', title: 'Monthly Issue Report', desc: 'Complete issue summary for the month' },
     { icon: 'account_balance', title: 'Budget Transparency', desc: 'Department spending and allocations' },
@@ -139,5 +148,49 @@ export class MediaDashboardComponent {
     { icon: 'download', label: 'Reports', route: '/media/reports' },
     { icon: 'map', label: 'Geographic', route: '/media/map' },
   ];
-  constructor(public auth: AuthService) {}
+
+  private readonly categoryColors: Record<string, string> = {
+    INFRASTRUCTURE: '#2563EB', PUBLIC_SAFETY: '#DC2626', SANITATION: '#16A34A',
+    UTILITIES: '#7C3AED', HOUSING: '#D97706', ENVIRONMENT: '#059669',
+    TRANSPORTATION: '#0891B2', EDUCATION: '#4F46E5', HEALTH: '#E11D48', OTHER: '#64748B',
+  };
+
+  constructor(public auth: AuthService, private api: ApiService) {}
+
+  ngOnInit() {
+    this.api.getIssueStats().subscribe(res => {
+      if (res.success) {
+        const stats = res.data;
+        this.totalIssues = stats.totalIssues;
+        this.activeCitizens = stats.totalUsers;
+        this.resolutionRate = stats.totalIssues > 0
+          ? Math.round((stats.resolvedIssues / stats.totalIssues) * 100)
+          : 0;
+        this.buildPublicStats(stats);
+      }
+    });
+    this.api.getIssues({ sortBy: 'upvotes', pageSize: '5' }).subscribe((res: any) => {
+      if (res.data) {
+        this.trendingIssues = (res.data as Issue[]).map((issue, i) => ({
+          title: issue.title,
+          category: issue.category,
+          votes: issue.upvotes,
+          views: issue.viewCount,
+          trend: issue.status === 'RESOLVED' || issue.status === 'VERIFIED' ? '✓ Resolved' : i < 2 ? '↑ Hot' : '↑ Rising',
+          badge: issue.status === 'RESOLVED' || issue.status === 'VERIFIED' ? 'badge-green' : i < 2 ? 'badge-red' : 'badge-amber',
+        }));
+      }
+    });
+  }
+
+  private buildPublicStats(stats: DashboardStats) {
+    const entries = Object.entries(stats.issuesByCategory).filter(([, count]) => count > 0);
+    const max = Math.max(...entries.map(([, count]) => count), 1);
+    this.publicStats = entries.slice(0, 5).map(([cat, count]) => ({
+      label: cat.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase()),
+      pct: (count / max) * 100,
+      value: String(count),
+      color: this.categoryColors[cat] || '#64748B',
+    }));
+  }
 }

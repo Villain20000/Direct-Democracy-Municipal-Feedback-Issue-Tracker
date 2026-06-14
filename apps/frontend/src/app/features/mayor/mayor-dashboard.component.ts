@@ -1,10 +1,15 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule, DecimalPipe, CurrencyPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { forkJoin } from 'rxjs';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
-import { DashboardStats, Issue } from '@dd/shared-types';
+import { DashboardStats, Department, Issue } from '@dd/shared-types';
+
+interface DeptWithCount extends Department {
+  issueCount: number;
+}
 
 @Component({
   selector: 'app-mayor-dashboard',
@@ -14,7 +19,6 @@ import { DashboardStats, Issue } from '@dd/shared-types';
     <app-layout
       pageTitle="Mayor Dashboard"
       [navItems]="navItems"
-      [notifCount]="5"
       (logout)="auth.logout()">
 
       <div style="background: linear-gradient(135deg, #1E40AF, #7C3AED); border-radius: var(--radius-xl); padding: 32px; color: white; margin-bottom: 24px;">
@@ -22,8 +26,8 @@ import { DashboardStats, Issue } from '@dd/shared-types';
         <p style="opacity: 0.8;">Real-time overview of municipal services and citizen engagement</p>
         <div style="display: flex; gap: 32px; margin-top: 20px;">
           <div><div style="font-size: 36px; font-weight: 800;">{{ stats?.totalIssues || 0 }}</div><div style="opacity: 0.7; font-size: 13px;">Total Issues</div></div>
-          <div><div style="font-size: 36px; font-weight: 800;">{{ ((stats?.resolvedIssues || 0) / (stats?.totalIssues || 1) * 100) | number:'1.0-0' }}%</div><div style="opacity: 0.7; font-size: 13px;">Resolution Rate</div></div>
-          <div><div style="font-size: 36px; font-weight: 800;">4.2</div><div style="opacity: 0.7; font-size: 13px;">Avg Days to Resolve</div></div>
+          <div><div style="font-size: 36px; font-weight: 800;">{{ resolutionRate }}%</div><div style="opacity: 0.7; font-size: 13px;">Resolution Rate</div></div>
+          <div><div style="font-size: 36px; font-weight: 800;">{{ stats?.avgResolutionTimeDays || 0 }}</div><div style="opacity: 0.7; font-size: 13px;">Avg Days to Resolve</div></div>
         </div>
       </div>
 
@@ -38,11 +42,11 @@ import { DashboardStats, Issue } from '@dd/shared-types';
         </div>
         <div class="stat-card">
           <div class="stat-icon amber"><i class="material-icons-outlined">trending_up</i></div>
-          <div class="stat-info"><div class="stat-value">+18%</div><div class="stat-label">Engagement This Month</div></div>
+          <div class="stat-info"><div class="stat-value">{{ stats?.totalUsers || 0 }}</div><div class="stat-label">Registered Citizens</div></div>
         </div>
         <div class="stat-card">
           <div class="stat-icon teal"><i class="material-icons-outlined">sentiment_satisfied</i></div>
-          <div class="stat-info"><div class="stat-value">72%</div><div class="stat-label">Positive Sentiment</div></div>
+          <div class="stat-info"><div class="stat-value">{{ resolutionRate }}%</div><div class="stat-label">Resolution Rate</div></div>
         </div>
       </div>
 
@@ -52,8 +56,10 @@ import { DashboardStats, Issue } from '@dd/shared-types';
           <div class="card-body">
             <p style="font-size: 14px; color: var(--text-secondary); line-height: 1.8;">
               This week, <strong>{{ stats?.openIssues || 0 }} issues</strong> remain open across all departments.
-              The <strong>Public Works</strong> department has the highest workload with the most infrastructure reports.
-              Citizen sentiment is trending <strong>positive</strong> with a 72% approval rating on recent resolutions.
+              @if (topDepartment) {
+                The <strong>{{ topDepartment.name }}</strong> department has the highest workload with {{ topDepartment.issueCount }} open issues.
+              }
+              The city has resolved <strong>{{ stats?.resolvedIssues || 0 }}</strong> issues with an average resolution time of <strong>{{ stats?.avgResolutionTimeDays || 0 }} days</strong>.
               Top concerns: road maintenance, water infrastructure, and public safety lighting.
             </p>
             <button class="btn btn-primary btn-sm" style="margin-top: 12px;">
@@ -64,7 +70,7 @@ import { DashboardStats, Issue } from '@dd/shared-types';
         <div class="card">
           <div class="card-header"><h3>Department Performance</h3></div>
           <div class="card-body">
-            @for (dept of departments; track dept.name) {
+            @for (dept of departments; track dept.id) {
               <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding: 10px; background: var(--bg-primary); border-radius: var(--radius);">
                 <div style="width: 40px; height: 40px; border-radius: var(--radius); background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px;">{{ dept.code }}</div>
                 <div style="flex: 1;">
@@ -76,6 +82,8 @@ import { DashboardStats, Issue } from '@dd/shared-types';
                   <div style="font-size: 11px; color: var(--text-muted);">issues</div>
                 </div>
               </div>
+            } @empty {
+              <div style="text-align:center;padding:32px;color:var(--text-muted);">No departments found.</div>
             }
           </div>
         </div>
@@ -96,6 +104,8 @@ import { DashboardStats, Issue } from '@dd/shared-types';
                   <td style="font-weight: 700;">▲ {{ issue.upvotes }}</td>
                   <td style="color: var(--text-muted);">{{ issue.createdAt | date:'short' }}</td>
                 </tr>
+              } @empty {
+                <tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-muted);">No priority issues found.</td></tr>
               }
             </tbody>
           </table>
@@ -107,14 +117,7 @@ import { DashboardStats, Issue } from '@dd/shared-types';
 export class MayorDashboardComponent implements OnInit {
   stats: DashboardStats | null = null;
   criticalIssues: Issue[] = [];
-  departments = [
-    { name: 'Public Works', code: 'PW', budget: 5000000, issueCount: 12 },
-    { name: 'Sanitation', code: 'SAN', budget: 3000000, issueCount: 8 },
-    { name: 'Public Safety', code: 'PS', budget: 12000000, issueCount: 15 },
-    { name: 'Utilities', code: 'UT', budget: 8000000, issueCount: 6 },
-    { name: 'Housing', code: 'HO', budget: 6000000, issueCount: 4 },
-    { name: 'Parks & Rec', code: 'PR', budget: 2500000, issueCount: 7 },
-  ];
+  departments: DeptWithCount[] = [];
 
   navItems = [
     { icon: 'dashboard', label: 'Overview', route: '/mayor' },
@@ -127,9 +130,33 @@ export class MayorDashboardComponent implements OnInit {
 
   constructor(public auth: AuthService, private api: ApiService) {}
 
+  get resolutionRate(): number {
+    if (!this.stats || !this.stats.totalIssues) return 0;
+    return Math.round((this.stats.resolvedIssues / this.stats.totalIssues) * 100);
+  }
+
+  get topDepartment(): DeptWithCount | null {
+    if (!this.departments.length) return null;
+    return [...this.departments].sort((a, b) => b.issueCount - a.issueCount)[0];
+  }
+
   ngOnInit() {
     this.api.getIssueStats().subscribe(res => {
-      if (res.success) { this.stats = res.data; this.criticalIssues = res.data.recentIssues.slice(0, 5); }
+      if (res.success) {
+        this.stats = res.data;
+        this.criticalIssues = res.data.recentIssues.slice(0, 5);
+      }
+    });
+    this.api.getDepartments().subscribe(res => {
+      if (!res.success || !res.data.length) return;
+      const depts = res.data;
+      const countRequests = depts.map(d => this.api.getIssues({ departmentId: d.id, pageSize: '1' }));
+      forkJoin(countRequests).subscribe((results: any[]) => {
+        this.departments = depts.map((d, i) => ({
+          ...d,
+          issueCount: results[i]?.total || 0,
+        }));
+      });
     });
   }
 }

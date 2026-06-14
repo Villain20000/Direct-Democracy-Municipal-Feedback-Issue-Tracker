@@ -189,6 +189,37 @@ export interface Survey {
   closesAt?: string;
   createdAt: string;
   questions?: SurveyQuestion[];
+  _count?: { responses: number };
+}
+
+export interface Forum {
+  id: string;
+  title: string;
+  description?: string;
+  creatorId: string;
+  creator?: User;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  posts?: ForumPost[];
+  _count?: { posts: number };
+}
+
+export interface ForumPost {
+  id: string;
+  forumId: string;
+  authorId: string;
+  author?: User;
+  content: string;
+  createdAt: string;
+}
+
+export interface IssueTemplate {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  location: string;
 }
 
 export interface SurveyQuestion {
