@@ -1,11 +1,28 @@
 import { prisma } from '../db/client';
 import type { Prisma } from '@prisma/client';
+import { emailService } from './email.service';
 
 export const notificationService = {
-  async create(userId: string, type: string, title: string, message: string, data?: Record<string, unknown>) {
-    return prisma.notification.create({
+  async create(
+    userId: string,
+    type: string,
+    title: string,
+    message: string,
+    data?: Record<string, unknown>,
+    options?: { sendEmail?: boolean },
+  ) {
+    const notification = await prisma.notification.create({
       data: { userId, type, title, message, data: (data || undefined) as Prisma.InputJsonValue | undefined },
     });
+
+    if (options?.sendEmail) {
+      const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+      if (user?.email) {
+        emailService.sendIssueNotification(user.email, title, message).catch(() => {});
+      }
+    }
+
+    return notification;
   },
 
   async getByUser(userId: string, params?: { page?: number; pageSize?: number; unreadOnly?: boolean }) {

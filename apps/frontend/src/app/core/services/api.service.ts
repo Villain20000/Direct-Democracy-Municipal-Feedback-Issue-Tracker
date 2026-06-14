@@ -39,6 +39,12 @@ export class ApiService {
     return this.http.post<{ success: boolean; data: { voted: boolean } }>(`${this.apiUrl}/issues/${id}/upvote`, {});
   }
 
+  getDepartmentResolutionRates(): Observable<{ success: boolean; data: Array<{ department: string; total: number; resolved: number; pct: number }> }> {
+    return this.http.get<{ success: boolean; data: Array<{ department: string; total: number; resolved: number; pct: number }> }>(
+      `${this.apiUrl}/issues/stats/departments`
+    );
+  }
+
   getIssueStats(params?: Record<string, string>): Observable<{ success: boolean; data: DashboardStats }> {
     let httpParams = new HttpParams();
     if (params) Object.entries(params).forEach(([key, value]) => { if (value) httpParams = httpParams.set(key, value); });
@@ -286,6 +292,12 @@ export class ApiService {
   }
 
   // Audit Logs
+  getAuditAnomalies(): Observable<{ success: boolean; data: Array<{ title: string; severity: string; desc: string; date: string }> }> {
+    return this.http.get<{ success: boolean; data: Array<{ title: string; severity: string; desc: string; date: string }> }>(
+      `${this.apiUrl}/audit/anomalies`
+    );
+  }
+
   getAuditLogs(params: Record<string, string> = {}): Observable<any> {
     let httpParams = new HttpParams();
     Object.entries(params).forEach(([key, value]) => { if (value) httpParams = httpParams.set(key, value); });

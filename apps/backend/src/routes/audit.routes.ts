@@ -21,6 +21,16 @@ router.get('/', authenticate, authorize('SUPER_ADMIN', 'AUDITOR'), async (req: A
   }
 });
 
+// Detect anomalies from recent audit activity
+router.get('/anomalies', authenticate, authorize('SUPER_ADMIN', 'AUDITOR'), async (_req: AuthenticatedRequest, res) => {
+  try {
+    const anomalies = await auditService.detectAnomalies();
+    res.json({ success: true, data: anomalies });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get audit trail for a specific entity
 router.get('/entity/:entity/:entityId', authenticate, authorize('SUPER_ADMIN', 'AUDITOR'), async (req: AuthenticatedRequest, res) => {
   try {

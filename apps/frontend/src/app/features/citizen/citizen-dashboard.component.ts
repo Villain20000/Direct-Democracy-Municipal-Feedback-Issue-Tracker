@@ -138,6 +138,7 @@ export class CitizenDashboardComponent implements OnInit {
     { icon: 'my_reports', label: 'My Reports', route: '/citizen/reports' },
     { icon: 'near_me', label: 'Nearby', route: '/citizen/nearby' },
     { icon: 'how_to_vote', label: 'Polls & Voting', route: '/citizen/polls' },
+    { icon: 'ballot', label: 'Surveys', route: '/citizen/surveys' },
     { icon: 'forum', label: 'Forums', route: '/citizen/forums' },
     { icon: 'event', label: 'Events', route: '/citizen/events' },
   ];

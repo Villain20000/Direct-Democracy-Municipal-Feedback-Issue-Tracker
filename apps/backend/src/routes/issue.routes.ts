@@ -49,6 +49,16 @@ router.patch('/bulk', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMEN
   }
 });
 
+// Department resolution rates
+router.get('/stats/departments', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'AUDITOR', 'DEPARTMENT_HEAD'), async (_req: AuthenticatedRequest, res) => {
+  try {
+    const rates = await issueService.getDepartmentResolutionRates();
+    res.json({ success: true, data: rates });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Dashboard stats
 router.get('/stats', authenticate, async (req: AuthenticatedRequest, res) => {
   try {
@@ -109,7 +119,7 @@ router.patch('/:id/status', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEP
 router.patch('/:id/assign', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMENT_HEAD'), async (req: AuthenticatedRequest, res) => {
   try {
     const { assigneeId, departmentId } = req.body;
-    const issue = await issueService.assign(req.params.id as string, assigneeId, departmentId);
+    const issue = await issueService.assign(req.params.id as string, assigneeId, departmentId, req.user!.id);
     res.json({ success: true, data: issue });
   } catch (error: any) {
     res.status(400).json({ error: error.message });

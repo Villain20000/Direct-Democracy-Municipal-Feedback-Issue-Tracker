@@ -121,6 +121,46 @@ async function main() {
     prisma.pollOption.create({ data: { pollId: poll.id, text: 'Pedestrian Safety Improvements', votes: 134 } }),
   ]);
 
+  // Create surveys
+  const survey = await prisma.survey.create({
+    data: {
+      title: 'Community Services Satisfaction Survey',
+      description: 'Help us improve municipal services by sharing your feedback.',
+      creatorId: users[1].id,
+      closesAt: new Date('2026-08-31'),
+      questions: {
+        create: [
+          { text: 'How satisfied are you with city services overall?', type: 'RATING', order: 1 },
+          { text: 'Which service needs the most improvement?', type: 'MULTIPLE_CHOICE', options: ['Roads', 'Parks', 'Sanitation', 'Public Safety'], order: 2 },
+          { text: 'Additional comments', type: 'TEXT', order: 3 },
+        ],
+      },
+    },
+  });
+  console.log('  ✅ Survey created:', survey.title);
+
+  // Create forums
+  const forum = await prisma.forum.create({
+    data: {
+      title: 'Downtown Revitalization Plan',
+      description: 'Share your thoughts on the proposed downtown development initiative.',
+      creatorId: users[4].id,
+    },
+  });
+  await Promise.all([
+    prisma.forumPost.create({ data: { forumId: forum.id, authorId: users[10].id, content: 'I support more green spaces in the downtown area. Parks would make it more family-friendly.' } }),
+    prisma.forumPost.create({ data: { forumId: forum.id, authorId: users[11].id, content: 'We need better pedestrian crossings on Main Street before any new development starts.' } }),
+    prisma.forumPost.create({ data: { forumId: forum.id, authorId: users[2].id, content: 'Public Works is ready to coordinate infrastructure upgrades with the development timeline.' } }),
+  ]);
+  console.log('  ✅ Forum created:', forum.title);
+
+  // Sample audit logs
+  await Promise.all([
+    prisma.auditLog.create({ data: { userId: users[7].id, action: 'UPDATE_STATUS', entity: 'Issue', entityId: issues[0].id, oldValues: { status: 'ACKNOWLEDGED' }, newValues: { status: 'IN_PROGRESS' } } }),
+    prisma.auditLog.create({ data: { userId: users[0].id, action: 'ASSIGN', entity: 'Issue', entityId: issues[1].id, newValues: { assigneeId: users[7].id } } }),
+    prisma.auditLog.create({ data: { userId: users[10].id, action: 'CREATE', entity: 'Issue', entityId: issues[4].id, newValues: { title: issues[4].title } } }),
+  ]);
+
   console.log('✅ Seeding complete!');
   console.log(`   ${departments.length} departments`);
   console.log(`   ${wards.length} wards`);

@@ -1,6 +1,8 @@
 import { prisma } from '../db/client';
 import { cache } from '../cache/redis';
 import { routingService } from './routing.service';
+import { auditService } from './audit.service';
+import { notificationService } from './notification.service';
 
 const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'priority', 'upvotes', 'status', 'title'] as const;
 
@@ -39,6 +41,20 @@ export const issueService = {
       },
     });
     await this.recordHistory(issue.id, null, 'SUBMITTED', data.reporterId);
+    await auditService.log({
+      userId: data.reporterId,
+      action: 'CREATE',
+      entity: 'Issue',
+      entityId: issue.id,
+      newValues: { title: issue.title, category: issue.category, departmentId },
+    });
+    await notificationService.create(
+      data.reporterId,
+      'ISSUE_STATUS_CHANGED',
+      'Issue submitted',
+      `Your report "${issue.title}" has been submitted and routed for review.`,
+      { issueId: issue.id },
+    );
     await cache.invalidatePattern('issues:stats');
     return issue;
   },
@@ -137,6 +153,24 @@ export const issueService = {
       },
     });
     await this.recordHistory(id, issue.status, newStatus, changedBy, note);
+    await auditService.log({
+      userId: changedBy,
+      action: 'UPDATE_STATUS',
+      entity: 'Issue',
+      entityId: id,
+      oldValues: { status: issue.status },
+      newValues: { status: newStatus, note },
+    });
+    if (issue.reporterId !== changedBy) {
+      await notificationService.create(
+        issue.reporterId,
+        'ISSUE_STATUS_CHANGED',
+        `Issue status: ${newStatus}`,
+        `"${issue.title}" is now ${newStatus.replace(/_/g, ' ').toLowerCase()}.`,
+        { issueId: id, status: newStatus },
+        { sendEmail: true },
+      );
+    }
     await cache.del(`issues:detail:${id}`);
     await cache.invalidatePattern('issues:stats');
     return updated;
@@ -158,6 +192,23 @@ export const issueService = {
         data.status = updates.status;
         if (updates.status === 'RESOLVED') data.resolvedAt = new Date();
         await this.recordHistory(id, issue.status, updates.status, changedBy, 'Bulk update');
+        await auditService.log({
+          userId: changedBy,
+          action: 'BULK_UPDATE',
+          entity: 'Issue',
+          entityId: id,
+          oldValues: { status: issue.status },
+          newValues: { status: updates.status },
+        });
+        if (issue.reporterId !== changedBy) {
+          await notificationService.create(
+            issue.reporterId,
+            'ISSUE_STATUS_CHANGED',
+            `Issue status: ${updates.status}`,
+            `"${issue.title}" is now ${updates.status.replace(/_/g, ' ').toLowerCase()}.`,
+            { issueId: id, status: updates.status },
+          );
+        }
       }
 
       const updated = await prisma.issue.update({ where: { id }, data });
@@ -169,8 +220,11 @@ export const issueService = {
     return results;
   },
 
-  async assign(id: string, assigneeId: string, departmentId?: string) {
-    return prisma.issue.update({
+  async assign(id: string, assigneeId: string, departmentId?: string, assignedBy?: string) {
+    const issue = await prisma.issue.findUnique({ where: { id } });
+    if (!issue) throw new Error('Issue not found');
+
+    const updated = await prisma.issue.update({
       where: { id },
       data: {
         assigneeId,
@@ -179,6 +233,38 @@ export const issueService = {
       },
       include: { assignee: { select: { id: true, firstName: true, lastName: true } } },
     });
+
+    if (assignedBy) {
+      await this.recordHistory(id, issue.status, 'ACKNOWLEDGED', assignedBy, 'Issue assigned');
+      await auditService.log({
+        userId: assignedBy,
+        action: 'ASSIGN',
+        entity: 'Issue',
+        entityId: id,
+        newValues: { assigneeId, departmentId },
+      });
+    }
+
+    await notificationService.create(
+      assigneeId,
+      'ISSUE_ASSIGNED',
+      'New issue assigned',
+      `You have been assigned: "${issue.title}"`,
+      { issueId: id },
+      { sendEmail: true },
+    );
+    if (issue.reporterId !== assigneeId) {
+      await notificationService.create(
+        issue.reporterId,
+        'ISSUE_STATUS_CHANGED',
+        'Issue acknowledged',
+        `"${issue.title}" has been assigned to a staff member.`,
+        { issueId: id },
+      );
+    }
+
+    await cache.del(`issues:detail:${id}`);
+    return updated;
   },
 
   async upvote(id: string, userId: string) {
@@ -195,6 +281,22 @@ export const issueService = {
       await prisma.issue.update({ where: { id }, data: { upvotes: { increment: 1 } } });
       return { voted: true };
     }
+  },
+
+  async getDepartmentResolutionRates() {
+    const departments = await prisma.department.findMany({ select: { id: true, name: true } });
+    return Promise.all(departments.map(async (dept) => {
+      const [total, resolved] = await Promise.all([
+        prisma.issue.count({ where: { departmentId: dept.id } }),
+        prisma.issue.count({ where: { departmentId: dept.id, status: { in: ['RESOLVED', 'VERIFIED'] } } }),
+      ]);
+      return {
+        department: dept.name,
+        total,
+        resolved,
+        pct: total ? Math.round((resolved / total) * 100) : 0,
+      };
+    }));
   },
 
   async getStats(filters?: { departmentId?: string; wardId?: string }) {

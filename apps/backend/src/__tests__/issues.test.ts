@@ -119,8 +119,9 @@ describe('Issue Endpoints', () => {
 
   describe('PATCH /api/v1/issues/:id/status', () => {
     it('should update issue status for staff users', async () => {
+      const reporter = await createTestUser({ email: 'issue-reporter@test.com', role: 'CITIZEN' });
       const staffUser = await createTestUser({ email: 'staff@test.com', role: 'STAFF' });
-      const issue = await createTestIssue(staffUser.user.id);
+      const issue = await createTestIssue(reporter.user.id);
 
       const res = await request(app)
         .patch(`/api/v1/issues/${issue.id}/status`)
@@ -129,6 +130,16 @@ describe('Issue Endpoints', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.status).toBe('IN_PROGRESS');
+
+      const notification = await prisma.notification.findFirst({
+        where: { userId: reporter.user.id, type: 'ISSUE_STATUS_CHANGED' },
+      });
+      expect(notification).toBeTruthy();
+
+      const audit = await prisma.auditLog.findFirst({
+        where: { entityId: issue.id, action: 'UPDATE_STATUS' },
+      });
+      expect(audit).toBeTruthy();
     });
 
     it('should reject status update from citizens', async () => {
