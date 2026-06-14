@@ -1,5 +1,5 @@
 import { Component, input, output, OnInit } from '@angular/core';
-import { CommonModule, DatePipe } from '@angular/common';
+import { CommonModule, formatDate } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { AuthService } from '../core/services/auth.service';
@@ -16,7 +16,7 @@ export interface NavItem {
 @Component({
   selector: 'app-layout',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, RouterLinkActive, DatePipe],
+  imports: [CommonModule, FormsModule, RouterLink, RouterLinkActive],
   template: `
     <div class="dashboard-layout">
       <aside class="sidebar">
@@ -93,7 +93,7 @@ export interface NavItem {
                       >
                         <div class="notification-title">{{ notif.title }}</div>
                         <div class="notification-message">{{ notif.message }}</div>
-                        <div class="notification-time">{{ notif.createdAt | date:'short' }}</div>
+                        <div class="notification-time">{{ formatDateTime(notif.createdAt) }}</div>
                       </div>
                     } @empty {
                       <div class="notification-empty">No notifications</div>
@@ -287,9 +287,18 @@ export class LayoutComponent implements OnInit {
     if (!notif.isRead) {
       this.notifications.markRead(notif.id);
     }
+    const issueId = notif.data?.['issueId'] as string | undefined;
+    if (issueId) {
+      this.showNotifications = false;
+      this.router.navigate(['/issues', issueId]);
+    }
   }
 
   markAllRead(): void {
     this.notifications.markAllRead();
+  }
+
+  formatDateTime(value: string): string {
+    return formatDate(value, 'short', 'en-US');
   }
 }

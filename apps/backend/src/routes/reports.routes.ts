@@ -5,7 +5,7 @@ import { reportsService } from '../services/reports.service';
 
 const router = Router();
 
-router.get('/issues.csv', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'AUDITOR', 'DEPARTMENT_HEAD'), async (req: AuthenticatedRequest, res) => {
+router.get('/issues.csv', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'AUDITOR', 'DEPARTMENT_HEAD', 'MEDIA', 'COUNCIL_MEMBER'), async (req: AuthenticatedRequest, res) => {
   try {
     const csv = await reportsService.exportIssuesCsv({
       status: req.query.status as string,

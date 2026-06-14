@@ -4,7 +4,8 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
-import { Issue } from '@dd/shared-types';
+import { Issue, UserRole } from '@dd/shared-types';
+import { issueStatusClass, formatIssueStatus } from '../../core/utils/issue-ui';
 
 @Component({
   selector: 'app-issue-detail',
@@ -26,7 +27,7 @@ import { Issue } from '@dd/shared-types';
                     <h2 style="font-size:22px;font-weight:800;margin-bottom:8px;">{{ issue.title }}</h2>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;">
                       <span class="badge badge-blue">{{ issue.category }}</span>
-                      <span class="status-badge" [class]="issue.status.toLowerCase()">{{ issue.status }}</span>
+                      <span class="status-badge" [ngClass]="issueStatusClass(issue.status)">{{ formatIssueStatus(issue.status) }}</span>
                       @if (issue.priority) {
                         <span class="badge" [class]="issue.priority >= 4 ? 'badge-red' : issue.priority >= 3 ? 'badge-amber' : 'badge-green'">
                           Priority: {{ issue.priority }}/5
@@ -89,6 +90,25 @@ import { Issue } from '@dd/shared-types';
           </div>
 
           <div style="flex:1;">
+            @if (canUpdateStatus) {
+              <div class="card" style="margin-bottom:24px;">
+                <div class="card-header"><h3>Update Status</h3></div>
+                <div class="card-body">
+                  @if (statusError) {
+                    <div style="color:var(--danger);font-size:13px;margin-bottom:12px;">{{ statusError }}</div>
+                  }
+                  @if (statusMessage) {
+                    <div style="color:var(--success);font-size:13px;margin-bottom:12px;">{{ statusMessage }}</div>
+                  }
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button type="button" class="btn btn-primary btn-sm" [disabled]="statusUpdating || issue.status === 'IN_PROGRESS'" (click)="updateStatus('IN_PROGRESS')">▶ Start</button>
+                    <button type="button" class="btn btn-secondary btn-sm" [disabled]="statusUpdating" (click)="updateStatus('PENDING_REVIEW')">Review</button>
+                    <button type="button" class="btn btn-success btn-sm" [disabled]="statusUpdating || issue.status === 'RESOLVED'" (click)="updateStatus('RESOLVED')">✓ Resolve</button>
+                  </div>
+                </div>
+              </div>
+            }
+
             <div class="card" style="margin-bottom:24px;">
               <div class="card-header"><h3>Status</h3></div>
               <div class="card-body">
@@ -154,10 +174,22 @@ export class IssueDetailComponent implements OnInit {
   aiSummary = '';
   aiCategory = '';
   aiSentiment = '';
+  statusUpdating = false;
+  statusError = '';
+  statusMessage = '';
   statusFlow = ['SUBMITTED', 'ACKNOWLEDGED', 'IN_PROGRESS', 'PENDING_REVIEW', 'RESOLVED', 'VERIFIED'];
   navItems = [{ icon: 'arrow_back', label: 'Back to Issues', route: '/issues' }];
 
+  issueStatusClass = issueStatusClass;
+  formatIssueStatus = formatIssueStatus;
+
   constructor(public auth: AuthService, private api: ApiService, private route: ActivatedRoute) {}
+
+  get canUpdateStatus(): boolean {
+    return this.auth.hasRole(
+      UserRole.SUPER_ADMIN, UserRole.MAYOR, UserRole.DEPARTMENT_HEAD, UserRole.STAFF
+    );
+  }
 
   ngOnInit() { this.reloadIssue(); }
 
@@ -215,6 +247,27 @@ export class IssueDetailComponent implements OnInit {
     const idx = this.statusFlow.indexOf(status);
     const currentIdx = this.statusFlow.indexOf(this.issue.status);
     return idx < currentIdx;
+  }
+
+  updateStatus(status: string) {
+    if (!this.issue || this.statusUpdating) return;
+    this.statusUpdating = true;
+    this.statusError = '';
+    this.statusMessage = '';
+    this.api.updateIssueStatus(this.issue.id, status).subscribe({
+      next: (res) => {
+        if (res.success) {
+          this.issue = { ...this.issue!, ...res.data };
+          this.statusMessage = `Status updated to ${formatIssueStatus(status)}.`;
+          setTimeout(() => { this.statusMessage = ''; }, 4000);
+        }
+        this.statusUpdating = false;
+      },
+      error: (err) => {
+        this.statusError = err.error?.error || 'Failed to update status.';
+        this.statusUpdating = false;
+      },
+    });
   }
 
   postComment(input: HTMLInputElement) {

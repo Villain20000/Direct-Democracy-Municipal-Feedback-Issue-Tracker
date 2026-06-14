@@ -1,5 +1,5 @@
 import { Component, OnInit } from '@angular/core';
-import { CommonModule, DecimalPipe, CurrencyPipe } from '@angular/common';
+import { CommonModule, DecimalPipe, CurrencyPipe, DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { LayoutComponent } from '../../shared/layout.component';
@@ -14,7 +14,7 @@ interface DeptWithCount extends Department {
 @Component({
   selector: 'app-mayor-dashboard',
   standalone: true,
-  imports: [CommonModule, RouterLink, LayoutComponent, DecimalPipe, CurrencyPipe],
+  imports: [CommonModule, RouterLink, LayoutComponent, DecimalPipe, CurrencyPipe, DatePipe],
   template: `
     <app-layout
       pageTitle="Mayor Dashboard"
@@ -62,8 +62,12 @@ interface DeptWithCount extends Department {
               The city has resolved <strong>{{ stats?.resolvedIssues || 0 }}</strong> issues with an average resolution time of <strong>{{ stats?.avgResolutionTimeDays || 0 }} days</strong>.
               Top concerns: road maintenance, water infrastructure, and public safety lighting.
             </p>
-            <button class="btn btn-primary btn-sm" style="margin-top: 12px;">
-              <i class="material-icons-outlined" style="font-size: 16px;">auto_awesome</i> Generate Full Report
+            @if (aiReport) {
+              <div style="margin-top:12px;padding:12px;background:var(--bg-primary);border-radius:var(--radius);font-size:13px;line-height:1.6;">{{ aiReport }}</div>
+            }
+            <button type="button" class="btn btn-primary btn-sm" style="margin-top: 12px;" (click)="generateAiReport()" [disabled]="aiLoading || !stats">
+              <i class="material-icons-outlined" style="font-size: 16px;">auto_awesome</i>
+              @if (aiLoading) { Generating... } @else { Generate Full Report }
             </button>
           </div>
         </div>
@@ -99,8 +103,8 @@ interface DeptWithCount extends Department {
                 <tr [routerLink]="['/issues', issue.id]" style="cursor: pointer;">
                   <td><strong>{{ issue.title }}</strong><br><span style="font-size: 11px; color: var(--text-muted);">{{ issue.location }}</span></td>
                   <td><span class="badge badge-blue">{{ issue.category }}</span></td>
-                  <td><span class="status-badge" [class]="issue.status.toLowerCase()">{{ issue.status }}</span></td>
-                  <td><span class="priority-dot" [class]="'p' + (issue.priority || 1)"></span> {{ issue.priority }}/5</td>
+                  <td><span class="status-badge" [ngClass]="statusClass(issue.status)">{{ formatStatus(issue.status) }}</span></td>
+                  <td><span class="priority-dot" [ngClass]="'p' + (issue.priority || 1)"></span> {{ issue.priority }}/5</td>
                   <td style="font-weight: 700;">▲ {{ issue.upvotes }}</td>
                   <td style="color: var(--text-muted);">{{ issue.createdAt | date:'short' }}</td>
                 </tr>
@@ -118,6 +122,8 @@ export class MayorDashboardComponent implements OnInit {
   stats: DashboardStats | null = null;
   criticalIssues: Issue[] = [];
   departments: DeptWithCount[] = [];
+  aiReport = '';
+  aiLoading = false;
 
   navItems = [
     { icon: 'dashboard', label: 'Overview', route: '/mayor' },
@@ -157,6 +163,39 @@ export class MayorDashboardComponent implements OnInit {
           issueCount: results[i]?.total || 0,
         }));
       });
+    });
+  }
+
+  statusClass(status: string): string {
+    return status.toLowerCase().replace(/_/g, '-');
+  }
+
+  formatStatus(status: string): string {
+    return status.replace(/_/g, ' ');
+  }
+
+  generateAiReport() {
+    if (!this.stats || this.aiLoading) return;
+    const dept = this.topDepartment;
+    const briefing = [
+      `City of Springfield weekly briefing.`,
+      `Total issues: ${this.stats.totalIssues}. Open: ${this.stats.openIssues}. Resolved: ${this.stats.resolvedIssues}.`,
+      `Resolution rate: ${this.resolutionRate}%. Average resolution time: ${this.stats.avgResolutionTimeDays} days.`,
+      dept ? `Highest workload department: ${dept.name} (${dept.issueCount} issues).` : '',
+      `Registered citizens: ${this.stats.totalUsers}.`,
+    ].filter(Boolean).join(' ');
+
+    this.aiLoading = true;
+    this.aiReport = '';
+    this.api.aiSummarize(briefing, 500).subscribe({
+      next: (res: any) => {
+        this.aiReport = res.success ? (res.data?.summary || briefing) : briefing;
+        this.aiLoading = false;
+      },
+      error: () => {
+        this.aiReport = briefing;
+        this.aiLoading = false;
+      },
     });
   }
 }

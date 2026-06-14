@@ -6,6 +6,7 @@ import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
 import { Issue, IssueStatus, IssueCategory, UserRole } from '@dd/shared-types';
+import { issueStatusClass, formatIssueStatus } from '../../core/utils/issue-ui';
 
 @Component({
   selector: 'app-issue-list',
@@ -59,8 +60,8 @@ import { Issue, IssueStatus, IssueCategory, UserRole } from '@dd/shared-types';
                     <br><span style="font-size:11px;color:var(--text-muted);">{{ issue.location }}</span>
                   </td>
                   <td><span class="badge badge-blue">{{ issue.category }}</span></td>
-                  <td><span class="status-badge" [class]="issue.status.toLowerCase()">{{ issue.status }}</span></td>
-                  <td><span class="priority-dot" [class]="'p' + (issue.priority || 3)"></span> {{ issue.priority || '-' }}/5</td>
+                  <td><span class="status-badge" [ngClass]="issueStatusClass(issue.status)">{{ formatIssueStatus(issue.status) }}</span></td>
+                  <td><span class="priority-dot" [ngClass]="'p' + (issue.priority || 3)"></span> {{ issue.priority || '-' }}/5</td>
                   <td style="font-weight:700;">▲ {{ issue.upvotes }}</td>
                   <td style="font-size:12px;">{{ issue.reporter?.firstName || 'Anonymous' }}</td>
                   <td style="color:var(--text-muted);font-size:12px;">{{ issue.createdAt | date:'mediumDate' }}</td>
@@ -105,6 +106,9 @@ export class IssueListComponent implements OnInit {
   private sortBy = '';
   private departmentId = '';
   private wardId = '';
+
+  issueStatusClass = issueStatusClass;
+  formatIssueStatus = formatIssueStatus;
 
   constructor(public auth: AuthService, private api: ApiService, private route: ActivatedRoute, private router: Router) {
     this.canBulkUpdate = auth.hasRole(UserRole.SUPER_ADMIN, UserRole.MAYOR, UserRole.DEPARTMENT_HEAD, UserRole.STAFF);

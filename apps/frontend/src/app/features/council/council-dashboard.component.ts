@@ -1,5 +1,5 @@
 import { Component, OnInit } from '@angular/core';
-import { CommonModule, DatePipe } from '@angular/common';
+import { CommonModule, formatDate } from '@angular/common';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
@@ -16,9 +16,20 @@ interface CouncilMeeting {
 @Component({
   selector: 'app-council-dashboard',
   standalone: true,
-  imports: [CommonModule, LayoutComponent, DatePipe],
+  imports: [CommonModule, LayoutComponent],
   template: `
     <app-layout pageTitle="Council Dashboard" [navItems]="navItems" (logout)="auth.logout()">
+
+      @if (voteMessage) {
+        <div class="card" style="margin-bottom:16px;border-color:var(--success);">
+          <div class="card-body" style="color:var(--success);font-size:13px;">{{ voteMessage }}</div>
+        </div>
+      }
+      @if (voteError) {
+        <div class="card" style="margin-bottom:16px;border-color:var(--danger);">
+          <div class="card-body" style="color:var(--danger);font-size:13px;">{{ voteError }}</div>
+        </div>
+      }
 
       <div class="stats-grid">
         <div class="stat-card"><div class="stat-icon purple"><i class="material-icons-outlined">how_to_vote</i></div><div class="stat-info"><div class="stat-value">{{ pendingResolutions }}</div><div class="stat-label">Pending Resolutions</div></div></div>
@@ -40,8 +51,8 @@ interface CouncilMeeting {
                 <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">{{ res.description }}</p>
                 <div style="display:flex;gap:12px;align-items:center;">
                   <div style="display:flex;gap:8px;">
-                    <button class="btn btn-success btn-sm" (click)="voteOnResolution(res, true)">👍 For ({{ res.votesFor }})</button>
-                    <button class="btn btn-danger btn-sm" (click)="voteOnResolution(res, false)">👎 Against ({{ res.votesAgainst }})</button>
+                    <button type="button" class="btn btn-success btn-sm" [disabled]="votingId === res.id" (click)="voteOnResolution(res, true)">👍 For ({{ res.votesFor }})</button>
+                    <button type="button" class="btn btn-danger btn-sm" [disabled]="votingId === res.id" (click)="voteOnResolution(res, false)">👎 Against ({{ res.votesAgainst }})</button>
                   </div>
                 </div>
               </div>
@@ -101,6 +112,9 @@ export class CouncilDashboardComponent implements OnInit {
   sentimentPositive = 0;
   sentimentNeutral = 0;
   sentimentNegative = 0;
+  votingId = '';
+  voteMessage = '';
+  voteError = '';
   navItems = [
     { icon: 'dashboard', label: 'Overview', route: '/council' },
     { icon: 'how_to_vote', label: 'Resolutions', route: '/council/resolutions' },
@@ -109,7 +123,9 @@ export class CouncilDashboardComponent implements OnInit {
     { icon: 'event', label: 'Calendar', route: '/council/calendar' },
   ];
 
-  constructor(public auth: AuthService, private api: ApiService, private datePipe: DatePipe) {}
+  private readonly locale = 'en-US';
+
+  constructor(public auth: AuthService, private api: ApiService) {}
 
   get pendingResolutions(): number {
     return this.resolutions.filter(r => r.status === 'VOTING' || r.status === 'PROPOSED').length;
@@ -155,8 +171,22 @@ export class CouncilDashboardComponent implements OnInit {
   }
 
   voteOnResolution(resolution: any, voteFor: boolean) {
+    this.votingId = resolution.id;
+    this.voteMessage = '';
+    this.voteError = '';
     this.api.voteResolution(resolution.id, voteFor).subscribe({
-      next: (res: any) => { if (res.success) this.loadResolutions(); },
+      next: (res: any) => {
+        if (res.success) {
+          this.loadResolutions();
+          this.voteMessage = `Vote recorded on "${resolution.title}".`;
+          setTimeout(() => { this.voteMessage = ''; }, 4000);
+        }
+        this.votingId = '';
+      },
+      error: (err) => {
+        this.voteError = err.error?.error || 'Failed to record vote.';
+        this.votingId = '';
+      },
     });
   }
 
@@ -164,9 +194,9 @@ export class CouncilDashboardComponent implements OnInit {
     const start = new Date(event.startTime);
     return {
       title: event.title,
-      day: this.datePipe.transform(start, 'd') || '',
-      month: this.datePipe.transform(start, 'MMM') || '',
-      time: this.datePipe.transform(start, 'shortTime') || '',
+      day: formatDate(start, 'd', this.locale),
+      month: formatDate(start, 'MMM', this.locale),
+      time: formatDate(start, 'shortTime', this.locale),
       location: event.location || 'TBD',
     };
   }

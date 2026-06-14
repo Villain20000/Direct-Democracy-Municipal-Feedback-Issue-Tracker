@@ -3,7 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { environment } from '../../../environments/environment';
 import { User, UserRole } from '@dd/shared-types';
-import { Observable, tap, catchError, of } from 'rxjs';
+import { Observable, tap, catchError, of, firstValueFrom, map } from 'rxjs';
 
 interface AuthData {
   accessToken: string;
@@ -30,9 +30,31 @@ export class AuthService {
       try {
         this.currentUser.set(JSON.parse(userJson));
       } catch {
-        this.logout();
+        this.clearSession();
       }
     }
+  }
+
+  /** Validate stored token on app startup; clears stale sessions before routed API calls. */
+  validateSession(): Promise<void> {
+    if (!localStorage.getItem('accessToken')) {
+      return Promise.resolve();
+    }
+    return firstValueFrom(
+      this.getProfile().pipe(
+        map(() => undefined),
+        catchError(() => {
+          this.clearSession();
+          return of(undefined);
+        }),
+      ),
+    );
+  }
+
+  private clearSession(): void {
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('user');
+    this.currentUser.set(null);
   }
 
   get token(): string | null {
@@ -80,9 +102,7 @@ export class AuthService {
   }
 
   logout(): void {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('user');
-    this.currentUser.set(null);
+    this.clearSession();
     this.router.navigate(['/login']);
   }
 

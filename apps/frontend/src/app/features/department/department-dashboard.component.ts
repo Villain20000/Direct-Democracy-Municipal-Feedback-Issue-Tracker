@@ -1,6 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule, CurrencyPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { forkJoin } from 'rxjs';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
@@ -68,8 +69,25 @@ import { DashboardStats, Issue } from '@dd/shared-types';
         </div>
       </div>
 
+      @if (rerankMessage) {
+        <div class="card" style="margin-bottom:16px;border-color:var(--success);">
+          <div class="card-body" style="color:var(--success);font-size:13px;">{{ rerankMessage }}</div>
+        </div>
+      }
+      @if (rerankError) {
+        <div class="card" style="margin-bottom:16px;border-color:var(--danger);">
+          <div class="card-body" style="color:var(--danger);font-size:13px;">{{ rerankError }}</div>
+        </div>
+      }
+
       <div class="card">
-        <div class="card-header"><h3>AI Priority-Ranked Issues</h3><button class="btn btn-primary btn-sm"><i class="material-icons-outlined" style="font-size:16px;">auto_awesome</i> Re-rank with AI</button></div>
+        <div class="card-header">
+          <h3>AI Priority-Ranked Issues</h3>
+          <button type="button" class="btn btn-primary btn-sm" (click)="rerankWithAi()" [disabled]="reranking || !issues.length">
+            <i class="material-icons-outlined" style="font-size:16px;">auto_awesome</i>
+            @if (reranking) { Ranking... } @else { Re-rank with AI }
+          </button>
+        </div>
         <div class="card-body" style="padding: 0;">
           <table class="data-table">
             <thead><tr><th>#</th><th>Title</th><th>Status</th><th>AI Priority</th><th>Assigned To</th><th>Upvotes</th></tr></thead>
@@ -78,8 +96,8 @@ import { DashboardStats, Issue } from '@dd/shared-types';
                 <tr [routerLink]="['/issues', issue.id]" style="cursor: pointer;">
                   <td style="font-weight: 700; color: var(--text-muted);">{{ i + 1 }}</td>
                   <td><strong>{{ issue.title }}</strong></td>
-                  <td><span class="status-badge" [class]="issue.status.toLowerCase()">{{ issue.status }}</span></td>
-                  <td><span class="priority-dot" [class]="'p' + (issue.priority || 3)"></span> {{ issue.priority || 'N/A' }}/5</td>
+                  <td><span class="status-badge" [ngClass]="statusClass(issue.status)">{{ formatStatus(issue.status) }}</span></td>
+                  <td><span class="priority-dot" [ngClass]="'p' + (issue.priority || 3)"></span> {{ issue.priority || 'N/A' }}/5</td>
                   <td>{{ issue.assignee?.firstName || 'Unassigned' }}</td>
                   <td>▲ {{ issue.upvotes }}</td>
                 </tr>
@@ -96,6 +114,9 @@ import { DashboardStats, Issue } from '@dd/shared-types';
 export class DepartmentDashboardComponent implements OnInit {
   issues: Issue[] = [];
   stats: DashboardStats | null = null;
+  reranking = false;
+  rerankMessage = '';
+  rerankError = '';
   staffWorkload = [
     { name: 'Tom Wilson', initials: 'TW', active: 8, capacity: 12 },
     { name: 'Sarah Adams', initials: 'SA', active: 6, capacity: 12 },
@@ -139,4 +160,41 @@ export class DepartmentDashboardComponent implements OnInit {
   }
 
   getStars(count: number): number[] { return Array(Math.max(0, count)); }
+
+  statusClass(status: string): string {
+    return status.toLowerCase().replace(/_/g, '-');
+  }
+
+  formatStatus(status: string): string {
+    return status.replace(/_/g, ' ');
+  }
+
+  rerankWithAi() {
+    if (!this.issues.length || this.reranking) return;
+    this.reranking = true;
+    this.rerankMessage = '';
+    this.rerankError = '';
+
+    const requests = this.issues.map(issue =>
+      this.api.aiPrioritize(`${issue.title}. ${issue.description}`, issue.category)
+    );
+
+    forkJoin(requests).subscribe({
+      next: (results: any[]) => {
+        this.issues = this.issues.map((issue, i) => ({
+          ...issue,
+          priority: results[i]?.data?.score ?? results[i]?.score ?? issue.priority,
+        }));
+        this.issues = [...this.issues].sort((a, b) => (b.priority || 0) - (a.priority || 0));
+        this.rerankMessage = 'Issues re-ranked by AI priority scores.';
+        this.reranking = false;
+        setTimeout(() => { this.rerankMessage = ''; }, 4000);
+      },
+      error: () => {
+        this.issues = [...this.issues].sort((a, b) => (b.priority || 0) - (a.priority || 0));
+        this.rerankError = 'AI ranking unavailable. Sorted by existing priority scores.';
+        this.reranking = false;
+      },
+    });
+  }
 }

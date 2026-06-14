@@ -1,5 +1,6 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule, TitleCasePipe, DatePipe } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
@@ -24,7 +25,7 @@ interface PublicStat {
 @Component({
   selector: 'app-media-dashboard',
   standalone: true,
-  imports: [CommonModule, LayoutComponent, TitleCasePipe, DatePipe],
+  imports: [CommonModule, LayoutComponent, TitleCasePipe, DatePipe, RouterLink],
   template: `
     <app-layout
       pageTitle="Press Center"
@@ -85,7 +86,7 @@ interface PublicStat {
                 <div style="font-size:14px;font-weight:700;margin-top:12px;">{{ report.title }}</div>
                 <div style="font-size:12px;color:var(--text-muted);margin:4px 0;">{{ report.desc }}</div>
                 <div style="display:flex;gap:8px;justify-content:center;margin-top:12px;">
-                  <button class="btn btn-secondary btn-sm" (click)="exportCsv()" [disabled]="exporting">📊 CSV</button>
+                  <button type="button" class="btn btn-secondary btn-sm" (click)="downloadReport(report.type, report.filename)" [disabled]="exporting">📊 CSV</button>
                 </div>
               </div>
             }
@@ -109,13 +110,17 @@ interface PublicStat {
           </div>
         </div>
         <div class="card">
-          <div class="card-header"><h3>🗺 Geographic Overview</h3></div>
+          <div class="card-header">
+            <h3>🗺 Geographic Overview</h3>
+            <a routerLink="/media/map" class="btn btn-primary btn-sm">Open Map</a>
+          </div>
           <div class="card-body">
             <div style="height:240px;background:linear-gradient(135deg,#EEF2FF,#E0E7FF);border-radius:var(--radius);display:flex;align-items:center;justify-content:center;">
               <div style="text-align:center;background:rgba(255,255,255,0.9);padding:16px;border-radius:var(--radius-lg);">
                 <i class="material-icons-outlined" style="font-size:48px;color:#4F46E5;">map</i>
                 <div style="font-size:13px;font-weight:600;margin-top:8px;">Issue Heat Map</div>
                 <div style="font-size:11px;color:var(--text-muted);">{{ totalIssues }} issues tracked</div>
+                <a routerLink="/media/map" class="btn btn-secondary btn-sm" style="margin-top:12px;">View Full Map</a>
               </div>
             </div>
           </div>
@@ -131,9 +136,9 @@ export class MediaDashboardComponent implements OnInit {
   trendingIssues: TrendingIssue[] = [];
   publicStats: PublicStat[] = [];
   downloads = [
-    { icon: 'assessment', title: 'Monthly Issue Report', desc: 'Complete issue summary for the month' },
-    { icon: 'account_balance', title: 'Budget Transparency', desc: 'Department spending and allocations' },
-    { icon: 'groups', title: 'Community Engagement', desc: 'Citizen participation statistics' },
+    { icon: 'assessment', title: 'Monthly Issue Report', desc: 'Complete issue summary for the month', type: 'issues' as const, filename: 'monthly-issues-report.csv' },
+    { icon: 'account_balance', title: 'Budget Transparency', desc: 'Department spending and allocations', type: 'issues' as const, filename: 'budget-transparency-issues.csv' },
+    { icon: 'groups', title: 'Community Engagement', desc: 'Citizen participation statistics', type: 'issues' as const, filename: 'community-engagement-issues.csv' },
   ];
   pressReleases: Array<{ title: string; date: string; summary: string }> = [];
   exporting = false;
@@ -187,14 +192,15 @@ export class MediaDashboardComponent implements OnInit {
     });
   }
 
-  exportCsv() {
+  downloadReport(type: 'issues' | 'audit', filename = 'issues-export.csv') {
     this.exporting = true;
-    this.api.exportIssuesCsv().subscribe({
+    const request = type === 'audit' ? this.api.exportAuditCsv() : this.api.exportIssuesCsv();
+    request.subscribe({
       next: (blob) => {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'issues-export.csv';
+        a.download = filename;
         a.click();
         URL.revokeObjectURL(url);
         this.exporting = false;

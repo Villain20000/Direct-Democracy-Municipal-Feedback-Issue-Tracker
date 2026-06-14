@@ -1,5 +1,5 @@
 import { Component, OnInit } from '@angular/core';
-import { CommonModule, TitleCasePipe } from '@angular/common';
+import { CommonModule, TitleCasePipe, DatePipe } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
@@ -9,7 +9,7 @@ import { DashboardStats, User, Issue } from '@dd/shared-types';
 @Component({
   selector: 'app-admin-dashboard',
   standalone: true,
-  imports: [CommonModule, RouterLink, LayoutComponent, TitleCasePipe],
+  imports: [CommonModule, RouterLink, LayoutComponent, TitleCasePipe, DatePipe],
   template: `
     <app-layout
       pageTitle="Super Admin Dashboard"
@@ -98,8 +98,8 @@ import { DashboardStats, User, Issue } from '@dd/shared-types';
                 @for (issue of recentIssues; track issue.id) {
                   <tr style="cursor: pointer;" [routerLink]="['/issues', issue.id]">
                     <td><strong>{{ issue.title }}</strong></td>
-                    <td><span class="status-badge" [class]="issue.status.toLowerCase()">{{ issue.status }}</span></td>
-                    <td><span class="priority-dot" [class]="'p' + (issue.priority || 3)"></span> {{ issue.priority || '-' }}</td>
+                    <td><span class="status-badge" [ngClass]="statusClass(issue.status)">{{ formatStatus(issue.status) }}</span></td>
+                    <td><span class="priority-dot" [ngClass]="'p' + (issue.priority || 3)"></span> {{ issue.priority || '-' }}</td>
                     <td style="color: var(--text-muted);">{{ issue.createdAt | date:'short' }}</td>
                   </tr>
                 }
@@ -184,6 +184,14 @@ export class AdminDashboardComponent implements OnInit {
   getRoleBarWidth(count: number): number {
     const max = Math.max(...this.roleEntries.map(e => e[1]), 1);
     return (count / max) * 100;
+  }
+
+  statusClass(status: string): string {
+    return status.toLowerCase().replace(/_/g, '-');
+  }
+
+  formatStatus(status: string): string {
+    return status.replace(/_/g, ' ');
   }
 
   getRoleColor(role: string): string {

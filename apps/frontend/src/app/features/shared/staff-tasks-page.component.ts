@@ -35,15 +35,15 @@ import { Issue } from '@dd/shared-types';
                       <a [routerLink]="['/issues', issue.id]" style="font-weight:600;">{{ issue.title }}</a>
                       <br><span style="font-size:11px;color:var(--text-muted);">{{ issue.location }}</span>
                     </td>
-                    <td><span class="status-badge" [class]="issue.status.toLowerCase()">{{ issue.status }}</span></td>
-                    <td><span class="priority-dot" [class]="'p' + (issue.priority || 3)"></span> {{ issue.priority || '-' }}/5</td>
+                    <td><span class="status-badge" [ngClass]="statusClass(issue.status)">{{ formatStatus(issue.status) }}</span></td>
+                    <td><span class="priority-dot" [ngClass]="'p' + (issue.priority || 3)"></span> {{ issue.priority || '-' }}/5</td>
                     <td style="font-size:12px;">{{ issue.reporter?.firstName || 'Anonymous' }}</td>
                     <td style="color:var(--text-muted);font-size:12px;">{{ issue.createdAt | date:'mediumDate' }}</td>
                     <td>
                       <div style="display:flex;gap:4px;flex-wrap:wrap;">
-                        <button class="btn btn-primary btn-sm" [disabled]="updatingId === issue.id" (click)="updateStatus(issue, 'IN_PROGRESS')">▶ Start</button>
-                        <button class="btn btn-secondary btn-sm" [disabled]="updatingId === issue.id" (click)="updateStatus(issue, 'PENDING_REVIEW')">Review</button>
-                        <button class="btn btn-success btn-sm" [disabled]="updatingId === issue.id" (click)="updateStatus(issue, 'RESOLVED')">✓ Done</button>
+                        <button type="button" class="btn btn-primary btn-sm" [disabled]="updatingId === issue.id || issue.status === 'IN_PROGRESS'" (click)="updateStatus(issue, 'IN_PROGRESS')">▶ Start</button>
+                        <button type="button" class="btn btn-secondary btn-sm" [disabled]="updatingId === issue.id" (click)="updateStatus(issue, 'PENDING_REVIEW')">Review</button>
+                        <button type="button" class="btn btn-success btn-sm" [disabled]="updatingId === issue.id || issue.status === 'RESOLVED'" (click)="updateStatus(issue, 'RESOLVED')">✓ Done</button>
                       </div>
                     </td>
                   </tr>
@@ -69,8 +69,10 @@ export class StaffTasksPageComponent implements OnInit {
 
   constructor(public auth: AuthService, private api: ApiService, private route: ActivatedRoute) {
     this.navItems = [
-      { icon: 'dashboard', label: 'Dashboard', route: '/staff' },
-      { icon: 'assignment_ind', label: 'My Tasks', route: '/staff/tasks' },
+      { icon: 'dashboard', label: 'Overview', route: '/staff' },
+      { icon: 'assignment', label: 'My Tasks', route: '/staff/tasks' },
+      { icon: 'task_alt', label: 'Completed', route: '/staff/completed' },
+      { icon: 'note_add', label: 'Field Notes', route: '/staff/notes' },
     ];
   }
 
@@ -104,13 +106,25 @@ export class StaffTasksPageComponent implements OnInit {
     });
   }
 
+  statusClass(status: string): string {
+    return status.toLowerCase().replace(/_/g, '-');
+  }
+
+  formatStatus(status: string): string {
+    return status.replace(/_/g, ' ');
+  }
+
   updateStatus(issue: Issue, status: string) {
     this.updatingId = issue.id;
+    this.error = '';
     this.api.updateIssueStatus(issue.id, status).subscribe({
       next: (res: any) => {
         if (res.success) {
           const idx = this.issues.findIndex(i => i.id === issue.id);
-          if (idx >= 0) this.issues[idx] = res.data;
+          if (idx >= 0) {
+            this.issues[idx] = res.data;
+            this.issues = [...this.issues];
+          }
         }
         this.updatingId = '';
       },

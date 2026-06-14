@@ -1,5 +1,5 @@
 import { Component, OnInit } from '@angular/core';
-import { CommonModule, DatePipe } from '@angular/common';
+import { CommonModule, DatePipe, formatDate } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
@@ -142,7 +142,9 @@ export class AuditorDashboardComponent implements OnInit {
     { icon: 'history', title: 'Audit Trail Export', format: 'CSV', type: 'audit' as const },
   ];
 
-  constructor(public auth: AuthService, private api: ApiService, private datePipe: DatePipe) {}
+  private readonly locale = 'en-US';
+
+  constructor(public auth: AuthService, private api: ApiService) {}
 
   ngOnInit() {
     this.api.getAuditLogs({ pageSize: '10' }).subscribe((res: any) => {
@@ -201,7 +203,7 @@ export class AuditorDashboardComponent implements OnInit {
     const details = log.newValues ? JSON.stringify(log.newValues) : log.oldValues ? JSON.stringify(log.oldValues) : `${log.action} on ${log.entity}`;
     return {
       id: log.id,
-      timestamp: this.datePipe.transform(log.createdAt, 'medium') || log.createdAt,
+      timestamp: formatDate(log.createdAt, 'medium', this.locale),
       user,
       action: log.action,
       actionBadge: this.getActionBadge(log.action),

@@ -1,5 +1,5 @@
 import { Component, OnInit } from '@angular/core';
-import { CommonModule, DatePipe } from '@angular/common';
+import { CommonModule, formatDate } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
@@ -28,7 +28,7 @@ interface VolunteerProject {
 @Component({
   selector: 'app-volunteer-dashboard',
   standalone: true,
-  imports: [CommonModule, RouterLink, LayoutComponent, DatePipe],
+  imports: [CommonModule, RouterLink, LayoutComponent],
   template: `
     <app-layout
       pageTitle="Volunteer Hub"
@@ -118,7 +118,9 @@ export class VolunteerDashboardComponent implements OnInit {
     { icon: 'report_problem', label: 'Report', route: '/volunteer/report' },
   ];
 
-  constructor(public auth: AuthService, private api: ApiService, private datePipe: DatePipe) {}
+  private readonly locale = 'en-US';
+
+  constructor(public auth: AuthService, private api: ApiService) {}
 
   get resolvedCount(): number {
     return this.recentIssues.filter(i => i.status === 'RESOLVED' || i.status === 'VERIFIED').length;
@@ -165,9 +167,9 @@ export class VolunteerDashboardComponent implements OnInit {
     return {
       id: event.id,
       title: event.title,
-      month: this.datePipe.transform(start, 'MMM') || '',
-      day: this.datePipe.transform(start, 'd') || '',
-      time: this.datePipe.transform(start, 'shortTime') || '',
+      month: formatDate(start, 'MMM', this.locale),
+      day: formatDate(start, 'd', this.locale),
+      time: formatDate(start, 'shortTime', this.locale),
       location: event.location || 'TBD',
       slots: 'Open registration',
     };

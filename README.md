@@ -1,5 +1,5 @@
 # 🏛️ Direct Democracy — Municipal Feedback & Issue Tracker
-
+run 
 A full-stack civic engagement platform enabling citizens to report issues, vote on priorities, and participate in local democracy. Powered by Angular 18, Express.js 5, PostgreSQL, and local AI via Ollama + Gemma 2B.
 
 ## 📋 Table of Contents

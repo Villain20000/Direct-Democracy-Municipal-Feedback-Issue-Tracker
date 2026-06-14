@@ -1,5 +1,6 @@
 import { Component, OnInit } from '@angular/core';
-import { CommonModule, DatePipe } from '@angular/common';
+import { CommonModule, formatDate } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
@@ -22,7 +23,7 @@ interface WardEvent {
 @Component({
   selector: 'app-ward-dashboard',
   standalone: true,
-  imports: [CommonModule, LayoutComponent, DatePipe],
+  imports: [CommonModule, LayoutComponent, RouterLink],
   template: `
     <app-layout
       pageTitle="Ward Dashboard"
@@ -41,7 +42,10 @@ interface WardEvent {
 
       <div class="content-grid">
         <div class="card">
-          <div class="card-header"><h3>🗺 Neighborhood Issues Map</h3></div>
+          <div class="card-header">
+            <h3>🗺 Neighborhood Issues Map</h3>
+            <a routerLink="/ward/map" class="btn btn-primary btn-sm">Open Full Map</a>
+          </div>
           <div class="card-body">
             <div style="height:280px;background:linear-gradient(135deg,#E0F2FE,#DBEAFE);border-radius:var(--radius);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;">
               <div style="position:absolute;inset:0;opacity:0.3;">
@@ -53,6 +57,7 @@ interface WardEvent {
                 <i class="material-icons-outlined" style="font-size:48px;color:var(--primary);">map</i>
                 <div style="font-size:13px;font-weight:600;margin-top:8px;">Interactive Heat Map</div>
                 <div style="font-size:11px;color:var(--text-muted);">{{ activeIssueCount }} issues tracked</div>
+                <a routerLink="/ward/map" class="btn btn-secondary btn-sm" style="margin-top:12px;">View Interactive Map</a>
               </div>
             </div>
           </div>
@@ -79,7 +84,7 @@ interface WardEvent {
         <div class="card-header"><h3>Community Feedback Feed</h3></div>
         <div class="card-body">
           @for (fb of feedback; track fb.id) {
-            <div style="display:flex;gap:12px;padding:14px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;">
+            <a [routerLink]="['/issues', fb.id]" style="display:flex;gap:12px;padding:14px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;text-decoration:none;color:inherit;">
               <div style="width:36px;height:36px;border-radius:50%;background:var(--primary);color:white;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;">{{ fb.initials }}</div>
               <div style="flex:1;">
                 <div style="display:flex;justify-content:space-between;">
@@ -89,7 +94,7 @@ interface WardEvent {
                 <p style="font-size:13px;color:var(--text-secondary);margin-top:4px;">{{ fb.text }}</p>
                 <div style="display:flex;gap:8px;margin-top:8px;"><span class="badge" [class]="fb.sentimentBadge">{{ fb.sentiment }}</span><span class="badge badge-slate">{{ fb.category }}</span></div>
               </div>
-            </div>
+            </a>
           } @empty {
             <div style="text-align:center;padding:32px;color:var(--text-muted);">No recent ward feedback.</div>
           }
@@ -137,7 +142,9 @@ export class WardDashboardComponent implements OnInit {
     TRANSPORTATION: '#0891B2', EDUCATION: '#4F46E5', HEALTH: '#E11D48', OTHER: '#64748B',
   };
 
-  constructor(public auth: AuthService, private api: ApiService, private datePipe: DatePipe) {}
+  private readonly locale = 'en-US';
+
+  constructor(public auth: AuthService, private api: ApiService) {}
 
   get activeIssueCount(): number {
     return this.wardIssues.filter(i => i.status !== 'RESOLVED' && i.status !== 'VERIFIED' && i.status !== 'REJECTED').length;
@@ -190,7 +197,7 @@ export class WardDashboardComponent implements OnInit {
         id: issue.id,
         name: reporter ? `${reporter.firstName} ${reporter.lastName}` : 'Resident',
         initials: `${first}${last}`,
-        time: this.datePipe.transform(issue.createdAt, 'mediumDate') || '',
+        time: formatDate(issue.createdAt, 'mediumDate', this.locale),
         text: issue.description?.slice(0, 160) + (issue.description && issue.description.length > 160 ? '...' : ''),
         sentiment: sentiment.label,
         sentimentBadge: sentiment.badge,
@@ -222,9 +229,9 @@ export class WardDashboardComponent implements OnInit {
     const start = new Date(event.startTime);
     return {
       title: event.title,
-      month: this.datePipe.transform(start, 'MMM') || '',
-      day: this.datePipe.transform(start, 'd') || '',
-      time: this.datePipe.transform(start, 'shortTime') || '',
+      month: formatDate(start, 'MMM', this.locale),
+      day: formatDate(start, 'd', this.locale),
+      time: formatDate(start, 'shortTime', this.locale),
     };
   }
 }

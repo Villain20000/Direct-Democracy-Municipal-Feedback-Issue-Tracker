@@ -41,9 +41,9 @@ import { Issue, Poll } from '@dd/shared-types';
               <thead><tr><th>Title</th><th>Status</th><th>Date</th></tr></thead>
               <tbody>
                 @for (issue of myIssues; track issue.id) {
-                  <tr>
+                  <tr [routerLink]="['/issues', issue.id]" style="cursor:pointer;">
                     <td><strong>{{ issue.title }}</strong></td>
-                    <td><span class="status-badge" [class]="issue.status.toLowerCase()">{{ issue.status }}</span></td>
+                    <td><span class="status-badge" [ngClass]="statusClass(issue.status)">{{ formatStatus(issue.status) }}</span></td>
                     <td style="color:var(--text-muted);">{{ issue.createdAt | date:'mediumDate' }}</td>
                   </tr>
                 } @empty {
@@ -57,13 +57,15 @@ import { Issue, Poll } from '@dd/shared-types';
           <div class="card-header"><h3>📍 Nearby Issues</h3></div>
           <div class="card-body">
             @for (issue of nearbyIssues; track issue.id) {
-              <div style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-light);">
+              <div style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-light);align-items:flex-start;">
                 <div style="width:8px;height:8px;border-radius:50%;margin-top:6px;" [style.background]="getCategoryColor(issue.category)"></div>
-                <div style="flex:1;">
+                <a [routerLink]="['/issues', issue.id]" style="flex:1;text-decoration:none;color:inherit;">
                   <div style="font-size:13px;font-weight:600;">{{ issue.title }}</div>
                   <div style="font-size:11px;color:var(--text-muted);">{{ issue.location }} · {{ issue.upvotes }} votes</div>
-                </div>
-                <button class="btn btn-ghost btn-sm">▲</button>
+                </a>
+                <button type="button" class="btn btn-ghost btn-sm" [disabled]="upvotingId === issue.id" (click)="upvoteIssue(issue, $event)">
+                  @if (upvotingId === issue.id) { ... } @else { ▲ }
+                </button>
               </div>
             } @empty {
               <div style="text-align:center;padding:32px;color:var(--text-muted);">No nearby issues found.</div>
@@ -130,6 +132,7 @@ export class CitizenDashboardComponent implements OnInit {
   votesCast = 0;
   chatInput = '';
   chatSending = false;
+  upvotingId = '';
   chatMessages: { role: string; content: string }[] = [
     { role: 'assistant', content: "Hello! I'm CivicAssist, your municipal AI helper. I can help you report issues, find city services, or answer questions about your neighborhood. How can I help today?" },
   ];
@@ -177,6 +180,28 @@ export class CitizenDashboardComponent implements OnInit {
   getVotePct(votes: number): number {
     const total = (this.activePoll?.options || []).reduce((sum, o) => sum + o.votes, 0);
     return total > 0 ? (votes / total) * 100 : 0;
+  }
+
+  statusClass(status: string): string {
+    return status.toLowerCase().replace(/_/g, '-');
+  }
+
+  formatStatus(status: string): string {
+    return status.replace(/_/g, ' ');
+  }
+
+  upvoteIssue(issue: Issue, event: Event) {
+    event.stopPropagation();
+    this.upvotingId = issue.id;
+    this.api.upvoteIssue(issue.id).subscribe({
+      next: (res) => {
+        if (res.success) {
+          issue.upvotes = res.data.voted ? issue.upvotes + 1 : Math.max(0, issue.upvotes - 1);
+        }
+        this.upvotingId = '';
+      },
+      error: () => { this.upvotingId = ''; },
+    });
   }
 
   submitVote() {
