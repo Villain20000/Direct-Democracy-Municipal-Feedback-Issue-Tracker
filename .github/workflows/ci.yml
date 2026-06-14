@@ -8,6 +8,8 @@ on:
 
 jobs:
   test:
+    # Backend unit tests (Jest). Uses a single postgres service —
+    # backend tests run with REDIS_ENABLED=false so no Redis needed.
     runs-on: ubuntu-latest
 
     services:
@@ -47,6 +49,13 @@ jobs:
         run: npm run generate --workspace=apps/backend
 
       - name: Push database schema
+        # `prisma db push` syncs the Prisma schema directly without
+        # running SQL migration files. The `Unsupported("vector(768)")`
+        # and `Unsupported("geometry(Point, 4326)")` columns are passed
+        # through as raw types — Prisma doesn't verify the pgvector /
+        # PostGIS extensions are installed, so the vanilla
+        # postgres:16-alpine image is sufficient for the typed-client
+        # tests in this job.
         run: npx prisma db push --schema=apps/backend/prisma/schema.prisma
 
       - name: Lint
@@ -56,6 +65,9 @@ jobs:
         run: npm test
 
   test-frontend:
+    # Frontend unit tests (Karma + ChromeHeadlessCI). No services
+    # needed — these tests run entirely in the browser against mocks.
+    # Playwright E2E lives in the separate `e2e` job below.
     runs-on: ubuntu-latest
 
     steps:
@@ -66,9 +78,156 @@ jobs:
           node-version: '20'
           cache: npm
 
-      - name: Install dependencies (incl. test runner)
+      - name: Install dependencies
         run: npm ci
 
       - name: Frontend unit tests (Karma + ChromeHeadlessCI)
-        # CHROME_BIN points at the pre-installed Chromium on ubuntu-latest runners.
+        # CHROME_BIN points at the pre-installed Chromium on
+        # ubuntu-latest runners (the `chromium-browser` binary on
+        # older images, `chromium` on newer ones, with `google-chrome`
+        # as a final fallback).
         run: CHROME_BIN=$(which chromium-browser || which chromium || which google-chrome) npm test --workspace=apps/frontend -- --watch=false --browsers=ChromeHeadlessCI
+
+  e2e:
+    # Playwright end-to-end suite. Runs the full dev stack against
+    # fresh postgres + redis service containers, seeds the DB, then
+    # runs the spec suite.
+    #
+    # Why a separate job (not a step in `test`):
+    #   - Playwright needs a Chromium download + system libs, which
+    #     we don't want to bloat the backend test image with.
+    #   - E2E is slow and flaky; isolating it lets us retry just
+    #     the e2e job on a flake without re-running jest/karma.
+    #   - GitHub-hosted runners don't have docker installed by
+    #     default, so the old `docker compose up` trick in the
+    #     monolithic `test-frontend` job silently failed. Service
+    #     containers are the proper way to bring up Postgres/Redis
+    #     on a hosted runner.
+    #
+    # Why no `PLAYWRIGHT_SKIP_WEBSERVER=1`:
+    #   - The webServer block in playwright.config.ts boots
+    #     `npm run dev` (Angular + Express via concurrently), waits
+    #     for http://localhost:4200 to respond, and tears everything
+    #     down on exit. Letting Playwright own the dev-server
+    #     lifecycle is more reliable than racing a background
+    #     `nohup npm run dev &` in a CI step.
+    #
+    # Known followup: the vanilla `postgres:16-alpine` image has
+    # neither pgvector nor PostGIS. The schema is pushed (Prisma's
+    # `Unsupported(...)` columns become raw types) but the
+    # extensions are not created, so any spec that hits
+    # `/api/v1/issues/search-similar` or `/api/v1/spatial/*` will
+    # fail with `type "vector" does not exist`. Fixing this requires
+    # either (a) building & pushing a custom image with both
+    # extensions, or (b) switching the service to
+    # `pgvector/pgvector:pg16` + an init step that installs
+    # postgis-3 via apt. Tracked separately.
+    runs-on: ubuntu-latest
+
+    # Fail fast on a real hang. Default is 360 minutes — way too
+    # generous for a 3-spec suite that should finish in ~3 min
+    # after the Chromium download.
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: direct_democracy
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d direct_democracy"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        # BullMQ (embed-issue queue) and the semantic-search cache
+        # both need a live Redis. The vanilla `redis:7-alpine` image
+        # is fine — we don't need persistence in CI.
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/direct_democracy
+      REDIS_URL: redis://localhost:6379
+      REDIS_ENABLED: 'true'
+      JWT_SECRET: test-secret
+      REFRESH_TOKEN_SECRET: test-refresh-secret
+      NODE_ENV: test
+      CI: 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run generate --workspace=apps/backend
+
+      - name: Reset + push database schema
+        # `--force-reset` drops the database before pushing, which
+        # gives us a guaranteed-empty schema for the seed step.
+        # Without this, the seed (which uses `prisma.create` for
+        # the demo users / issues / departments) hits unique-
+        # constraint errors on a re-run with stale data. `db push`
+        # bypasses the SQL migration files (which require pgvector
+        # + PostGIS extensions the vanilla image doesn't ship) and
+        # uses the Prisma schema directly; the `Unsupported(...)`
+        # columns are pushed as raw types without verifying the
+        # extensions.
+        run: npx prisma db push --force-reset --schema=apps/backend/prisma/schema.prisma
+
+      - name: Seed the database
+        # The `--force-reset` above guarantees an empty DB, so the
+        # seed always runs against a clean slate.
+        run: npm run db:seed
+
+      - name: Cache Playwright browsers
+        # Cache `~/.cache/ms-playwright` between runs of the same
+        # job. The cache key includes the Playwright version, so a
+        # `@playwright/test` bump picks up the new binary
+        # automatically.
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json', 'apps/frontend/package.json') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      - name: Install Playwright browsers
+        # ~150 MB download on a cold cache, ~5 s with the cache
+        # above. `--with-deps` installs the system libraries
+        # Chromium needs on Ubuntu (libnss, libatk, libxcomposite).
+        run: npx playwright install --with-deps chromium
+
+      - name: Playwright E2E tests
+        # The webServer block in playwright.config.ts boots
+        # `npm run dev` (Angular + Express via concurrently) and
+        # waits for http://localhost:4200 to respond before running
+        # tests. CI=true triggers the configured retry policy
+        # (1 retry on flake).
+        run: npm run test:e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

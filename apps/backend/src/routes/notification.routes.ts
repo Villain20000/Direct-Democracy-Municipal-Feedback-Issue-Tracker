@@ -22,7 +22,8 @@ router.patch('/:id/read', authenticate, async (req: AuthenticatedRequest, res) =
     await notificationService.markAsRead(req.params.id as string, req.user!.id);
     res.json({ success: true });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    console.error('[notifications.markRead]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -40,7 +41,8 @@ router.delete('/:id', authenticate, async (req: AuthenticatedRequest, res) => {
     await notificationService.delete(req.params.id as string, req.user!.id);
     res.json({ success: true });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    console.error('[notifications.delete]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

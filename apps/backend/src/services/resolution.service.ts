@@ -1,4 +1,9 @@
 import { prisma } from '../db/client';
+import {
+  AlreadyVotedError,
+  BadRequestError,
+  NotFoundError,
+} from '../errors/domain-errors';
 
 export const resolutionService = {
   async create(data: {
@@ -36,13 +41,13 @@ export const resolutionService = {
         proposedBy: { select: { id: true, firstName: true, lastName: true } },
       },
     });
-    if (!resolution) throw new Error('Resolution not found');
+    if (!resolution) throw new NotFoundError('Resolution not found');
     return resolution;
   },
 
   async updateStatus(id: string, status: string) {
     const resolution = await prisma.resolution.findUnique({ where: { id } });
-    if (!resolution) throw new Error('Resolution not found');
+    if (!resolution) throw new NotFoundError('Resolution not found');
 
     return prisma.resolution.update({
       where: { id },
@@ -55,11 +60,17 @@ export const resolutionService = {
 
   async vote(id: string, userId: string, voteFor: boolean) {
     const resolution = await prisma.resolution.findUnique({ where: { id } });
-    if (!resolution) throw new Error('Resolution not found');
-    if (resolution.status !== 'VOTING') throw new Error('Resolution is not in voting status');
+    if (!resolution) throw new NotFoundError('Resolution not found');
+    if (resolution.status !== 'VOTING') {
+      throw new BadRequestError(
+        `Resolution is not in voting status (current: ${resolution.status})`,
+        'BAD_REQUEST',
+        { currentStatus: resolution.status, expected: 'VOTING' },
+      );
+    }
 
     const alreadyVoted = resolution.votedByIds.includes(userId);
-    if (alreadyVoted) throw new Error('You have already voted on this resolution');
+    if (alreadyVoted) throw new AlreadyVotedError('You have already voted on this resolution');
 
     return prisma.resolution.update({
       where: { id },
@@ -73,7 +84,7 @@ export const resolutionService = {
 
   async delete(id: string) {
     const resolution = await prisma.resolution.findUnique({ where: { id } });
-    if (!resolution) throw new Error('Resolution not found');
+    if (!resolution) throw new NotFoundError('Resolution not found');
     return prisma.resolution.delete({ where: { id } });
   },
 };

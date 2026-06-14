@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth.middleware';
 import { authorize } from '../middleware/rbac.middleware';
 import { forumService } from '../services/forum.service';
+import { sendDomainError } from '../errors/domain-errors';
 
 const router = Router();
 
@@ -34,7 +35,9 @@ router.post('/', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'COUNCIL_MEMBER
     const forum = await forumService.create({ title, description, creatorId: req.user!.id });
     res.status(201).json({ success: true, data: forum });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[forums.create]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -45,7 +48,11 @@ router.post('/:id/posts', authenticate, async (req: AuthenticatedRequest, res) =
     const post = await forumService.addPost(req.params.id as string, req.user!.id, content.trim());
     res.status(201).json({ success: true, data: post });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    // service throws NotFoundError (404), AlreadyClosedError (409);
+    // both mapped via sendDomainError.
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[forums.addPost]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -54,7 +61,9 @@ router.patch('/:id/close', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'COUN
     const forum = await forumService.close(req.params.id as string);
     res.json({ success: true, data: forum });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[forums.close]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

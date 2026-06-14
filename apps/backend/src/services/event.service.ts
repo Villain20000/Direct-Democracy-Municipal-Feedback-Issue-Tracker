@@ -1,4 +1,5 @@
 import { prisma } from '../db/client';
+import { NotFoundError } from '../errors/domain-errors';
 
 export const eventService = {
   async create(data: {
@@ -64,7 +65,7 @@ export const eventService = {
         _count: { select: { rsvps: true } },
       },
     });
-    if (!event) throw new Error('Event not found');
+    if (!event) throw new NotFoundError('Event not found');
     return event;
   },
 
@@ -73,7 +74,7 @@ export const eventService = {
     startTime?: string; endTime?: string; type?: string; isPublic?: boolean;
   }) {
     const event = await prisma.event.findUnique({ where: { id } });
-    if (!event) throw new Error('Event not found');
+    if (!event) throw new NotFoundError('Event not found');
 
     return prisma.event.update({
       where: { id },
@@ -91,13 +92,13 @@ export const eventService = {
 
   async delete(id: string) {
     const event = await prisma.event.findUnique({ where: { id } });
-    if (!event) throw new Error('Event not found');
+    if (!event) throw new NotFoundError('Event not found');
     return prisma.event.delete({ where: { id } });
   },
 
   async rsvp(eventId: string, userId: string, status: string) {
     const event = await prisma.event.findUnique({ where: { id: eventId } });
-    if (!event) throw new Error('Event not found');
+    if (!event) throw new NotFoundError('Event not found');
 
     const existing = await prisma.eventRSVP.findUnique({
       where: { eventId_userId: { eventId, userId } },
@@ -121,7 +122,7 @@ export const eventService = {
     const existing = await prisma.eventRSVP.findUnique({
       where: { eventId_userId: { eventId, userId } },
     });
-    if (!existing) throw new Error('RSVP not found');
+    if (!existing) throw new NotFoundError('RSVP not found');
     return prisma.eventRSVP.delete({ where: { id: existing.id } });
   },
 };

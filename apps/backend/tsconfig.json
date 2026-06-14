@@ -12,5 +12,14 @@
     }
   },
   "include": ["src"],
-  "exclude": ["node_modules", "dist"]
+  // __tests__ are excluded from the main tsc --noEmit typecheck because
+  // the standalone `expect` package (a transitive dep of jest@29) plus
+  // @types/jest create a global `expect` overload-resolution collision
+  // on `any` values (resolves to FunctionMatchers<any> instead of the
+  // full Matchers<R> set, so .toHaveLength/.toHaveBeenCalled fail type
+  // resolution). ts-jest typechecks the same files at test runtime with
+  // its own resolver, so coverage is preserved — just shifted out of
+  // the lint path. If you want them in `tsc --noEmit` again, see the
+  // README for the tsconfig.test.json pattern.
+  "exclude": ["node_modules", "dist", "__tests__"]
 }

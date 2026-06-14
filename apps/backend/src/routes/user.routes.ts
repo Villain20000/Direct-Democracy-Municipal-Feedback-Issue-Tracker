@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth.middleware';
 import { authorize } from '../middleware/rbac.middleware';
 import { userService } from '../services/user.service';
+import { sendDomainError } from '../errors/domain-errors';
 
 const router = Router();
 
@@ -42,7 +43,9 @@ router.patch('/:id', authenticate, authorize('SUPER_ADMIN'), async (req: Authent
     const user = await userService.update(req.params.id as string, req.body);
     res.json({ success: true, data: user });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[users.update]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -61,7 +64,9 @@ router.post('/', authenticate, authorize('SUPER_ADMIN'), async (req: Authenticat
     const user = await userService.create({ email, password, firstName, lastName, phone, role, wardId, departmentId });
     res.status(201).json({ success: true, data: user });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[users.create]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -76,7 +81,12 @@ router.post('/change-password', authenticate, async (req: AuthenticatedRequest, 
     await userService.changeOwnPassword(req.user!.id, currentPassword, newPassword);
     res.json({ success: true, message: 'Password changed successfully' });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    // Wrong current password is a 401 (auth failure) via
+    // InvalidCredentialsError; new password too short is a 400 via
+    // BadRequestError. Both are mapped by sendDomainError.
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[users.changePassword]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

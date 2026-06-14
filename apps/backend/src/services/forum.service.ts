@@ -1,4 +1,5 @@
 import { prisma } from '../db/client';
+import { AlreadyClosedError, NotFoundError } from '../errors/domain-errors';
 
 export const forumService = {
   async create(data: { title: string; description?: string; creatorId: string }) {
@@ -49,14 +50,14 @@ export const forumService = {
         },
       },
     });
-    if (!forum) throw new Error('Forum not found');
+    if (!forum) throw new NotFoundError('Forum not found');
     return forum;
   },
 
   async addPost(forumId: string, authorId: string, content: string) {
     const forum = await prisma.forum.findUnique({ where: { id: forumId } });
-    if (!forum) throw new Error('Forum not found');
-    if (!forum.isActive) throw new Error('Forum is closed');
+    if (!forum) throw new NotFoundError('Forum not found');
+    if (!forum.isActive) throw new AlreadyClosedError('Forum is closed');
 
     const [post] = await prisma.$transaction([
       prisma.forumPost.create({

@@ -21,8 +21,30 @@ import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../c
       (logout)="auth.logout()">
 
       <div style="display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap;align-items:center;">
-        <div style="flex:1;min-width:200px;">
-          <input type="text" [(ngModel)]="search" (ngModelChange)="loadIssues()" [placeholder]="i18n.t('issues.searchPlaceholder')" style="width:100%;padding:10px 16px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" />
+        <div style="flex:1;min-width:200px;position:relative;">
+          <i class="material-icons-outlined" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:18px;pointer-events:none;">{{ searchSmart ? 'travel_explore' : 'search' }}</i>
+          <input
+            type="text"
+            [(ngModel)]="search"
+            (ngModelChange)="onSearchChange()"
+            [placeholder]="i18n.t('issues.searchPlaceholder')"
+            style="width:100%;padding:10px 16px 10px 40px;padding-right:90px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"
+          />
+          @if (searching) {
+            <span style="position:absolute;right:80px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--text-muted);">
+              <i class="material-icons-outlined" style="font-size:14px;vertical-align:middle;animation:spin 1s linear infinite;">progress_activity</i>
+            </span>
+          }
+          @if (searchMode && search.trim().length >= 3) {
+            <span
+              [class.semantic-badge-on]="searchMode === 'semantic'"
+              [class.semantic-badge-fallback]="searchMode === 'text-fallback'"
+              [class.semantic-badge-empty]="searchMode === 'text-empty'"
+              [title]="searchMode === 'semantic' ? i18n.t('issues.semanticOn') : (searchMode === 'text-fallback' ? i18n.t('issues.semanticFallback') : i18n.t('issues.semanticEmpty'))"
+              style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;text-transform:uppercase;letter-spacing:0.4px;display:flex;align-items:center;gap:3px;">
+              {{ searchMode === 'semantic' ? i18n.t('issues.semanticBadge') : i18n.t('issues.textBadge') }}
+            </span>
+          }
         </div>
         <select [(ngModel)]="filterStatus" (ngModelChange)="loadIssues()" style="padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;">
           <option value="">{{ i18n.t('issues.allStatuses') }}</option>
@@ -59,6 +81,11 @@ import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../c
                 <tr [routerLink]="['/issues', issue.id]" style="cursor:pointer;">
                   <td>
                     <strong>{{ issue.title }}</strong>
+                    @if (issue.score !== undefined) {
+                      <span [style.background]="scoreColor(issue.score)" [style.color]="'#fff'" style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;font-size:10px;font-weight:700;vertical-align:middle;" [title]="'similarity'">
+                        {{ (issue.score * 100).toFixed(0) }}%
+                      </span>
+                    }
                     <br><span style="font-size:11px;color:var(--text-muted);">{{ issue.location }}</span>
                   </td>
                   <td><span class="badge badge-blue">{{ i18n.tCategory(issue.category) }}</span></td>
@@ -76,8 +103,15 @@ import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../c
         </div>
       </div>
 
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">
-        <span style="font-size:13px;color:var(--text-muted);">{{ i18n.t('issues.showingOf', { shown: issues.length, total: total }) }}</span>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;flex-wrap:wrap;gap:8px;">
+        <div style="font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <span>{{ i18n.t('issues.showingOf', { shown: issues.length, total: total }) }}</span>
+          @if (filteredOutCount > 0) {
+            <span style="background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;">
+              {{ i18n.t('issues.filteredOut', { n: filteredOutCount }) }}
+            </span>
+          }
+        </div>
         <div style="display:flex;gap:8px;">
           <button class="btn btn-secondary btn-sm" [disabled]="page <= 1" (click)="prevPage()">← {{ 'common.previous' | t }}</button>
           <button class="btn btn-secondary btn-sm" [disabled]="page >= totalPages" (click)="nextPage()">{{ 'common.next' | t }} →</button>
@@ -85,6 +119,24 @@ import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../c
       </div>
     </app-layout>
   `,
+  styles: [`
+    @keyframes spin {
+      from { transform: translateY(-50%) rotate(0deg); }
+      to   { transform: translateY(-50%) rotate(360deg); }
+    }
+    .semantic-badge-on {
+      background: #DCFCE7;
+      color: #166534;
+    }
+    .semantic-badge-fallback {
+      background: #FEF3C7;
+      color: #92400E;
+    }
+    .semantic-badge-empty {
+      background: var(--bg-primary);
+      color: var(--text-muted);
+    }
+  `],
 })
 export class IssueListComponent implements OnInit {
   issues: Issue[] = [];
@@ -105,6 +157,13 @@ export class IssueListComponent implements OnInit {
   exporting = false;
   canBulkUpdate = false;
   canExport = false;
+  // Smart search state.
+  searching = false;
+  searchMode: 'semantic' | 'text-fallback' | 'text-empty' | null = null;
+  searchSmart = true; // when true, the search bar hits /issues/search-similar first
+  filteredOutCount = 0; // when > 0, the smart search hit N rows but status/category filters excluded all of them
+  private searchSeq = 0;
+  private searchDebounce: ReturnType<typeof setTimeout> | null = null;
   private sortBy = '';
   private departmentId = '';
   private wardId = '';
@@ -136,7 +195,81 @@ export class IssueListComponent implements OnInit {
     });
   }
 
+  /**
+   * Smart search bar handler. Two-mode behavior:
+   *   - `search.trim().length >= 3` and `searchSmart` is on: hit the
+   *     semantic search endpoint (`/issues/search-similar`). The backend
+   *     falls back to text matching if Ollama is down, and surfaces that
+   *     via `mode: 'text-fallback'`, which the UI shows as an amber
+   *     badge so the user knows what's happening.
+   *   - Otherwise (short query, or no smart search): the regular
+   *     paginated text search runs.
+   *
+   * Debounced 350ms so we don't fire a request on every keystroke.
+   * Sequence-countered to drop stale responses from earlier in-flight
+   * requests (a fast typist can outpace the response).
+   */
+  onSearchChange() {
+    if (this.searchDebounce) clearTimeout(this.searchDebounce);
+    const q = this.search.trim();
+    if (q.length >= 3 && this.searchSmart) {
+      this.searchDebounce = setTimeout(() => this.runSmartSearch(q), 350);
+    } else {
+      this.searchDebounce = setTimeout(() => this.loadIssues(), 350);
+    }
+  }
+
+  private runSmartSearch(q: string) {
+    this.searching = true;
+    const seq = ++this.searchSeq;
+    this.api.searchSimilarIssues(q, 20, 0.2).subscribe({
+      next: (res) => {
+        if (seq !== this.searchSeq) return; // stale response
+        this.searching = false;
+        this.searchMode = res.mode;
+        const raw = res.data || [];
+        const rawCount = raw.length;
+        this.issues = raw;
+        this.total = res.total || 0;
+        this.page = 1;
+        this.totalPages = 1;
+        // Filters (status/category) can't be applied server-side on the
+        // semantic result, so filter the client-side result if both
+        // filters and a query are active.
+        if (this.filterStatus || this.filterCategory) {
+          this.issues = this.issues.filter((i) => {
+            if (this.filterStatus && i.status !== this.filterStatus) return false;
+            if (this.filterCategory && i.category !== this.filterCategory) return false;
+            return true;
+          });
+          this.total = this.issues.length;
+        }
+        // UX guard: if the semantic search found rows but the filters
+        // excluded all of them, surface that to the user with a
+        // dedicated hint so the "Smart" badge doesn't sit on an empty
+        // list looking broken.
+        this.filteredOutCount = (this.filterStatus || this.filterCategory) && this.issues.length === 0 && rawCount > 0
+          ? rawCount
+          : 0;
+      },
+      error: () => {
+        if (seq !== this.searchSeq) return;
+        this.searching = false;
+        this.searchMode = 'text-fallback';
+        this.loadIssues();
+      },
+    });
+  }
+
   loadIssues() {
+    // If a smart search is currently active, a filter change should
+    // re-filter the in-memory result client-side rather than losing the
+    // similarity ranking by falling back to paginated text search.
+    if (this.search.trim().length >= 3 && this.searchSmart && this.searchMode === 'semantic' && this.issues.length > 0) {
+      this.runSmartSearch(this.search.trim());
+      return;
+    }
+
     const params: Record<string, string> = {
       page: String(this.page),
       search: this.search,
@@ -155,7 +288,13 @@ export class IssueListComponent implements OnInit {
       if (wardId) params['wardId'] = wardId;
     }
 
+    this.searching = true;
+    const seq = ++this.searchSeq;
     this.api.getIssues(params).subscribe((res: any) => {
+      if (seq !== this.searchSeq) return; // stale response
+      this.searching = false;
+      this.searchMode = null;
+      this.filteredOutCount = 0;
       if (res.data) {
         this.issues = res.data;
         this.total = res.total || 0;
@@ -198,5 +337,11 @@ export class IssueListComponent implements OnInit {
       },
       error: () => { this.exporting = false; },
     });
+  }
+
+  private scoreColor(score: number): string {
+    if (score >= 0.7) return '#16A34A';
+    if (score >= 0.5) return '#D97706';
+    return '#DC2626';
   }
 }

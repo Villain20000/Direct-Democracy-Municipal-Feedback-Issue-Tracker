@@ -143,7 +143,9 @@ describe('AI Endpoints', () => {
 
       if (res.status === 200) {
         expect(res.body.success).toBe(true);
-        expect(res.body.data.response).toBeDefined();
+        expect(res.body.data.answer).toBeDefined();
+        expect(Array.isArray(res.body.data.citations)).toBe(true);
+        expect(typeof res.body.data.ragUsed).toBe('boolean');
       } else {
         expect(res.status).toBe(503);
       }

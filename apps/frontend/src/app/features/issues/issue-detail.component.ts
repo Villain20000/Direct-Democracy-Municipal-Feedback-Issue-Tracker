@@ -7,6 +7,7 @@ import { ApiService } from '../../core/services/api.service';
 import { ToastService } from '../../core/services/toast.service';
 import { TranslationService } from '../../core/i18n/translation.service';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
+import { getFieldErrors, groupFieldErrorsByField, toApiError } from '../../core/errors/api-error';
 import { Issue, UserRole } from '@dd/shared-types';
 import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../core/utils/issue-ui';
 
@@ -14,6 +15,135 @@ import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../c
   selector: 'app-issue-detail',
   standalone: true,
   imports: [CommonModule, RouterLink, LayoutComponent, DatePipe, DecimalPipe, TranslatePipe],
+  styles: [`
+    /* === Status stepper — GSAP-style satisfying transitions === */
+
+    .stepper {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+    .stepper-item {
+      position: relative;
+      display: grid;
+      grid-template-columns: 32px 1fr;
+      align-items: center;
+      padding: 6px 0;
+      opacity: 0;
+      transform: translateX(-6px);
+      animation: stepper-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      animation-delay: calc(var(--stagger, 0) * 60ms);
+    }
+    .stepper-dot {
+      position: relative;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      background: var(--border-light, #E2E8F0);
+      color: var(--text-muted);
+      transition: background 250ms ease, color 250ms ease, transform 250ms cubic-bezier(0.34, 1.56, 0.64, 1);
+      flex-shrink: 0;
+      justify-self: center;
+    }
+    .stepper-past .stepper-dot {
+      background: linear-gradient(135deg, #10B981, #047857);
+      color: white;
+      animation: stepper-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .stepper-current .stepper-dot {
+      background: linear-gradient(135deg, #2563EB, #4F46E5);
+      color: white;
+      box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.45);
+      animation: stepper-pulse 2s ease-out infinite;
+    }
+    .stepper-future .stepper-dot {
+      background: var(--bg-primary);
+      color: var(--text-muted);
+    }
+    .stepper-dot-inner { display: inline-block; line-height: 1; }
+    .stepper-dot-inner.muted { opacity: 0.5; }
+    .stepper-check {
+      display: inline-block;
+      animation: stepper-check-draw 380ms cubic-bezier(0.65, 0, 0.35, 1);
+    }
+
+    /* Connecting line between dots */
+    .stepper-line {
+      position: absolute;
+      left: 50%;
+      top: 28px;
+      width: 2px;
+      height: calc(100% - 28px + 12px);
+      background: var(--border-light, #E2E8F0);
+      transform: translateX(-50%);
+      transition: background 250ms ease;
+    }
+    .stepper-line.filled {
+      background: linear-gradient(180deg, #10B981, #2563EB);
+    }
+
+    /* Label */
+    .stepper-label {
+      font-size: 13px;
+      padding-left: 12px;
+      color: var(--text-secondary);
+      transition: color 250ms ease, font-weight 250ms ease;
+    }
+    .stepper-label.current { color: var(--primary); font-weight: 700; }
+    .stepper-label.muted   { color: var(--text-muted); }
+
+    @keyframes stepper-in {
+      from { opacity: 0; transform: translateX(-6px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes stepper-pop {
+      0%   { transform: scale(0.6); }
+      60%  { transform: scale(1.18); }
+      100% { transform: scale(1); }
+    }
+    @keyframes stepper-pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.45); }
+      70%  { box-shadow: 0 0 0 10px rgba(37, 99, 235, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+    }
+    @keyframes stepper-check-draw {
+      0%   { transform: scale(0) rotate(-45deg); opacity: 0; }
+      70%  { transform: scale(1.2) rotate(0); opacity: 1; }
+      100% { transform: scale(1) rotate(0); }
+    }
+
+    /* Honor the user's reduced-motion preference */
+    @media (prefers-reduced-motion: reduce) {
+      .stepper-item, .stepper-past .stepper-dot, .stepper-check {
+        animation: none;
+        opacity: 1;
+        transform: none;
+      }
+      .stepper-current .stepper-dot { animation: none; }
+    }
+
+    .field-error {
+      margin-top: 6px;
+      font-size: 12px;
+      color: #B91C1C;
+      background: #FEF2F2;
+      border-left: 3px solid #DC2626;
+      padding: 6px 10px;
+      border-radius: 4px;
+    }
+    .input-error {
+      border-color: #DC2626 !important;
+      background: #FFF5F5;
+    }
+  `],
   template: `
     <app-layout
       [pageTitle]="issue?.title || i18n.t('issues.issueDetail')"
@@ -107,9 +237,10 @@ import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../c
                   </div>
                 }
                 <div style="margin-top:16px;display:flex;gap:8px;">
-                  <input #commentInput type="text" [placeholder]="i18n.t('issues.addComment')" style="flex:1;padding:10px 16px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" />
+                  <input #commentInput type="text" [placeholder]="i18n.t('issues.addComment')" (input)="clearFieldError('comment.content')" [class.input-error]="!!getFieldError('comment.content')" style="flex:1;padding:10px 16px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" />
                   <button class="btn btn-primary" (click)="postComment(commentInput)">{{ 'issues.post' | t }}</button>
                 </div>
+                @if (getFieldError('comment.content')) { <div class="field-error">⚠ {{ getFieldError('comment.content') }}</div> }
               </div>
             </div>
           </div>
@@ -134,17 +265,27 @@ import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../c
             <div class="card" style="margin-bottom:24px;">
               <div class="card-header"><h3>{{ 'detail.statusTimeline' | t }}</h3></div>
               <div class="card-body">
-                @for (status of statusFlow; track status) {
-                  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-                    <div style="width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;"
-                      [style.background]="status === issue.status ? 'var(--primary)' : isPastStatus(status) ? 'var(--success)' : 'var(--border)'"
-                      [style.color]="status === issue.status || isPastStatus(status) ? 'white' : 'var(--text-muted)'">
-                      @if (isPastStatus(status)) { ✓ } @else if (status === issue.status) { ● } @else { ○ }
-                    </div>
-                    <span style="font-size:13px;" [style.font-weight]="status === issue.status ? '700' : '400'"
-                      [style.color]="status === issue.status ? 'var(--primary)' : 'var(--text-muted)'">{{ i18n.tEnum('status', status) }}</span>
-                  </div>
-                }
+                <ol class="stepper" [attr.data-issue-id]="issue.id">
+                  @for (status of statusFlow; track status; let i = $index, last = $last) {
+                    <li class="stepper-item"
+                        [class.stepper-current]="status === issue.status"
+                        [class.stepper-past]="isPastStatus(status)"
+                        [class.stepper-future]="!isPastStatus(status) && status !== issue.status"
+                        [style.--stagger]="i">
+                      <span class="stepper-dot" aria-hidden="true">
+                        @if (isPastStatus(status)) { <span class="stepper-check">✓</span> }
+                        @else if (status === issue.status) { <span class="stepper-dot-inner">●</span> }
+                        @else { <span class="stepper-dot-inner muted">○</span> }
+                      </span>
+                      @if (!last) { <span class="stepper-line" [class.filled]="isPastStatus(status)" aria-hidden="true"></span> }
+                      <span class="stepper-label"
+                            [class.current]="status === issue.status"
+                            [class.muted]="!isPastStatus(status) && status !== issue.status">
+                        {{ i18n.tEnum('status', status) }}
+                      </span>
+                    </li>
+                  }
+                </ol>
               </div>
             </div>
 
@@ -210,6 +351,13 @@ export class IssueDetailComponent implements OnInit {
   predictionLoading = false;
   statusUpdating = false;
   statusError = '';
+  /**
+   * Inline field-level errors. Currently used only for the
+   * `comment.content` field (the comment post is the one input on
+   * this page that takes free text; the status update is
+   * button-driven and gets the top-of-card `statusError` treatment).
+   */
+  fieldErrors: Record<string, string> = {};
   statusFlow = ['SUBMITTED', 'ACKNOWLEDGED', 'IN_PROGRESS', 'PENDING_REVIEW', 'RESOLVED', 'VERIFIED'];
   navItems = [{ icon: 'arrow_back', label: 'nav.backToIssues', route: '/issues' }] as any;
 
@@ -378,12 +526,49 @@ export class IssueDetailComponent implements OnInit {
         if (res.success) {
           input.value = '';
           this.toast.success(this.i18n.t('issues.commentPosted'));
+          this.fieldErrors = {};
           this.reloadIssue();
         }
       },
-      error: () => {
-        this.toast.error(this.i18n.t('issues.commentPostedError'));
+      error: (err) => {
+        // Surface ZodError issues inline under the comment input.
+        // Anything else (network, 5xx) keeps the toast.
+        const apiErr = toApiError(err);
+        const fieldErrs = getFieldErrors(apiErr);
+        const grouped = groupFieldErrorsByField(fieldErrs);
+        // ZodError paths for the comment are 'content' or
+        // 'content.min' etc. — map them all to 'content' for the
+        // single-input form.
+        if (grouped['content']) {
+          this.fieldErrors['comment.content'] = grouped['content'];
+        } else {
+          this.fieldErrors['comment.content'] = apiErr.message;
+        }
       },
     });
+  }
+
+  /**
+   * Inline field-error accessor used by the template. Tries
+   * `errorFields.<field>` first, then falls back to the raw
+   * backend message. Returns '' when no error is set.
+   */
+  getFieldError(field: string): string {
+    const raw = this.fieldErrors[field];
+    if (!raw) return '';
+    const key = `errorFields.${field}` as any;
+    const translated = this.i18n.t(key);
+    if (translated && translated !== key) return translated;
+    return raw;
+  }
+
+  /**
+   * Drop the inline error for `field` (called from the comment
+   * input's `ngModelChange`).
+   */
+  clearFieldError(field: string) {
+    if (this.fieldErrors[field]) {
+      delete this.fieldErrors[field];
+    }
   }
 }

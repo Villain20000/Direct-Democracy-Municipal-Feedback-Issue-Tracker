@@ -66,6 +66,9 @@ model User {
 
   // Department head (one-to-one: user heads one dept)
   managedDepartment Department? @relation("DepartmentHead")
+
+  // Documents uploaded by this user (admin / staff)
+  documentsUploaded Document[]
 }
 
 enum UserRole {
@@ -163,6 +166,13 @@ model Issue {
   location              String
   latitude              Decimal?      @db.Decimal(9, 6)
   longitude             Decimal?      @db.Decimal(9, 6)
+  /// PostGIS geometry column managed via raw SQL (Prisma doesn't
+  /// support GEOMETRY natively). SRID 4326 = WGS 84, the same
+  /// coordinate system as latitude/longitude. The backfill in
+  /// `20260617000000_postgis_spatial/migration.sql` populates this
+  /// from the existing latitude/longitude columns; the spatial
+  /// service keeps it in sync on every issue create/update.
+  locationGeom          Unsupported("geometry(Point, 4326)")?
   upvotes               Int           @default(0)
   viewCount             Int           @default(0)
   isPublic              Boolean       @default(true)
@@ -192,6 +202,9 @@ model Issue {
   internalNotes     InternalNote[]
   slaTracking       SlaTracking?
   assignmentHistory IssueAssignment[]
+
+  // === RAG (pgvector) — one row per issue ===
+  embedding IssueEmbedding?
 }
 
 enum IssueCategory {
@@ -581,4 +594,125 @@ model IssueAssignment {
   reason         String?
 
   @@index([issueId, assignedAt])
+}
+
+// =====================================================
+// === RAG / Vector store (issue-level embeddings)
+// =====================================================
+
+/// One embedding per issue, used for semantic duplicate detection and
+/// "smart search". The `embedding` column is managed via raw SQL because
+/// Prisma does not (yet) understand pgvector — dimension is 768
+/// (nomic-embed-text via local Ollama). If you swap the embedding model,
+/// the migration that creates this column (and the ivfflat index) must
+/// be updated and the data re-embedded.
+model IssueEmbedding {
+  id          String                       @id @default(uuid())
+  /// FK to Issue. One embedding per issue — enforced by @unique.
+  issueId     String                       @unique
+  issue       Issue                        @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  /// 768-dim vector.
+  embedding   Unsupported("vector(768)")?
+  /// Hash of the (title + description) content. Used to skip re-embedding
+  /// when an issue is updated but the text hasn't materially changed.
+  contentHash String
+  /// Which embedding model produced this vector. Defaults to the value of
+  /// `EMBED_MODEL` env var, which the migration runner will set.
+  model       String                       @default("nomic-embed-text")
+  /// When the embedding was last generated.
+  generatedAt DateTime                     @default(now())
+
+  @@index([issueId])
+}
+
+// =====================================================
+// === RAG / Vector store (municipal legislation)
+// =====================================================
+
+/// Parent record for a piece of legislation, a decision, or any document we
+/// want to make searchable for the AI assistant. Uploaded by an admin, split
+/// into `DocumentChunk` rows for vector retrieval.
+model Document {
+  id           String   @id @default(uuid())
+  title        String
+  /// "ORDINANCE" | "DECISION" | "REGULATION" | "GUIDE" | "OTHER"
+  type         String
+  /// Where this document came from (URL, file name, manual entry).
+  source       String
+  description  String?
+  /// Optional issue date — free text because documents come from many sources.
+  documentDate String?
+  /// Hash of the full text content. Re-ingesting the same file becomes a
+  /// no-op (lets the worker be safely retried).
+  contentHash  String   @unique
+  /// Total character count after normalization, useful for diagnostics.
+  charCount    Int      @default(0)
+  /// Number of chunks the document was split into.
+  chunkCount   Int      @default(0)
+  uploadedById String?
+  uploadedBy   User?    @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  chunks DocumentChunk[]
+
+  @@index([type])
+  @@index([createdAt])
+}
+
+/// A chunk of a `Document` with its embedding. The `embedding` column is
+/// managed via raw SQL because Prisma does not (yet) understand pgvector.
+/// Dimension is 768 (nomic-embed-text, served by local Ollama). If you
+/// swap the embedding model, the migration that creates this column
+/// (and the ivfflat index) must be updated.
+model DocumentChunk {
+  id         String                       @id @default(uuid())
+  documentId String
+  document   Document                     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  /// 0-based position of this chunk inside the document.
+  chunkIndex Int
+  /// The actual text. Trimmed to roughly 500 tokens.
+  content    String
+  /// 768-dim vector produced by the embedding model. Stored as a raw
+  /// pgvector column; queries use `$queryRaw`.
+  embedding  Unsupported("vector(768)")?
+  /// Optional free-form metadata (page number, section heading, etc.).
+  metadata   Json?
+  createdAt  DateTime                     @default(now())
+
+  @@unique([documentId, chunkIndex])
+  @@index([documentId])
+}
+
+// =====================================================
+// === Weekly executive summary (Friday cron job)
+// =====================================================
+
+/// One per week. Generated by the Friday cron job (and on-demand from the
+/// mayor dashboard). Content is the full AI-produced briefing; the
+/// `highlights` JSON is a structured summary that the dashboard renders
+/// above the prose.
+model WeeklySummary {
+  id          String   @id @default(uuid())
+  /// ISO week key like "2026-W24" — used for idempotency so the cron
+  /// never produces two summaries for the same week.
+  weekKey     String   @unique
+  /// Inclusive start (Monday) of the reporting week.
+  weekStart   DateTime
+  /// Inclusive end (Sunday) of the reporting week.
+  weekEnd     DateTime
+  /// Pre-aggregated numbers (total, open, resolved, byCategory, etc.).
+  stats       Json
+  /// { title, body }[] produced by the AI; rendered as bullet cards.
+  highlights  Json
+  /// Full prose briefing from the LLM.
+  body        String
+  /// Optional reference to the issues touched on (IDs).
+  issueIds    String[]
+  generatedAt DateTime @default(now())
+  /// "AUTO" (cron) or "MANUAL" (button click on mayor dashboard).
+  source      String   @default("AUTO")
+  createdAt   DateTime @default(now())
+
+  @@index([weekStart])
 }

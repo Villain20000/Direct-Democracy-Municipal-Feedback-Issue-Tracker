@@ -3,7 +3,9 @@ import { z } from 'zod';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth.middleware';
 import { authorize } from '../middleware/rbac.middleware';
 import { issueService } from '../services/issue.service';
+import { areaSummaryService } from '../services/area-summary.service';
 import { createIssueSchema, updateStatusSchema } from '../validators/issue.validators';
+import { getEmbedIssueQueue } from '../queue/embed-issue.queue';
 
 const router = Router();
 
@@ -34,6 +36,27 @@ router.get('/templates', authenticate, async (_req: AuthenticatedRequest, res) =
   res.json({ success: true, data: issueService.getTemplates() });
 });
 
+// Summarize issues inside a user-drawn polygon (any authenticated user).
+// Note: must be declared before /:id so /summarize-area isn't captured by
+// the param route.
+router.post('/summarize-area', authenticate, async (req: AuthenticatedRequest, res) => {
+  try {
+    const polygon = req.body?.polygon;
+    if (!Array.isArray(polygon) || polygon.length < 3) {
+      res.status(400).json({ error: 'polygon must be an array of [lat, lng] pairs with at least 3 vertices' });
+      return;
+    }
+    const result = await areaSummaryService.summarize(polygon);
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    // The polygon was already validated above, so anything thrown from
+    // here is a server-side failure (DB outage, AI service down, etc.).
+    // Don't surface those as 400 — the client did nothing wrong.
+    console.error('[issues.summarize-area]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Bulk update (staff+ only) — must be before /:id
 router.patch('/bulk', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMENT_HEAD', 'STAFF'), async (req: AuthenticatedRequest, res) => {
   try {
@@ -45,7 +68,10 @@ router.patch('/bulk', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMEN
     const results = await issueService.bulkUpdate(ids, { status, assigneeId, departmentId }, req.user!.id);
     res.json({ success: true, data: results });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    // Input was already validated above (ids array, non-empty), so any
+    // thrown error here is a server-side failure (DB outage, etc.).
+    console.error('[issues.bulk]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -72,6 +98,33 @@ router.get('/stats', authenticate, async (req: AuthenticatedRequest, res) => {
   }
 });
 
+// Semantic ("smart") search over issues. Returns the top-K issues most
+// similar to the free-text query, ordered by cosine similarity. Used by
+// the smart search bar in the issue list UI. Falls back to plain text
+// matching if the embedding service is unavailable.
+//
+// Auth-gated: the underlying semantic path calls Ollama for an embedding
+// and runs a pgvector scan, both of which are expensive. Keeping this
+// behind `authenticate` matches the surrounding /issues endpoints and
+// prevents anonymous callers from using it as a free DoS vector.
+router.get('/search-similar', authenticate, async (req, res) => {
+  try {
+    const text = ((req.query.text as string) || '').trim();
+    const topK = parseInt(req.query.topK as string) || 5;
+    const minScore = parseFloat(req.query.minScore as string) || 0.2;
+
+    if (text.length < 3) {
+      res.status(400).json({ error: 'text query must be at least 3 characters' });
+      return;
+    }
+
+    const result = await issueService.searchSimilar(text, topK, minScore);
+    res.json({ success: true, ...result });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get single issue
 router.get('/:id', async (req, res) => {
   try {
@@ -82,7 +135,10 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Create issue (authenticated)
+// Create issue (authenticated). Heavy work (embedding, AI triage) is
+// deferred to the background worker — the HTTP handler returns 202 with
+// the new issue id as soon as the row is persisted, so the user doesn't
+// wait 4-5s for the AI calls.
 router.post('/', authenticate, async (req: AuthenticatedRequest, res) => {
   try {
     const data = createIssueSchema.parse(req.body);
@@ -90,13 +146,48 @@ router.post('/', authenticate, async (req: AuthenticatedRequest, res) => {
       ...data,
       reporterId: req.user!.id,
     });
-    res.status(201).json({ success: true, data: issue });
+
+    // Fire-and-forget enqueue. If Redis is unreachable, the issue is
+    // still created — the backfill script (`npm run embed:backfill`)
+    // will catch up. We log a warning and surface a `warnings` array in
+    // the 202 response so the client / mayor dashboard can show a
+    // degraded state instead of silently dropping the embedding job.
+    const warnings: string[] = [];
+    try {
+      const queue = getEmbedIssueQueue();
+      await queue.add(
+        'embed',
+        { issueId: issue.id },
+        {
+          // dedupe: BullMQ will skip a duplicate add with the same
+          // jobId. Protects against double-clicks on the submit button.
+          jobId: `embed:${issue.id}`,
+        },
+      );
+    } catch (queueErr: any) {
+      console.warn(
+        `[issue.create] Could not enqueue embed job for ${issue.id}: ${queueErr.message}. ` +
+        `The backfill script will catch up.`,
+      );
+      warnings.push('embedding_deferred_failed');
+    }
+
+    res.status(202).json({
+      success: true,
+      data: issue,
+      warnings,
+      message: 'Issue created. Embedding queued for background processing.',
+    });
   } catch (error: any) {
     if (error instanceof z.ZodError) {
       res.status(400).json({ error: 'Validation failed', details: error.issues });
       return;
     }
-    res.status(400).json({ error: error.message });
+    // Any other thrown error is a server-side failure (DB outage, queue
+    // crash, etc.). The client did nothing wrong; surface it as 500 so
+    // monitoring / retries can react properly.
+    console.error('[issues.create]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -111,7 +202,8 @@ router.patch('/:id/status', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEP
       res.status(400).json({ error: 'Validation failed', details: error.issues });
       return;
     }
-    res.status(400).json({ error: error.message });
+    console.error('[issues.status]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -122,7 +214,10 @@ router.patch('/:id/assign', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEP
     const issue = await issueService.assign(req.params.id as string, assigneeId, departmentId, req.user!.id);
     res.json({ success: true, data: issue });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    // No Zod validation on the body (assigneeId/departmentId are simple
+    // strings), so any thrown error is a server-side failure.
+    console.error('[issues.assign]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -132,7 +227,9 @@ router.post('/:id/upvote', authenticate, async (req: AuthenticatedRequest, res) 
     const result = await issueService.upvote(req.params.id as string, req.user!.id);
     res.json({ success: true, data: result });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    // No request-body validation; anything thrown is a server failure.
+    console.error('[issues.upvote]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

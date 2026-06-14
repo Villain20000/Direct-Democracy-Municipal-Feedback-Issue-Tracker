@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth.middleware';
 import { authorize } from '../middleware/rbac.middleware';
 import { resolutionService } from '../services/resolution.service';
+import { sendDomainError } from '../errors/domain-errors';
 
 const router = Router();
 
@@ -35,7 +36,9 @@ router.post('/', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'COUNCIL_MEMBER
     const resolution = await resolutionService.create({ ...req.body, proposedById: req.user!.id });
     res.status(201).json({ success: true, data: resolution });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[resolutions.create]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -45,7 +48,9 @@ router.patch('/:id/status', authenticate, authorize('SUPER_ADMIN', 'MAYOR'), asy
     const resolution = await resolutionService.updateStatus(req.params.id as string, req.body.status);
     res.json({ success: true, data: resolution });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[resolutions.updateStatus]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -57,7 +62,11 @@ router.post('/:id/vote', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'COUNCI
     const resolution = await resolutionService.vote(req.params.id as string, req.user!.id, voteFor);
     res.json({ success: true, data: resolution });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    // service throws AlreadyVotedError (409), BadRequestError (400 wrong
+    // status), NotFoundError (404); all mapped via sendDomainError.
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[resolutions.vote]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -67,7 +76,9 @@ router.delete('/:id', authenticate, authorize('SUPER_ADMIN'), async (req: Authen
     await resolutionService.delete(req.params.id as string);
     res.json({ success: true });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[resolutions.delete]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

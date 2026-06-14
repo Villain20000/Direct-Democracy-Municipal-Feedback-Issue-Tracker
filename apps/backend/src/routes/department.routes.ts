@@ -27,7 +27,8 @@ router.post('/', authenticate, authorize('SUPER_ADMIN'), validate(createDepartme
     const department = await prisma.department.create({ data: req.body });
     res.status(201).json({ success: true, data: department });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    console.error('[departments.create]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -51,7 +52,8 @@ router.post('/wards', authenticate, authorize('SUPER_ADMIN'), validate(createWar
     const ward = await prisma.ward.create({ data: req.body });
     res.status(201).json({ success: true, data: ward });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    console.error('[departments.createWard]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

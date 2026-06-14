@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth.middleware';
 import { authorize } from '../middleware/rbac.middleware';
 import { eventService } from '../services/event.service';
+import { sendDomainError } from '../errors/domain-errors';
 
 const router = Router();
 
@@ -37,7 +38,9 @@ router.post('/', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMENT_HEA
     const event = await eventService.create({ ...req.body, creatorId: req.user!.id });
     res.status(201).json({ success: true, data: event });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[events.create]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -52,7 +55,9 @@ router.patch('/:id', authenticate, async (req: AuthenticatedRequest, res) => {
     const updated = await eventService.update(req.params.id as string, req.body);
     res.json({ success: true, data: updated });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[events.update]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -67,7 +72,9 @@ router.delete('/:id', authenticate, async (req: AuthenticatedRequest, res) => {
     await eventService.delete(req.params.id as string);
     res.json({ success: true });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[events.delete]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -80,7 +87,11 @@ router.post('/:id/rsvp', authenticate, async (req: AuthenticatedRequest, res) =>
     const rsvp = await eventService.rsvp(req.params.id as string, req.user!.id, status);
     res.json({ success: true, data: rsvp });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    // service throws NotFoundError if the event doesn't exist;
+    // mapped to 404 via sendDomainError.
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[events.rsvp]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -90,7 +101,9 @@ router.delete('/:id/rsvp', authenticate, async (req: AuthenticatedRequest, res) 
     await eventService.cancelRsvp(req.params.id as string, req.user!.id);
     res.json({ success: true });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[events.cancelRsvp]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

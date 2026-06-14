@@ -5,6 +5,13 @@ import { prisma } from '../db/client';
 import { config } from '../config';
 import { AuthUser } from '../middleware/auth.middleware';
 import { emailService } from './email.service';
+import {
+  AlreadyExistsError,
+  InvalidCredentialsError,
+  InvalidTokenError,
+  NotFoundError,
+  TokenExpiredError,
+} from '../errors/domain-errors';
 
 const SALT_ROUNDS = 12;
 
@@ -46,7 +53,7 @@ function parseExpiresIn(ms: string): number {
 export const authService = {
   async register(data: { email: string; password: string; firstName: string; lastName: string; phone?: string; role?: string }) {
     const existing = await prisma.user.findUnique({ where: { email: data.email } });
-    if (existing) throw new Error('Email already registered');
+    if (existing) throw new AlreadyExistsError('Email already registered');
 
     const passwordHash = await bcrypt.hash(data.password, SALT_ROUNDS);
     const user = await prisma.user.create({
@@ -73,10 +80,10 @@ export const authService = {
 
   async login(email: string, password: string) {
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user || !user.isActive) throw new Error('Invalid credentials');
+    if (!user || !user.isActive) throw new InvalidCredentialsError();
 
     const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) throw new Error('Invalid credentials');
+    if (!valid) throw new InvalidCredentialsError();
 
     await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
@@ -104,7 +111,11 @@ export const authService = {
       include: { user: true },
     });
     if (!record || record.expiresAt < new Date()) {
-      throw new Error('Invalid or expired refresh token');
+      // Both "we've never seen this token" (InvalidToken) and "we did
+      // but it's past its expiry" (TokenExpiredError) are 401, but the
+      // machine-readable code lets the client decide whether to send
+      // the user back to the login screen vs. silently refresh.
+      throw record ? new TokenExpiredError() : new InvalidTokenError('Invalid refresh token');
     }
 
     // Rotate: delete old, issue new
@@ -135,7 +146,7 @@ export const authService = {
         wardId: true, departmentId: true,
       },
     });
-    if (!user) throw new Error('User not found');
+    if (!user) throw new NotFoundError('User not found');
     return user;
   },
 
@@ -159,7 +170,10 @@ export const authService = {
       include: { user: true },
     });
     if (!record || record.expiresAt < new Date()) {
-      throw new Error('Invalid or expired reset token');
+      // Same distinction as refresh: unknown token vs. expired token.
+      // The client can react differently (re-request reset vs. tell
+      // the user to try again).
+      throw record ? new TokenExpiredError() : new InvalidTokenError('Invalid reset token');
     }
 
     const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);

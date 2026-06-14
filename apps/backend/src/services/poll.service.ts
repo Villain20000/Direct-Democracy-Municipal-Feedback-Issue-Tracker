@@ -1,4 +1,10 @@
 import { prisma } from '../db/client';
+import {
+  AlreadyClosedError,
+  AlreadyVotedError,
+  BadRequestError,
+  NotFoundError,
+} from '../errors/domain-errors';
 
 export const pollService = {
   async create(data: {
@@ -46,17 +52,22 @@ export const pollService = {
         _count: { select: { votes: true } },
       },
     });
-    if (!poll) throw new Error('Poll not found');
+    if (!poll) throw new NotFoundError('Poll not found');
     return poll;
   },
 
   async vote(pollId: string, userId: string, optionId: string) {
     const poll = await prisma.poll.findUnique({ where: { id: pollId } });
-    if (!poll) throw new Error('Poll not found');
-    if (!poll.isActive) throw new Error('Poll is no longer active');
+    if (!poll) throw new NotFoundError('Poll not found');
+    if (!poll.isActive) throw new AlreadyClosedError('Poll is no longer active');
 
     const option = await prisma.pollOption.findUnique({ where: { id: optionId } });
-    if (!option || option.pollId !== pollId) throw new Error('Invalid option for this poll');
+    if (!option || option.pollId !== pollId) {
+      throw new BadRequestError('Invalid option for this poll', 'BAD_REQUEST', {
+        field: 'optionId',
+        pollId,
+      });
+    }
 
     const existing = await prisma.vote.findUnique({
       where: { userId_pollId: { userId, pollId } },
@@ -64,7 +75,7 @@ export const pollService = {
 
     if (existing) {
       // Already voted on this poll — cannot change vote
-      throw new Error('You have already voted on this poll');
+      throw new AlreadyVotedError('You have already voted on this poll', undefined);
     }
 
     await prisma.vote.create({ data: { value: 1, userId, pollId } });
@@ -79,7 +90,7 @@ export const pollService = {
 
   async delete(id: string) {
     const poll = await prisma.poll.findUnique({ where: { id } });
-    if (!poll) throw new Error('Poll not found');
+    if (!poll) throw new NotFoundError('Poll not found');
     return prisma.poll.delete({ where: { id } });
   },
 };

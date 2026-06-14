@@ -139,6 +139,7 @@ export class DepartmentDashboardComponent implements OnInit {
     { icon: 'people', label: 'nav.staff', route: '/department/staff' },
     { icon: 'account_balance_wallet', label: 'nav.budget', route: '/department/budget' },
     { icon: 'assessment', label: 'nav.reports', route: '/department/reports' },
+    { icon: 'library_books', label: 'nav.documents', route: '/admin/documents' },
   ] as any;
 
   auth = inject(AuthService);

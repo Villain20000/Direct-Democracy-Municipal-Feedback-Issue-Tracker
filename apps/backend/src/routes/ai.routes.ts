@@ -2,6 +2,9 @@ import { Router } from 'express';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth.middleware';
 import { aiLimiter } from '../middleware/rateLimit.middleware';
 import { aiService } from '../ai/ollama.service';
+import { ragService } from '../services/rag.service';
+import ollama from 'ollama';
+import { config } from '../config';
 
 const router = Router();
 
@@ -62,12 +65,71 @@ router.post('/trends', authenticate, aiLimiter as any, async (req: Authenticated
 
 router.post('/chat', authenticate, aiLimiter as any, async (req: AuthenticatedRequest, res) => {
   try {
-    const { messages } = req.body;
+    const { messages, useRag } = req.body;
     if (!messages || !Array.isArray(messages)) { res.status(400).json({ error: 'Messages array is required' }); return; }
-    const result = await aiService.chat(messages);
-    res.json({ success: true, data: { response: result } });
+
+    // RAG-augmented chat: if the latest user message looks like a question
+    // about municipal rules, ordinances, or decisions, pull the top-5
+    // most similar chunks from the document store and inject them into
+    // the system prompt with explicit "cite the document title" instructions.
+    let citations: Array<{ documentId: string; title: string; type: string; source: string; documentDate: string | null; chunkIndex: number; score: number; chunk: string }> = [];
+    let augmentedMessages = messages;
+    if (useRag !== false) {
+      const lastUser = [...messages].reverse().find((m: any) => m.role === 'user');
+      const q = (lastUser?.content || '').toString().trim();
+      if (q.length >= 10) {
+        try {
+          const chunks = await ragService.retrieve(q, 5, 0.25);
+          if (chunks.length > 0) {
+            citations = chunks.map((c) => ({
+              documentId: c.documentId,
+              title: c.documentTitle,
+              type: c.documentType,
+              source: c.documentSource,
+              documentDate: c.documentDate,
+              chunkIndex: c.chunkIndex,
+              score: c.score,
+              chunk: c.content.slice(0, 220) + (c.content.length > 220 ? '…' : ''),
+            }));
+            const contextBlock = chunks
+              .map((c, i) => `[${i + 1}] (${c.documentTitle}, ${c.documentType}${c.documentDate ? `, ${c.documentDate}` : ''})\n${c.content}`)
+              .join('\n\n---\n\n');
+            const systemAugment = {
+              role: 'system',
+              content: `You are CivicAssist, an AI assistant for the municipal government. The user may ask about\nmunicipal rules, ordinances, or decisions. The following excerpts from the official document\nstore are provided as CONTEXT ONLY. Answer the user's question using this context when relevant,\nand CITE the document title and number in brackets (e.g. [1]) so the user can verify.\nIf the context does not contain the answer, say so honestly and suggest where the citizen could\nlook instead (e.g. the relevant department). Keep answers concise and friendly.\n\n--- CONTEXT ---\n${contextBlock}\n--- END CONTEXT ---`,
+            };
+            augmentedMessages = [systemAugment, ...messages];
+          }
+        } catch (err: any) {
+          // RAG retrieval failed (e.g. no embeddings yet) — fall through to plain chat.
+          console.warn('[ai.chat] RAG retrieval failed, falling back to plain chat:', err.message);
+        }
+      }
+    }
+
+    // Direct call to ollama so we can swap the system prompt per request.
+    const response = await ollama.chat({
+      model: config.ollama.model,
+      messages: augmentedMessages,
+      stream: false,
+    });
+    res.json({
+      success: true,
+      data: {
+        answer: response.message.content,
+        citations,
+        ragUsed: citations.length > 0,
+      },
+    });
   } catch (error: any) {
-    res.status(503).json({ error: error.message });
+    console.error('[ai.chat]', error.message);
+    // Fallback: legacy keyword chat.
+    try {
+      const result = await aiService.chat(req.body.messages);
+      res.json({ success: true, data: { answer: result, citations: [], ragUsed: false, fallback: true } });
+    } catch {
+      res.status(503).json({ error: error.message });
+    }
   }
 });
 

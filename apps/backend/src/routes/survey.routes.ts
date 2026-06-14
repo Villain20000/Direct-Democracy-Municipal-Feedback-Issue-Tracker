@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth.middleware';
 import { authorize } from '../middleware/rbac.middleware';
 import { surveyService } from '../services/survey.service';
+import { sendDomainError } from '../errors/domain-errors';
 
 const router = Router();
 
@@ -37,7 +38,9 @@ router.post('/', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'COUNCIL_MEMBER
     const survey = await surveyService.create({ ...rest, questions, creatorId: req.user!.id });
     res.status(201).json({ success: true, data: survey });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[surveys.create]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -48,7 +51,11 @@ router.post('/:id/respond', authenticate, async (req: AuthenticatedRequest, res)
     const response = await surveyService.submitResponse(req.params.id as string, req.user!.id, answers);
     res.status(201).json({ success: true, data: response });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    // service throws AlreadyClosedError (409), AlreadyRespondedError (409),
+    // NotFoundError (404); all mapped via sendDomainError.
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[surveys.respond]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -57,7 +64,9 @@ router.patch('/:id/close', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'COUN
     const survey = await surveyService.close(req.params.id as string);
     res.json({ success: true, data: survey });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[surveys.close]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -66,7 +75,9 @@ router.delete('/:id', authenticate, authorize('SUPER_ADMIN'), async (req: Authen
     await surveyService.delete(req.params.id as string);
     res.json({ success: true });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[surveys.delete]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

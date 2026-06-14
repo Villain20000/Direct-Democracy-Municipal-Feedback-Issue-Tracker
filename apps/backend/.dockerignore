@@ -1,0 +1,24 @@
+# Exclude everything that would slow the build context or shadow the
+# image's install layer. Kept intentionally small — anything that
+# would bloat `docker build` or get copied into the image and override
+# the Dockerfile's own COPYs.
+node_modules
+npm-debug.log
+yarn-error.log
+pnpm-debug.log
+.git
+.gitignore
+.github
+coverage
+dist
+*.log
+.env
+.env.*
+!.env.example
+.vscode
+.idea
+*.swp
+*.swo
+.DS_Store
+tests-output
+__tests__/coverage

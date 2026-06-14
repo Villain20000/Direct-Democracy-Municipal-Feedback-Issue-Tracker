@@ -5,6 +5,7 @@ import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 import { TranslationService } from '../../core/i18n/translation.service';
 import { LanguageSwitcherComponent } from '../../shared/language-switcher.component';
+import { getErrorMessage, toApiError } from '../../core/errors/api-error';
 
 @Component({
   selector: 'app-login',
@@ -104,7 +105,11 @@ export class LoginComponent {
       },
       error: (err) => {
         this.loading = false;
-        this.error = err.error?.error || this.i18n.t('auth.loginFailed');
+        // Extract the typed `code` (e.g. INVALID_CREDENTIALS) from the
+        // HttpErrorResponse and translate via the i18n dictionary; fall
+        // back to the backend message or `auth.loginFailed`.
+        const apiErr = toApiError(err);
+        this.error = getErrorMessage(apiErr, this.i18n) || this.i18n.t('auth.loginFailed');
       },
     });
   }

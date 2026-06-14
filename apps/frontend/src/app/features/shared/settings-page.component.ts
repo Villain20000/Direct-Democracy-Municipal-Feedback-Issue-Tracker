@@ -6,6 +6,7 @@ import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
 import { ToastService } from '../../core/services/toast.service';
 import { TranslationService } from '../../core/i18n/translation.service';
+import { getFieldErrors, groupFieldErrorsByField, toApiError } from '../../core/errors/api-error';
 import { User } from '@dd/shared-types';
 
 @Component({
@@ -63,15 +64,18 @@ import { User } from '@dd/shared-types';
               <form (ngSubmit)="changePassword()" #pwForm="ngForm">
                 <div class="form-group">
                   <label>{{ i18n.t('settings.currentPw') }}</label>
-                  <input type="password" [(ngModel)]="passwords.current" name="current" required />
+                  <input type="password" [(ngModel)]="passwords.current" (ngModelChange)="clearFieldError('currentPassword')" name="current" required [class.input-error]="!!getFieldError('currentPassword')" />
+                  @if (getFieldError('currentPassword')) { <div class="field-error">⚠ {{ getFieldError('currentPassword') }}</div> }
                 </div>
                 <div class="form-group">
                   <label>{{ i18n.t('settings.newPw') }}</label>
-                  <input type="password" [(ngModel)]="passwords.new" name="new" required minlength="8" />
+                  <input type="password" [(ngModel)]="passwords.new" (ngModelChange)="clearFieldError('newPassword')" name="new" required minlength="8" [class.input-error]="!!getFieldError('newPassword')" />
+                  @if (getFieldError('newPassword')) { <div class="field-error">⚠ {{ getFieldError('newPassword') }}</div> }
                 </div>
                 <div class="form-group">
                   <label>{{ i18n.t('settings.confirmNewPw') }}</label>
-                  <input type="password" [(ngModel)]="passwords.confirm" name="confirm" required />
+                  <input type="password" [(ngModel)]="passwords.confirm" (ngModelChange)="clearFieldError('confirmPassword')" name="confirm" required [class.input-error]="!!getFieldError('confirmPassword')" />
+                  @if (getFieldError('confirmPassword')) { <div class="field-error">⚠ {{ getFieldError('confirmPassword') }}</div> }
                 </div>
                 <button type="submit" class="btn btn-primary" [disabled]="changing || !isPasswordValid()">
                   @if (changing) { {{ i18n.t('settings.changing') }} } @else { {{ i18n.t('settings.updatePassword') }} }
@@ -96,6 +100,21 @@ import { User } from '@dd/shared-types';
       }
     </app-layout>
   `,
+  styles: [`
+    .field-error {
+      margin-top: 6px;
+      font-size: 12px;
+      color: #B91C1C;
+      background: #FEF2F2;
+      border-left: 3px solid #DC2626;
+      padding: 6px 10px;
+      border-radius: 4px;
+    }
+    .input-error {
+      border-color: #DC2626 !important;
+      background: #FFF5F5;
+    }
+  `],
 })
 export class SettingsPageComponent implements OnInit {
   profile: User | null = null;
@@ -103,6 +122,12 @@ export class SettingsPageComponent implements OnInit {
   error = '';
   changing = false;
   passwords = { current: '', new: '', confirm: '' };
+  /**
+   * Inline field-level errors populated from the backend's
+   * `BadRequestError` (e.g. `{field: 'newPassword', minLength: 8}`).
+   * Forms can read a single field's error via `getFieldError(name)`.
+   */
+  fieldErrors: Record<string, string> = {};
   navItems: NavItem[] = [];
 
   auth = inject(AuthService);
@@ -122,15 +147,42 @@ export class SettingsPageComponent implements OnInit {
       && this.passwords.new === this.passwords.confirm;
   }
 
-  changePassword() {
-    if (!this.isPasswordValid()) {
-      if (this.passwords.new !== this.passwords.confirm) {
-        this.toast.error(this.i18n.t('settings.pwMismatch'));
-      } else {
-        this.toast.warning(this.i18n.t('settings.pwFieldsRequired'));
-      }
-      return;
+  /**
+   * Inline field-error accessor used by the template. Tries
+   * `errorFields.<field>` first, then falls back to the raw
+   * backend message. Returns '' when no error is set.
+   */
+  getFieldError(field: string): string {
+    const raw = this.fieldErrors[field];
+    if (!raw) return '';
+    const key = `errorFields.${field}` as any;
+    const translated = this.i18n.t(key);
+    if (translated && translated !== key) return translated;
+    return raw;
+  }
+
+  /**
+   * Drop the inline error for `field` (called from each input's
+   * `ngModelChange`).
+   */
+  clearFieldError(field: string) {
+    if (this.fieldErrors[field]) {
+      delete this.fieldErrors[field];
     }
+  }
+
+  changePassword() {
+    // Local validation first — surface as inline field errors so the
+    // user sees the failure next to the offending input (not just
+    // as a toast they might miss).
+    this.fieldErrors = {};
+    if (this.passwords.new !== this.passwords.confirm) {
+      this.fieldErrors['confirmPassword'] = this.i18n.t('settings.pwMismatch');
+    } else if (!this.isPasswordValid()) {
+      this.fieldErrors['newPassword'] = this.i18n.t('settings.pwFieldsRequired');
+    }
+    if (Object.keys(this.fieldErrors).length > 0) return;
+
     this.changing = true;
     this.api.changePassword(this.passwords.current, this.passwords.new).subscribe({
       next: (res: any) => {
@@ -140,7 +192,18 @@ export class SettingsPageComponent implements OnInit {
       },
       error: (err) => {
         this.changing = false;
-        this.toast.error(err.error?.error || this.i18n.t('settings.pwChangeFailed'));
+        const apiErr = toApiError(err);
+        // Backend BadRequestError carries `{field: 'newPassword', minLength: 8}`
+        // for the too-short case. Wrong current password comes back as
+        // InvalidCredentialsError (401) with no `details`, so the
+        // inline map stays empty and the user sees the form-level error
+        // (mapped to `errorFields.currentPassword` for translation).
+        const fieldErrs = getFieldErrors(apiErr);
+        this.fieldErrors = groupFieldErrorsByField(fieldErrs);
+        if (fieldErrs.length === 0) {
+          this.fieldErrors['currentPassword'] = apiErr.message;
+          this.toast.error(apiErr.message);
+        }
       },
     });
   }

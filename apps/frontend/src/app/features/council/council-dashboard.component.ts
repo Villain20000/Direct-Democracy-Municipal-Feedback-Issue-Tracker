@@ -1,5 +1,6 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule, formatDate } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
@@ -16,10 +17,30 @@ interface CouncilMeeting {
   location: string;
 }
 
+interface ChatCitation {
+  documentId: string;
+  title: string;
+  type: string;
+  source: string;
+  documentDate: string | null;
+  chunkIndex: number;
+  score: number;
+  chunk: string;
+}
+
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  citations?: ChatCitation[];
+  ragUsed?: boolean;
+  fallback?: boolean;
+  error?: boolean;
+}
+
 @Component({
   selector: 'app-council-dashboard',
   standalone: true,
-  imports: [CommonModule, LayoutComponent, RouterLink, TranslatePipe],
+  imports: [CommonModule, FormsModule, LayoutComponent, RouterLink, TranslatePipe],
   template: `
     <app-layout [pageTitle]="i18n.t('council.pageTitle')" [navItems]="navItems" (logout)="auth.logout()">
 
@@ -107,8 +128,195 @@ interface CouncilMeeting {
           </div>
         </div>
       </div>
+
+      <!-- ======================================================== -->
+      <!-- Municipal Legislation Chatbot (RAG-augmented /ai/chat)    -->
+      <!-- ======================================================== -->
+      <div class="card" style="margin-top:16px;">
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <h3 style="display:flex;align-items:center;gap:8px;">
+              <i class="material-icons-outlined" style="color:var(--primary);">menu_book</i>
+              {{ 'council.chatTitle' | t }}
+            </h3>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">
+              {{ 'council.chatSubtitle' | t }}
+            </div>
+          </div>
+          @if (chatMessages.length > 0) {
+            <button type="button" class="btn btn-secondary btn-sm" (click)="clearChat()" [disabled]="chatThinking">
+              {{ 'council.chatClear' | t }}
+            </button>
+          }
+        </div>
+        <div class="card-body" style="padding:0;">
+          <!-- Messages list -->
+          <div class="chat-messages" #chatScroll>
+            @if (chatMessages.length === 0 && !chatThinking) {
+              <div style="padding:48px 24px;text-align:center;color:var(--text-muted);">
+                <i class="material-icons-outlined" style="font-size:48px;display:block;margin-bottom:12px;opacity:0.5;">forum</i>
+                <div style="font-size:14px;font-weight:600;margin-bottom:4px;">{{ 'council.chatEmpty' | t }}</div>
+                <div style="font-size:12px;">{{ 'council.chatHint' | t }}</div>
+              </div>
+            }
+            @for (msg of chatMessages; track $index) {
+              <div class="chat-bubble" [class.chat-user]="msg.role === 'user'" [class.chat-assistant]="msg.role === 'assistant'">
+                <div class="chat-bubble-role">
+                  @if (msg.role === 'user') {
+                    <i class="material-icons-outlined" style="font-size:14px;vertical-align:middle;">person</i>
+                    {{ 'council.chatYou' | t }}
+                  } @else {
+                    <i class="material-icons-outlined" style="font-size:14px;vertical-align:middle;color:var(--primary);">smart_toy</i>
+                    {{ 'council.chatAssistant' | t }}
+                    @if (msg.ragUsed) {
+                      <span style="margin-left:8px;font-size:10px;background:#D1FAE5;color:#065F46;padding:2px 6px;border-radius:4px;">
+                        {{ 'council.chatRagUsed' | t }}
+                      </span>
+                    } @else if (msg.fallback) {
+                      <span style="margin-left:8px;font-size:10px;background:#FEF3C7;color:#92400E;padding:2px 6px;border-radius:4px;">
+                        {{ 'council.chatFallback' | t }}
+                      </span>
+                    }
+                  }
+                </div>
+                <div class="chat-bubble-content" [class.error]="msg.error">{{ msg.content }}</div>
+
+                <!-- Citations -->
+                @if (msg.role === 'assistant' && msg.citations && msg.citations.length > 0) {
+                  <div style="margin-top:10px;border-top:1px solid var(--border-light);padding-top:10px;">
+                    <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px;">
+                      📚 {{ 'council.chatCitations' | t }} ({{ msg.citations.length }})
+                    </div>
+                    @for (cit of msg.citations; track cit.documentId) {
+                      <details style="margin-bottom:6px;background:#F8FAFC;border:1px solid var(--border-light);border-radius:6px;padding:8px 10px;">
+                        <summary style="cursor:pointer;font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px;list-style:none;">
+                          <i class="material-icons-outlined" style="font-size:14px;color:var(--primary);">description</i>
+                          <span style="flex:1;">{{ cit.title }}</span>
+                          <span style="font-size:10px;background:var(--primary);color:white;padding:1px 6px;border-radius:3px;font-weight:600;">
+                            {{ (cit.score * 100).toFixed(0) }}%
+                          </span>
+                          <span style="font-size:10px;background:#E0E7FF;color:#3730A3;padding:1px 6px;border-radius:3px;">
+                            {{ cit.type }}
+                          </span>
+                        </summary>
+                        <div style="font-size:12px;color:var(--text-secondary);margin-top:6px;line-height:1.5;white-space:pre-wrap;">
+                          {{ cit.chunk }}
+                        </div>
+                        @if (cit.documentDate) {
+                          <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">📅 {{ cit.documentDate }}</div>
+                        }
+                      </details>
+                    }
+                  </div>
+                }
+              </div>
+            }
+
+            @if (chatThinking) {
+              <div class="chat-bubble chat-assistant">
+                <div class="chat-bubble-role">
+                  <i class="material-icons-outlined" style="font-size:14px;vertical-align:middle;color:var(--primary);">smart_toy</i>
+                  {{ 'council.chatAssistant' | t }}
+                </div>
+                <div class="chat-thinking">
+                  <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+                  <span style="margin-left:8px;font-size:13px;color:var(--text-muted);">{{ 'council.chatThinking' | t }}</span>
+                </div>
+              </div>
+            }
+          </div>
+
+          <!-- Input row -->
+          <div style="border-top:1px solid var(--border);padding:12px 16px;display:flex;gap:8px;align-items:flex-end;">
+            <textarea
+              class="form-input"
+              [(ngModel)]="chatInput"
+              (keydown.enter)="onChatEnter($event)"
+              [disabled]="chatThinking"
+              rows="2"
+              [placeholder]="'council.chatPlaceholder' | t"
+              style="flex:1;resize:vertical;min-height:42px;max-height:160px;font-family:inherit;font-size:14px;"
+            ></textarea>
+            <button
+              type="button"
+              class="btn btn-primary"
+              (click)="sendChat()"
+              [disabled]="chatThinking || !chatInput.trim()">
+              @if (chatThinking) {
+                <span>...</span>
+              } @else {
+                <i class="material-icons-outlined" style="font-size:18px;vertical-align:middle;">send</i>
+                {{ 'council.chatSend' | t }}
+              }
+            </button>
+          </div>
+        </div>
+      </div>
     </app-layout>
   `,
+  styles: [`
+    .chat-messages {
+      max-height: 520px;
+      overflow-y: auto;
+      padding: 16px;
+      background: #FAFAFA;
+    }
+    .chat-bubble {
+      max-width: 85%;
+      padding: 10px 14px;
+      border-radius: 14px;
+      margin-bottom: 10px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .chat-user {
+      background: var(--primary);
+      color: white;
+      margin-left: auto;
+      border-bottom-right-radius: 4px;
+    }
+    .chat-user .chat-bubble-role { color: rgba(255,255,255,0.85); }
+    .chat-assistant {
+      background: white;
+      border: 1px solid var(--border);
+      margin-right: auto;
+      border-bottom-left-radius: 4px;
+    }
+    .chat-bubble-role {
+      font-size: 11px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .chat-bubble-content {
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .chat-bubble-content.error {
+      color: var(--danger);
+      font-style: italic;
+    }
+    .chat-thinking {
+      display: flex;
+      align-items: center;
+    }
+    .chat-thinking .dot {
+      width: 7px;
+      height: 7px;
+      margin: 0 2px;
+      background: var(--primary);
+      border-radius: 50%;
+      animation: chat-bounce 1.2s infinite ease-in-out;
+    }
+    .chat-thinking .dot:nth-child(2) { animation-delay: 0.15s; }
+    .chat-thinking .dot:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes chat-bounce {
+      0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+      40% { transform: scale(1); opacity: 1; }
+    }
+  `],
 })
 export class CouncilDashboardComponent implements OnInit {
   resolutions: any[] = [];
@@ -121,12 +329,19 @@ export class CouncilDashboardComponent implements OnInit {
   votingId = '';
   voteMessage = '';
   voteError = '';
+
+  // Chat panel state
+  chatMessages: ChatMessage[] = [];
+  chatInput = '';
+  chatThinking = false;
+
   navItems = [
     { icon: 'dashboard', label: 'nav.overview', route: '/council' },
     { icon: 'how_to_vote', label: 'nav.resolutions', route: '/council/resolutions' },
     { icon: 'groups', label: 'nav.constituents', route: '/council/constituents' },
     { icon: 'forum', label: 'nav.forums', route: '/council/forums' },
     { icon: 'event', label: 'nav.calendar', route: '/council/calendar' },
+    { icon: 'library_books', label: 'nav.documents', route: '/admin/documents' },
   ] as any;
 
   private readonly locale = 'en-US';
@@ -196,6 +411,81 @@ export class CouncilDashboardComponent implements OnInit {
         this.votingId = '';
       },
     });
+  }
+
+  // ========================================================
+  // Chat panel methods
+  // ========================================================
+
+  onChatEnter(ev: KeyboardEvent) {
+    if (ev.key === 'Enter' && !ev.shiftKey) {
+      ev.preventDefault();
+      this.sendChat();
+    }
+  }
+
+  sendChat() {
+    const text = this.chatInput.trim();
+    if (!text || this.chatThinking) return;
+
+    // Append user message.
+    this.chatMessages = [...this.chatMessages, { role: 'user', content: text }];
+    this.chatInput = '';
+    this.chatThinking = true;
+    this.scrollChatToBottom();
+
+    // Build the messages payload for the API (strip UI-only fields).
+    const apiMessages = this.chatMessages
+      .filter(m => !m.error)
+      .slice(-20) // keep the last 20 turns to limit context bloat
+      .map(m => ({ role: m.role, content: m.content }));
+
+    this.api.aiChatWithCitations(apiMessages, true).subscribe({
+      next: (res) => {
+        this.chatThinking = false;
+        if (res?.success && res.data) {
+          this.chatMessages = [
+            ...this.chatMessages,
+            {
+              role: 'assistant',
+              content: res.data.answer || '',
+              citations: res.data.citations || [],
+              ragUsed: !!res.data.ragUsed,
+              fallback: !!res.data.fallback,
+            },
+          ];
+        } else {
+          this.chatMessages = [
+            ...this.chatMessages,
+            { role: 'assistant', content: this.i18n.t('council.chatError'), error: true },
+          ];
+        }
+        this.scrollChatToBottom();
+      },
+      error: (err) => {
+        this.chatThinking = false;
+        const msg = err?.error?.error || this.i18n.t('council.chatError');
+        this.chatMessages = [
+          ...this.chatMessages,
+          { role: 'assistant', content: msg, error: true },
+        ];
+        this.scrollChatToBottom();
+      },
+    });
+  }
+
+  clearChat() {
+    this.chatMessages = [];
+    this.chatInput = '';
+    this.chatThinking = false;
+  }
+
+  private scrollChatToBottom() {
+    // Defer to next macrotask so the DOM has the new message.
+    setTimeout(() => {
+      const el = document.querySelector('.chat-messages');
+      if (el) el.scrollTop = el.scrollHeight;
+    }, 50);
   }
 
   private mapMeeting(event: Event): CouncilMeeting {

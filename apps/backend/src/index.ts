@@ -22,6 +22,8 @@ import attachmentRoutes from './routes/attachment.routes';
 import surveyRoutes from './routes/survey.routes';
 import forumRoutes from './routes/forum.routes';
 import reportsRoutes from './routes/reports.routes';
+import adminDocumentRoutes from './routes/admin-documents.routes';
+import spatialRoutes from './routes/spatial.routes';
 
 const app = express();
 
@@ -41,8 +43,8 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser() as any);
 
-// Health check
-app.get('/health', (_req, res) => {
+// Health check (versioned under /api/v1 for consistency with the rest of the API)
+app.get('/api/v1/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '1.0.0' });
 });
 
@@ -66,6 +68,8 @@ app.use('/api/v1/audit', auditRoutes);
 app.use('/api/v1/surveys', surveyRoutes);
 app.use('/api/v1/forums', forumRoutes);
 app.use('/api/v1/reports', reportsRoutes);
+app.use('/api/v1/admin/documents', adminDocumentRoutes);
+app.use('/api/v1/spatial', spatialRoutes);
 app.use('/api/v1', attachmentRoutes);
 
 // Static uploads

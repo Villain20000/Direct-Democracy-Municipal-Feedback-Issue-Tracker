@@ -1,5 +1,11 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from '../db/client';
+import {
+  AlreadyExistsError,
+  BadRequestError,
+  InvalidCredentialsError,
+  NotFoundError,
+} from '../errors/domain-errors';
 
 export const userService = {
   async getAll(params: { page?: number; pageSize?: number; role?: string; search?: string }) {
@@ -63,9 +69,11 @@ export const userService = {
 
   async changePassword(id: string, currentPassword: string, newPassword: string) {
     const user = await prisma.user.findUnique({ where: { id } });
-    if (!user) throw new Error('User not found');
+    if (!user) throw new NotFoundError('User not found');
     const valid = await bcrypt.compare(currentPassword, user.passwordHash);
-    if (!valid) throw new Error('Current password is incorrect');
+    // Wrong current password is an auth failure (401), not a validation
+    // error — the user typed a valid password, just not the *right* one.
+    if (!valid) throw new InvalidCredentialsError('Current password is incorrect');
     const hash = await bcrypt.hash(newPassword, 12);
     await prisma.user.update({ where: { id }, data: { passwordHash: hash } });
   },
@@ -85,7 +93,7 @@ export const userService = {
     phone?: string; role?: string; wardId?: string; departmentId?: string;
   }) {
     const existing = await prisma.user.findUnique({ where: { email: data.email } });
-    if (existing) throw new Error('Email already in use');
+    if (existing) throw new AlreadyExistsError('Email already in use');
     const passwordHash = await bcrypt.hash(data.password, 12);
     const user = await prisma.user.create({
       data: {
@@ -110,10 +118,18 @@ export const userService = {
 
   async changeOwnPassword(id: string, currentPassword: string, newPassword: string) {
     const user = await prisma.user.findUnique({ where: { id } });
-    if (!user) throw new Error('User not found');
+    if (!user) throw new NotFoundError('User not found');
     const valid = await bcrypt.compare(currentPassword, user.passwordHash);
-    if (!valid) throw new Error('Current password is incorrect');
-    if (newPassword.length < 8) throw new Error('New password must be at least 8 characters');
+    // 401: the user *tried* to authenticate with a password, it just
+    // wasn't the right one.
+    if (!valid) throw new InvalidCredentialsError('Current password is incorrect');
+    // 400: the new password itself is the problem.
+    if (newPassword.length < 8) {
+      throw new BadRequestError('New password must be at least 8 characters', 'BAD_REQUEST', {
+        field: 'newPassword',
+        minLength: 8,
+      });
+    }
     const hash = await bcrypt.hash(newPassword, 12);
     await prisma.user.update({ where: { id }, data: { passwordHash: hash } });
   },

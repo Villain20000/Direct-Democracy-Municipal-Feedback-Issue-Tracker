@@ -2,6 +2,11 @@ import { Routes } from '@angular/router';
 import { authGuard, roleGuard } from './core/guards/auth.guard';
 
 const admin = roleGuard('SUPER_ADMIN');
+// Mirrors the backend's `authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMENT_HEAD', 'COUNCIL_MEMBER')`
+// on /api/v1/admin/documents. Mayors, department heads, and council members
+// are the people who actually upload legislation in practice — narrower than
+// the global `admin` guard above.
+const adminDocs = roleGuard('SUPER_ADMIN', 'MAYOR', 'DEPARTMENT_HEAD', 'COUNCIL_MEMBER');
 const mayor = roleGuard('MAYOR');
 const dept = roleGuard('DEPARTMENT_HEAD');
 const council = roleGuard('COUNCIL_MEMBER');
@@ -27,6 +32,8 @@ export const routes: Routes = [
   { path: 'admin/users', loadComponent: () => import('./features/shared/admin-users-page.component').then(m => m.AdminUsersPageComponent), canActivate: [authGuard, admin] },
   { path: 'admin/departments', loadComponent: () => import('./features/shared/admin-departments-page.component').then(m => m.AdminDepartmentsPageComponent), canActivate: [authGuard, admin] },
   { path: 'admin/wards', loadComponent: () => import('./features/shared/admin-wards-page.component').then(m => m.AdminWardsPageComponent), canActivate: [authGuard, admin] },
+  { path: 'admin/documents', loadComponent: () => import('./features/admin/admin-documents-page.component').then(m => m.AdminDocumentsPageComponent), canActivate: [authGuard, adminDocs] },
+  { path: 'admin/documents/browse', loadComponent: () => import('./features/admin/admin-documents-browse-page.component').then(m => m.AdminDocumentsBrowsePageComponent), canActivate: [authGuard, adminDocs] },
   { path: 'admin/settings', loadComponent: () => import('./features/shared/settings-page.component').then(m => m.SettingsPageComponent), canActivate: [authGuard, admin] },
 
   // Mayor

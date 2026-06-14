@@ -1,8 +1,15 @@
-version: '3.8'
-
 services:
   postgres:
-    image: postgres:16-alpine
+    # Custom image (docker/postgres.Dockerfile) that extends
+    # pgvector/pgvector:pg16 with the PostGIS extension — we need
+    # BOTH pgvector (for RAG embeddings) and postgis (for spatial
+    # queries on the `Issue` table). The bare pgvector image
+    # doesn't include postgis, and the bare postgis image doesn't
+    # include pgvector, so we layer postgis on top of pgvector.
+    build:
+      context: ..
+      dockerfile: docker/postgres.Dockerfile
+    image: dd_postgres:latest
     container_name: dd_postgres
     restart: unless-stopped
     ports:
@@ -20,16 +27,119 @@ services:
       retries: 5
 
   redis:
+    # Backs the BullMQ queue used by the embed-issue worker. Pinning
+    # to 7-alpine keeps the image <20MB and matches the ioredis major
+    # version we depend on in the backend.
     image: redis:7-alpine
     container_name: dd_redis
     restart: unless-stopped
     ports:
       - '6379:6379'
+    # --save "" disables RDB snapshots so dev restarts don't fork-write
+    # a giant dump file every minute. Use --appendonly yes in production.
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       timeout: 5s
       retries: 5
+
+  backend:
+    # Express API. The same image is also launched as `worker` below
+    # with a CMD override. Build context is the monorepo root so the
+    # workspace install (apps/backend + packages/shared-types) resolves.
+    build:
+      context: ..
+      dockerfile: apps/backend/Dockerfile
+    restart: unless-stopped
+    ports:
+      - '3001:3001'
+    environment:
+      # Use compose service hostnames (postgres, redis) — not localhost.
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/direct_democracy
+      REDIS_URL: redis://redis:6379
+      REDIS_ENABLED: 'true'
+      NODE_ENV: development
+      # Reach the host's Ollama from inside the container. Works on
+      # Docker Desktop + Linux Docker 20.10+. The extra_hosts entry
+      # below makes it work on older Linux setups too.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      EMBED_MODEL: ${EMBED_MODEL:-nomic-embed-text}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4200}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Healthcheck hits the in-process /api/v1/health endpoint. The
+    # worker uses `service_healthy` on this block to ensure the API can
+    # enqueue jobs before consuming. start_period is generous — tsx watch
+    # + the first Prisma query can take 20-40s on a cold boot.
+    healthcheck:
+      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:3001/api/v1/health']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    # Bind-mount source so tsx watch hot-reloads on save. The image
+    # already has node_modules + the prisma client baked in.
+    #
+    # /app is the monorepo root inside the container; the backend lives
+    # at /app/apps/backend. We bind-mount ONLY the source dirs, NOT
+    # node_modules — npm workspaces hoists shared deps to /app/node_modules
+    # and the per-workspace node_modules only holds a few bin symlinks
+    # (tsx, prisma). Overwriting those with empty named volumes would
+    # break `npm run dev` / `npm run worker` at runtime.
+    working_dir: /app/apps/backend
+    volumes:
+      - ../../apps/backend/src:/app/apps/backend/src
+      - ../../apps/backend/prisma:/app/apps/backend/prisma
+    extra_hosts:
+      # Resolves host.docker.internal to the host's gateway. Needed on
+      # older Linux Docker; harmless on Docker Desktop and Linux 20.10+.
+      - 'host.docker.internal:host-gateway'
+
+  worker:
+    # BullMQ consumer for the embed-issue queue. Same image as `backend`,
+    # different CMD. No port exposure; lives entirely behind Redis.
+    # Waits for the API to be healthy before starting so it never
+    # consumes a job before the API can enqueue one. (In production
+    # this dependency would be optional — jobs survive API restarts
+    # in Redis — but for the dev loop it's the right default.)
+    #
+    # Same monorepo-aware build config as the `backend` service. No
+    # node_modules volume mounts (same reasoning as above).
+    build:
+      context: ..
+      dockerfile: apps/backend/Dockerfile
+    working_dir: /app/apps/backend
+    restart: on-failure:5
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/direct_democracy
+      REDIS_URL: redis://redis:6379
+      REDIS_ENABLED: 'true'
+      NODE_ENV: development
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      EMBED_MODEL: ${EMBED_MODEL:-nomic-embed-text}
+      # Worker tuning. Generous defaults for a single local Ollama; raise
+      # concurrency if you run multiple Ollama replicas.
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+      EMBED_LOCK_DURATION_MS: ${EMBED_LOCK_DURATION_MS:-60000}
+      EMBED_STALLED_INTERVAL_MS: ${EMBED_STALLED_INTERVAL_MS:-30000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    volumes:
+      - ../../apps/backend/src:/app/apps/backend/src
+    # Override the Dockerfile's default CMD.
+    command: ['npm', 'run', 'worker']
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
 
 volumes:
   pgdata:

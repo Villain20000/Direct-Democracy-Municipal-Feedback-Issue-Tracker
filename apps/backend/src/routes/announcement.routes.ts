@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth.middleware';
 import { authorize } from '../middleware/rbac.middleware';
 import { announcementService } from '../services/announcement.service';
+import { sendDomainError } from '../errors/domain-errors';
 
 const router = Router();
 
@@ -35,7 +36,9 @@ router.post('/', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMENT_HEA
     const announcement = await announcementService.create({ ...req.body, authorId: req.user!.id });
     res.status(201).json({ success: true, data: announcement });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[announcements.create]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -50,7 +53,9 @@ router.patch('/:id', authenticate, async (req: AuthenticatedRequest, res) => {
     const updated = await announcementService.update(req.params.id as string, req.body);
     res.json({ success: true, data: updated });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[announcements.update]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -65,7 +70,9 @@ router.delete('/:id', authenticate, async (req: AuthenticatedRequest, res) => {
     await announcementService.delete(req.params.id as string);
     res.json({ success: true });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[announcements.delete]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

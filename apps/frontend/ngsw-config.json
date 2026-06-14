@@ -1,0 +1,62 @@
+{
+  "$schema": "./node_modules/@angular/service-worker/config/schema.json",
+  "index": "/index.html",
+  "assetGroups": [
+    {
+      "name": "app",
+      "installMode": "prefetch",
+      "resources": {
+        "files": [
+          "/favicon.ico",
+          "/index.html",
+          "/manifest.webmanifest",
+          "/*.css",
+          "/*.js"
+        ]
+      }
+    },
+    {
+      "name": "assets",
+      "installMode": "lazy",
+      "updateMode": "prefetch",
+      "resources": {
+        "files": [
+          "/assets/**",
+          "/*.(svg|cur|jpg|jpeg|png|apng|webp|avif|gif|otf|ttf|woff|woff2)"
+        ]
+      }
+    }
+  ],
+  "dataGroups": [
+    {
+      "name": "api-read",
+      "urls": [
+        "/api/v1/issues/**",
+        "/api/v1/wards",
+        "/api/v1/departments"
+      ],
+      "cacheConfig": {
+        "maxSize": 100,
+        "maxAge": "1d",
+        "strategy": "freshness"
+      }
+    },
+    {
+      "name": "api-static",
+      "urls": [
+        "/api/v1/categories",
+        "/api/v1/roles"
+      ],
+      "cacheConfig": {
+        "maxSize": 10,
+        "maxAge": "30d",
+        "strategy": "performance"
+      }
+    }
+  ],
+  "navigationUrls": [
+    "/**",
+    "!/api/**",
+    "!/auth/**"
+  ]
+}

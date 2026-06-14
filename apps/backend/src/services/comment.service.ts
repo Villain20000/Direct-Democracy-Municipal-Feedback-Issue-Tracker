@@ -1,6 +1,7 @@
 import { prisma } from '../db/client';
 import { notificationService } from './notification.service';
 import { auditService } from './audit.service';
+import { ForbiddenError, NotFoundError } from '../errors/domain-errors';
 
 export const commentService = {
   async create(data: { content: string; userId: string; issueId: string; parentId?: string }) {
@@ -8,7 +9,7 @@ export const commentService = {
       where: { id: data.issueId },
       select: { id: true, title: true, reporterId: true, assigneeId: true },
     });
-    if (!issue) throw new Error('Issue not found');
+    if (!issue) throw new NotFoundError('Issue not found');
 
     const comment = await prisma.comment.create({
       data,
@@ -67,8 +68,12 @@ export const commentService = {
 
   async delete(id: string, userId: string) {
     const comment = await prisma.comment.findUnique({ where: { id } });
-    if (!comment) throw new Error('Comment not found');
-    if (comment.userId !== userId) throw new Error('Not authorized to delete this comment');
+    if (!comment) throw new NotFoundError('Comment not found');
+    if (comment.userId !== userId) {
+      throw new ForbiddenError('Not authorized to delete this comment', {
+        resourceOwnerId: comment.userId,
+      });
+    }
     await auditService.log({
       userId,
       action: 'DELETE',

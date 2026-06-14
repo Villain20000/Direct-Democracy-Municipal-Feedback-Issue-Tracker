@@ -51,6 +51,23 @@ export class ApiService {
     return this.http.get<{ success: boolean; data: DashboardStats }>(`${this.apiUrl}/issues/stats`, { params: httpParams });
   }
 
+  /**
+   * Semantic ("smart") search over the issues table. Returns issues in
+   * similarity order with a `score` field (cosine similarity 0-1). The
+   * backend falls back to plain text matching if the embedding service
+   * is unavailable, and surfaces that via `mode: 'text-fallback'`.
+   */
+  searchSimilarIssues(text: string, topK: number = 5, minScore: number = 0.2): Observable<{ success: boolean; data: any[]; total: number; mode: 'semantic' | 'text-fallback' | 'text-empty'; query: string }> {
+    const params = new HttpParams()
+      .set('text', text)
+      .set('topK', String(topK))
+      .set('minScore', String(minScore));
+    return this.http.get<{ success: boolean; data: any[]; total: number; mode: 'semantic' | 'text-fallback' | 'text-empty'; query: string }>(
+      `${this.apiUrl}/issues/search-similar`,
+      { params },
+    );
+  }
+
   getIssueTemplates(): Observable<{ success: boolean; data: IssueTemplate[] }> {
     return this.http.get<{ success: boolean; data: IssueTemplate[] }>(`${this.apiUrl}/issues/templates`);
   }
@@ -63,6 +80,17 @@ export class ApiService {
     let httpParams = new HttpParams();
     Object.entries(params).forEach(([key, value]) => { if (value) httpParams = httpParams.set(key, value); });
     return this.http.get(`${this.apiUrl}/reports/issues.csv`, { params: httpParams, responseType: 'blob' });
+  }
+
+  /**
+   * RAG-style summary of all issues inside a user-drawn polygon on the map.
+   * Returns the count, a sample of the issues, and an AI-generated prose summary.
+   */
+  summarizeArea(polygon: Array<[number, number]>): Observable<{ success: boolean; data: { count: number; issues: Array<{ id: string; title: string; category: string; status: string; department: string | null }>; summary: string; fallback?: boolean } }> {
+    return this.http.post<{ success: boolean; data: { count: number; issues: Array<{ id: string; title: string; category: string; status: string; department: string | null }>; summary: string; fallback?: boolean } }>(
+      `${this.apiUrl}/issues/summarize-area`,
+      { polygon },
+    );
   }
 
   exportAuditCsv(params: Record<string, string> = {}): Observable<Blob> {
@@ -205,6 +233,63 @@ export class ApiService {
 
   aiSmartSearch(query: string, issues: Array<{ id: string; title: string; description: string; category: string }>): Observable<any> {
     return this.http.post(`${this.apiUrl}/ai/search`, { query, issues });
+  }
+
+  /**
+   * RAG-augmented chat. Pass `useRag: false` to skip retrieval.
+   * Response shape: { success, data: { answer: string, citations: ChatCitation[], ragUsed: boolean, fallback?: boolean } }
+   * `ragUsed` is true only when at least one citation was actually returned.
+   */
+  aiChatWithCitations(messages: { role: string; content: string }[], useRag: boolean = true): Observable<{ success: boolean; data: { answer: string; citations: Array<{ documentId: string; title: string; type: string; source: string; documentDate: string | null; chunkIndex: number; score: number; chunk: string }>; ragUsed: boolean; fallback?: boolean } }> {
+    return this.http.post<{ success: boolean; data: { answer: string; citations: Array<{ documentId: string; title: string; type: string; source: string; documentDate: string | null; chunkIndex: number; score: number; chunk: string }>; ragUsed: boolean; fallback?: boolean } }>(
+      `${this.apiUrl}/ai/chat`, { messages, useRag }
+    );
+  }
+
+  // Documents (legislation KB) — admin only
+  listDocuments(): Observable<{ success: boolean; data: any[] }> {
+    return this.http.get<{ success: boolean; data: any[] }>(`${this.apiUrl}/admin/documents`);
+  }
+
+  getDocument(id: string): Observable<{ success: boolean; data: any }> {
+    return this.http.get<{ success: boolean; data: any }>(`${this.apiUrl}/admin/documents/${id}`);
+  }
+
+  /**
+   * Upload / ingest a document. Either pass `file` (PDF / .txt) or
+   * `content` (text) — exactly one of the two is required.
+   */
+  uploadDocument(input: { title: string; type: string; source: string; documentDate?: string; description?: string; file?: File; content?: string }): Observable<{ success: boolean; data: { documentId: string; chunksCreated: number; skipped: boolean }; message: string }> {
+    if (input.file) {
+      const fd = new FormData();
+      fd.append('file', input.file);
+      fd.append('title', input.title);
+      fd.append('type', input.type);
+      fd.append('source', input.source);
+      if (input.documentDate) fd.append('documentDate', input.documentDate);
+      if (input.description) fd.append('description', input.description);
+      return this.http.post<{ success: boolean; data: { documentId: string; chunksCreated: number; skipped: boolean }; message: string }>(
+        `${this.apiUrl}/admin/documents`, fd,
+      );
+    }
+    return this.http.post<{ success: boolean; data: { documentId: string; chunksCreated: number; skipped: boolean }; message: string }>(
+      `${this.apiUrl}/admin/documents`, input,
+    );
+  }
+
+  /**
+   * Semantic search over the legislation KB (no LLM). Returns the raw
+   * matching chunks with their similarity scores, suitable for an admin
+   * "browse legislation" page that audits which content would be cited.
+   */
+  retrieveDocuments(query: string, topK: number = 5, minScore: number = 0.3): Observable<{ success: boolean; data: { query: string; chunks: Array<{ chunkId: string; documentId: string; documentTitle: string; documentType: string; documentSource: string; documentDate: string | null; chunkIndex: number; content: string; score: number }>; count: number } }> {
+    return this.http.post<{ success: boolean; data: { query: string; chunks: Array<{ chunkId: string; documentId: string; documentTitle: string; documentType: string; documentSource: string; documentDate: string | null; chunkIndex: number; content: string; score: number }>; count: number } }>(
+      `${this.apiUrl}/admin/documents/retrieve`, { query, topK, minScore }
+    );
+  }
+
+  deleteDocument(id: string): Observable<{ success: boolean; message: string }> {
+    return this.http.delete<{ success: boolean; message: string }>(`${this.apiUrl}/admin/documents/${id}`);
   }
 
   // Comments

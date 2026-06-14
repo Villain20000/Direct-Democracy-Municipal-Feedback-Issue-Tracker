@@ -37,7 +37,8 @@ router.post('/', authenticate, async (req: AuthenticatedRequest, res) => {
     const message = await messageService.send({ senderId: req.user!.id, receiverId, content });
     res.status(201).json({ success: true, data: message });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    console.error('[messages.send]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -47,7 +48,8 @@ router.patch('/:id/read', authenticate, async (req: AuthenticatedRequest, res) =
     await messageService.markAsRead(req.params.id as string, req.user!.id);
     res.json({ success: true });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    console.error('[messages.markRead]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -57,7 +59,8 @@ router.delete('/:id', authenticate, async (req: AuthenticatedRequest, res) => {
     await messageService.delete(req.params.id as string, req.user!.id);
     res.json({ success: true });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    console.error('[messages.delete]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

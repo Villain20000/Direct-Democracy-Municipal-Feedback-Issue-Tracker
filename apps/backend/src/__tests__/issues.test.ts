@@ -32,12 +32,17 @@ describe('Issue Endpoints', () => {
           location: '123 Main St',
         });
 
-      expect(res.status).toBe(201);
+      // 202 Accepted: the embedding job is queued to a background worker
+      // (see issue.routes.ts). The data row is still persisted before
+      // the queue add, so the issue fields are fully populated.
+      expect(res.status).toBe(202);
       expect(res.body.success).toBe(true);
       expect(res.body.data.title).toBe('Pothole on Main Street');
       expect(res.body.data.category).toBe('INFRASTRUCTURE');
       expect(res.body.data.status).toBe('SUBMITTED');
       expect(res.body.data.reporterId).toBe(testUser.user.id);
+      // warnings is always an array (possibly empty if Redis is up).
+      expect(Array.isArray(res.body.warnings)).toBe(true);
     });
 
     it('should reject issue creation without authentication', async () => {
@@ -271,7 +276,8 @@ describe('Issue Endpoints', () => {
           location: 'Elm St',
         });
 
-      expect(res.status).toBe(201);
+      // 202 because the embedding is queued in the background (see above).
+      expect(res.status).toBe(202);
       expect(res.body.data.departmentId).toBe(dept.id);
     });
   });

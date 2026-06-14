@@ -51,7 +51,10 @@ router.post('/:issueId/attachments', authenticate, upload.single('file') as any,
     res.status(201).json({ success: true, data: attachment });
   } catch (error: any) {
     if (req.file) fs.unlink(req.file.path, () => {});
-    res.status(400).json({ error: error.message });
+    // req.file + issue existence are checked above, so any thrown error
+    // is a server-side failure (disk full, DB outage, etc.).
+    console.error('[attachments.upload]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -96,7 +99,10 @@ router.delete('/attachments/:id', authenticate, async (req: AuthenticatedRequest
 
     res.json({ success: true });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    // Attachment was found, authorization was checked above — any
+    // thrown error is a server-side failure.
+    console.error('[attachments.delete]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

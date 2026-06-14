@@ -1,4 +1,9 @@
 import { prisma } from '../db/client';
+import {
+  AlreadyClosedError,
+  AlreadyRespondedError,
+  NotFoundError,
+} from '../errors/domain-errors';
 
 export const surveyService = {
   async create(data: {
@@ -62,20 +67,20 @@ export const surveyService = {
         _count: { select: { responses: true } },
       },
     });
-    if (!survey) throw new Error('Survey not found');
+    if (!survey) throw new NotFoundError('Survey not found');
     return survey;
   },
 
   async submitResponse(surveyId: string, userId: string, answers: Record<string, unknown>) {
     const survey = await prisma.survey.findUnique({ where: { id: surveyId } });
-    if (!survey) throw new Error('Survey not found');
-    if (!survey.isActive) throw new Error('Survey is no longer active');
-    if (survey.closesAt && survey.closesAt < new Date()) throw new Error('Survey has closed');
+    if (!survey) throw new NotFoundError('Survey not found');
+    if (!survey.isActive) throw new AlreadyClosedError('Survey is no longer active');
+    if (survey.closesAt && survey.closesAt < new Date()) throw new AlreadyClosedError('Survey has closed');
 
     const existing = await prisma.surveyResponse.findFirst({
       where: { surveyId, userId },
     });
-    if (existing) throw new Error('You have already responded to this survey');
+    if (existing) throw new AlreadyRespondedError('You have already responded to this survey');
 
     return prisma.surveyResponse.create({
       data: { surveyId, userId, answers: answers as any },
@@ -89,7 +94,7 @@ export const surveyService = {
 
   async delete(id: string) {
     const survey = await prisma.survey.findUnique({ where: { id } });
-    if (!survey) throw new Error('Survey not found');
+    if (!survey) throw new NotFoundError('Survey not found');
     return prisma.survey.delete({ where: { id } });
   },
 };

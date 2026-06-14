@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { AuthenticatedRequest, authenticate } from '../middleware/auth.middleware';
 import { authService } from '../services/auth.service';
 import { authLimiter } from '../middleware/rateLimit.middleware';
+import { sendDomainError } from '../errors/domain-errors';
 import { z } from 'zod';
 
 const router = Router();
@@ -33,7 +34,9 @@ router.post('/register', authLimiter as any, async (req, res) => {
       res.status(400).json({ error: 'Validation failed', details: error.issues });
       return;
     }
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[auth.register]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -51,7 +54,12 @@ router.post('/login', authLimiter as any, async (req, res) => {
       res.status(400).json({ error: 'Validation failed', details: error.issues });
       return;
     }
-    res.status(401).json({ error: error.message });
+    // Typed errors (InvalidCredentials, NotFound, etc.) carry their own
+    // status code via sendDomainError. Anything else is a true server
+    // failure and gets the 500 treatment.
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[auth.login]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -66,7 +74,9 @@ router.post('/refresh', authLimiter as any, async (req, res) => {
     });
     res.json({ success: true, data: { accessToken: result.accessToken, user: result.user } });
   } catch (error: any) {
-    res.status(401).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[auth.refresh]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -109,7 +119,9 @@ router.post('/forgot-password', authLimiter as any, async (req, res) => {
       res.status(400).json({ error: 'Validation failed', details: error.issues });
       return;
     }
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[auth.forgotPassword]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -123,7 +135,9 @@ router.post('/reset-password', authLimiter as any, async (req, res) => {
       res.status(400).json({ error: 'Validation failed', details: error.issues });
       return;
     }
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[auth.resetPassword]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

@@ -137,6 +137,7 @@ export class MayorDashboardComponent implements OnInit {
     { icon: 'campaign', label: 'nav.polls', route: '/mayor/polls' },
     { icon: 'calendar_month', label: 'nav.calendar', route: '/mayor/calendar' },
     { icon: 'campaign', label: 'nav.announcements', route: '/mayor/announcements' },
+    { icon: 'library_books', label: 'nav.documents', route: '/admin/documents' },
   ] as any;
 
   auth = inject(AuthService);

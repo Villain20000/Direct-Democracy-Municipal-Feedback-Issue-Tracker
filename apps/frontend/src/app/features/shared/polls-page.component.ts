@@ -6,6 +6,7 @@ import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
 import { ToastService } from '../../core/services/toast.service';
 import { TranslationService } from '../../core/i18n/translation.service';
+import { getFieldErrors, groupFieldErrorsByField, toApiError } from '../../core/errors/api-error';
 import { Poll, UserRole } from '@dd/shared-types';
 
 @Component({
@@ -87,27 +88,31 @@ import { Poll, UserRole } from '@dd/shared-types';
             <div class="modal-body">
               <div class="form-group">
                 <label>{{ i18n.t('polls.titleField') }}</label>
-                <input type="text" [(ngModel)]="newPoll.title" name="title" />
+                <input type="text" [(ngModel)]="newPoll.title" (ngModelChange)="clearFieldError('title')" name="title" [class.input-error]="!!getFieldError('title')" />
+                @if (getFieldError('title')) { <div class="field-error">⚠ {{ getFieldError('title') }}</div> }
               </div>
               <div class="form-group">
                 <label>{{ i18n.t('polls.description') }}</label>
-                <textarea [(ngModel)]="newPoll.description" name="description" rows="2"></textarea>
+                <textarea [(ngModel)]="newPoll.description" (ngModelChange)="clearFieldError('description')" name="description" rows="2" [class.input-error]="!!getFieldError('description')"></textarea>
+                @if (getFieldError('description')) { <div class="field-error">⚠ {{ getFieldError('description') }}</div> }
               </div>
               <div class="form-group">
                 <label>{{ i18n.t('polls.optionsField') }}</label>
                 @for (opt of newPoll.options; track $index; let i = $index) {
                   <div style="display:flex;gap:6px;margin-bottom:6px;">
-                    <input type="text" [(ngModel)]="newPoll.options[i]" [name]="'opt' + i" [placeholder]="i18n.t('polls.optionPlaceholder', { n: i + 1 })" style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" />
+                    <input type="text" [(ngModel)]="newPoll.options[i]" (ngModelChange)="clearFieldError('options')" [name]="'opt' + i" [placeholder]="i18n.t('polls.optionPlaceholder', { n: i + 1 })" [class.input-error]="!!getFieldError('options')" style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" />
                     @if (newPoll.options.length > 2) {
                       <button class="btn btn-ghost btn-sm" (click)="removeOption(i)">×</button>
                     }
                   </div>
                 }
                 <button class="btn btn-secondary btn-sm" (click)="addOption()">{{ i18n.t('polls.addOption') }}</button>
+                @if (getFieldError('options')) { <div class="field-error">⚠ {{ getFieldError('options') }}</div> }
               </div>
               <div class="form-group">
                 <label>{{ i18n.t('polls.closesAt') }}</label>
-                <input type="datetime-local" [(ngModel)]="newPoll.closesAt" name="closesAt" />
+                <input type="datetime-local" [(ngModel)]="newPoll.closesAt" (ngModelChange)="clearFieldError('closesAt')" name="closesAt" [class.input-error]="!!getFieldError('closesAt')" />
+                @if (getFieldError('closesAt')) { <div class="field-error">⚠ {{ getFieldError('closesAt') }}</div> }
               </div>
             </div>
             <div class="modal-footer">
@@ -130,6 +135,19 @@ import { Poll, UserRole } from '@dd/shared-types';
     .modal-close:hover { background: var(--bg-primary); color: var(--text-primary); }
     .modal-body { padding: 20px; }
     .modal-footer { display: flex; gap: 8px; justify-content: flex-end; padding: 14px 20px; border-top: 1px solid var(--border); background: var(--bg-primary); }
+    .field-error {
+      margin-top: 6px;
+      font-size: 12px;
+      color: #B91C1C;
+      background: #FEF2F2;
+      border-left: 3px solid #DC2626;
+      padding: 6px 10px;
+      border-radius: 4px;
+    }
+    .input-error {
+      border-color: #DC2626 !important;
+      background: #FFF5F5;
+    }
   `],
 })
 export class PollsPageComponent implements OnInit {
@@ -145,6 +163,12 @@ export class PollsPageComponent implements OnInit {
   showCreateModal = false;
   creating = false;
   newPoll = { title: '', description: '', options: ['', ''] as string[], closesAt: '' };
+  /**
+   * Inline field-level errors for the create-poll modal. Cleared
+   * when the user edits the field. The backend throws ZodError
+   * `details.issues` for validation failures (e.g. empty options).
+   */
+  fieldErrors: Record<string, string> = {};
 
   navItems: NavItem[] = [];
 
@@ -228,11 +252,36 @@ export class PollsPageComponent implements OnInit {
 
   openCreateModal() {
     this.newPoll = { title: '', description: '', options: ['', ''], closesAt: '' };
+    this.fieldErrors = {};
     this.showCreateModal = true;
   }
 
   closeCreateModal() {
     this.showCreateModal = false;
+  }
+
+  /**
+   * Inline field-error accessor used by the template. Tries
+   * `errorFields.<field>` first, then falls back to the raw
+   * backend message. Returns '' when no error is set.
+   */
+  getFieldError(field: string): string {
+    const raw = this.fieldErrors[field];
+    if (!raw) return '';
+    const key = `errorFields.${field}` as any;
+    const translated = this.i18n.t(key);
+    if (translated && translated !== key) return translated;
+    return raw;
+  }
+
+  /**
+   * Drop the inline error for `field` (called from each input's
+   * `ngModelChange`).
+   */
+  clearFieldError(field: string) {
+    if (this.fieldErrors[field]) {
+      delete this.fieldErrors[field];
+    }
   }
 
   addOption() {
@@ -251,10 +300,14 @@ export class PollsPageComponent implements OnInit {
   }
 
   createPoll() {
-    if (!this.isPollValid()) {
-      this.toast.warning(this.i18n.t('polls.validationFailed'));
-      return;
-    }
+    this.fieldErrors = {};
+    // Local client-side validation: surface inline so the user
+    // sees the failure next to the offending input.
+    if (!this.newPoll.title.trim()) this.fieldErrors['title'] = this.i18n.t('polls.validationFailed');
+    const validOptions = this.newPoll.options.filter(o => o.trim()).length;
+    if (validOptions < 2) this.fieldErrors['options'] = this.i18n.t('polls.validationFailed');
+    if (Object.keys(this.fieldErrors).length > 0) return;
+
     this.creating = true;
     const payload: any = {
       title: this.newPoll.title.trim(),
@@ -273,9 +326,29 @@ export class PollsPageComponent implements OnInit {
         }
       },
       error: (err) => {
-        this.toast.error(err.error?.error || this.i18n.t('polls.createFailed'));
         this.creating = false;
+        const apiErr = toApiError(err);
+        const fieldErrs = getFieldErrors(apiErr);
+        this.fieldErrors = groupFieldErrorsByGroup(fieldErrs);
+        if (fieldErrs.length === 0) {
+          this.toast.error(apiErr.message);
+        }
       },
     });
   }
+}
+
+/**
+ * Like `groupFieldErrorsByField`, but collapses all `options[i]`
+ * entries (e.g. `options.0`, `options.1`) into a single
+ * `options` field so the create-poll form can show one message
+ * next to the options block.
+ */
+function groupFieldErrorsByGroup(errors: any[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const e of errors) {
+    const group = e.field.split('.')[0];
+    if (!(group in out)) out[group] = e.message;
+  }
+  return out;
 }

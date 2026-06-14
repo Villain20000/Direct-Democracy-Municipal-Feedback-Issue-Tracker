@@ -1,13 +1,16 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnInit, OnDestroy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
+import { Subject } from 'rxjs';
+import { debounceTime, distinctUntilChanged, takeUntil } from 'rxjs/operators';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
 import { ToastService } from '../../core/services/toast.service';
 import { TranslationService } from '../../core/i18n/translation.service';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
+import { getFieldErrors, groupFieldErrorsByField, toApiError } from '../../core/errors/api-error';
 import { IssueCategory, IssueTemplate } from '@dd/shared-types';
 
 interface DuplicateMatch {
@@ -89,15 +92,26 @@ interface DuplicateMatch {
             <div class="form-group">
               <label>{{ 'issues.titleField' | t }}</label>
               <div style="display:flex;gap:8px;align-items:center;">
-                <input type="text" [(ngModel)]="title" name="title" required [placeholder]="i18n.t('issues.briefSummary')" style="flex:1;" />
+                <input type="text" [(ngModel)]="title" (ngModelChange)="clearFieldError('title')" name="title" required [placeholder]="i18n.t('issues.briefSummary')" [class.input-error]="!!getFieldError('title')" style="flex:1;" />
                 <button type="button" class="btn btn-secondary btn-sm" (click)="generateDescription()" [disabled]="!title.trim() || descLoading" [title]="i18n.t('issues.autoDescribe')">
                   @if (descLoading) { {{ 'issues.writing' | t }} } @else { {{ 'issues.autoDescribe' | t }} }
                 </button>
               </div>
+              @if (getFieldError('title')) { <div class="field-error">⚠ {{ getFieldError('title') }}</div> }
             </div>
             <div class="form-group">
               <label>{{ 'issues.description' | t }}</label>
-              <textarea [(ngModel)]="description" name="description" required rows="4" [placeholder]="i18n.t('issues.describeDetail')" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;resize:vertical;"></textarea>
+              <textarea
+                [ngModel]="description"
+                (ngModelChange)="onDescriptionChange($event)"
+                name="description"
+                required
+                rows="4"
+                [placeholder]="i18n.t('issues.describeDetail')"
+                [class.input-error]="!!getFieldError('description')"
+                style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;resize:vertical;"
+              ></textarea>
+              @if (getFieldError('description')) { <div class="field-error">⚠ {{ getFieldError('description') }}</div> }
               <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
                 <button type="button" class="btn btn-secondary btn-sm" (click)="suggestCategory()" [disabled]="!description.trim() || aiLoading">
                   @if (aiLoading) { {{ 'issues.analyzing' | t }} } @else { {{ 'issues.suggestCategory' | t }} }
@@ -115,22 +129,33 @@ interface DuplicateMatch {
             </div>
             <div class="form-group">
               <label>{{ 'issues.category' | t }}</label>
-              <select [(ngModel)]="category" name="category" required style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;">
+              <select
+                [ngModel]="category"
+                (ngModelChange)="onCategoryChange($event)"
+                name="category"
+                required
+                [class.input-error]="!!getFieldError('category')"
+                style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"
+              >
                 @for (c of categories; track c) { <option [value]="c">{{ i18n.tCategory(c) }}</option> }
               </select>
+              @if (getFieldError('category')) { <div class="field-error">⚠ {{ getFieldError('category') }}</div> }
             </div>
             <div class="form-group">
               <label>{{ 'issues.location' | t }}</label>
-              <input type="text" [(ngModel)]="location" name="location" required [placeholder]="i18n.t('issues.streetPlaceholder')" />
+              <input type="text" [(ngModel)]="location" (ngModelChange)="clearFieldError('location')" name="location" required [placeholder]="i18n.t('issues.streetPlaceholder')" [class.input-error]="!!getFieldError('location')" />
+              @if (getFieldError('location')) { <div class="field-error">⚠ {{ getFieldError('location') }}</div> }
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
               <div class="form-group">
                 <label>{{ 'issues.latitude' | t }}</label>
-                <input type="number" step="any" [(ngModel)]="latitude" name="latitude" [placeholder]="i18n.t('issues.latPlaceholder')" />
+                <input type="number" step="any" [(ngModel)]="latitude" (ngModelChange)="clearFieldError('latitude')" name="latitude" [placeholder]="i18n.t('issues.latPlaceholder')" [class.input-error]="!!getFieldError('latitude')" />
+                @if (getFieldError('latitude')) { <div class="field-error">⚠ {{ getFieldError('latitude') }}</div> }
               </div>
               <div class="form-group">
                 <label>{{ 'issues.longitude' | t }}</label>
-                <input type="number" step="any" [(ngModel)]="longitude" name="longitude" [placeholder]="i18n.t('issues.lngPlaceholder')" />
+                <input type="number" step="any" [(ngModel)]="longitude" (ngModelChange)="clearFieldError('longitude')" name="longitude" [placeholder]="i18n.t('issues.lngPlaceholder')" [class.input-error]="!!getFieldError('longitude')" />
+                @if (getFieldError('longitude')) { <div class="field-error">⚠ {{ getFieldError('longitude') }}</div> }
               </div>
             </div>
             <div class="form-group">
@@ -187,9 +212,22 @@ interface DuplicateMatch {
       background: #FEF3C7;
       transform: translateX(2px);
     }
+    .field-error {
+      margin-top: 6px;
+      font-size: 12px;
+      color: #B91C1C;
+      background: #FEF2F2;
+      border-left: 3px solid #DC2626;
+      padding: 6px 10px;
+      border-radius: 4px;
+    }
+    .input-error {
+      border-color: #DC2626 !important;
+      background: #FFF5F5;
+    }
   `],
 })
-export class IssueCreateComponent implements OnInit {
+export class IssueCreateComponent implements OnInit, OnDestroy {
   title = '';
   description = '';
   category: IssueCategory = IssueCategory.INFRASTRUCTURE;
@@ -199,6 +237,13 @@ export class IssueCreateComponent implements OnInit {
   selectedFile: File | null = null;
   loading = false;
   error = '';
+  /**
+   * Inline field-level errors populated from the backend's
+   * ZodError / BadRequestError `details` bag. Cleared on next submit
+   * or when the user edits the field. Forms can read a single field's
+   * error via `getFieldError(name)`.
+   */
+  fieldErrors: Record<string, string> = {};
 
   // AI state
   aiLoading = false;
@@ -214,6 +259,21 @@ export class IssueCreateComponent implements OnInit {
   translatedDescription = '';
   private originalDescription = '';
 
+  /** RxJS subjects for real-time AI assist (debounced as user types). */
+  private readonly descInput$ = new Subject<string>();
+  private readonly destroy$ = new Subject<void>();
+  private lastAutoChecked = '';
+  private candidatesCache: Array<{ id: string; title: string; description: string; category: string }> = [];
+  private candidatesLoadedAt = 0;
+  private candidatesLoading: Promise<typeof this.candidatesCache> | null = null;
+
+  /**
+   * Tracks whether the user has manually interacted with the category
+   * `<select>`. Once true, the real-time AI assist will never overwrite
+   * their deliberate choice.
+   */
+  private userTouchedCategory = false;
+
   categories = Object.values(IssueCategory);
   templates: IssueTemplate[] = [];
   navItems = [{ icon: 'arrow_back', label: 'nav.backToIssues', route: '/issues' }] as any;
@@ -228,6 +288,166 @@ export class IssueCreateComponent implements OnInit {
     this.api.getIssueTemplates().subscribe({
       next: (res) => { if (res.success) this.templates = res.data; },
     });
+
+    // Real-time AI assist pipeline: when the user pauses typing for 800ms,
+    // we automatically run duplicate detection, category suggestion, and
+    // department suggestion. The first call uses title+description; once we
+    // detect duplicates we fetch a one-time snapshot of recent issues to use
+    // as candidates for the dedup endpoint.
+    this.descInput$
+      .pipe(
+        debounceTime(800),
+        distinctUntilChanged(),
+        takeUntil(this.destroy$),
+      )
+      .subscribe((text) => this.runAutoAssist(text));
+  }
+
+  ngOnDestroy() {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+
+  /**
+   * Called by the template (ngModelChange) so the debounce pipeline
+   * fires as the citizen types, not only when they click a button.
+   */
+  onDescriptionChange(value: string) {
+    this.description = value;
+    // User is editing the description — drop any inline error we showed
+    // for it on the previous failed submit.
+    this.clearFieldError('description');
+    if (!value || value.trim().length < 15) {
+      // Not enough signal yet — clear stale results.
+      this.duplicates = [];
+      this.aiSuggestion = null;
+      this.aiDepartment = null;
+      return;
+    }
+    this.descInput$.next(value);
+  }
+
+  /**
+   * Inline field-error accessor used by the template. Returns the
+   * translated message for `field` (or empty string when none).
+   *
+   * Lookup order:
+   *   1. `errorFields.<rawField>` (e.g. `errorFields.title`)
+   *   2. `errorFields.<zodCode>` (e.g. `errorFields.too_small`) if the
+   *      server-attached meta has a Zod `code`
+   *   3. The raw backend message
+   *
+   * This lets the form display "Password must be at least 8
+   * characters" in Greek when running in el mode, even though the
+   * backend's ZodError was English.
+   */
+  getFieldError(field: string): string {
+    const raw = this.fieldErrors[field];
+    if (!raw) return '';
+    const rawKey = `errorFields.${field}` as any;
+    const translatedRaw = this.i18n.t(rawKey);
+    if (translatedRaw && translatedRaw !== rawKey) return translatedRaw;
+    // Fall back to the backend's verbatim message — still better than
+    // blank, and useful for fields we haven't added explicit i18n for.
+    return raw;
+  }
+
+  /**
+   * Drop the inline error for `field` (called from each input's
+   * `ngModelChange`). The form-level `error` is left alone so any
+   * cross-field error message remains visible.
+   */
+  clearFieldError(field: string) {
+    if (this.fieldErrors[field]) {
+      delete this.fieldErrors[field];
+    }
+  }
+
+  private runAutoAssist(text: string) {
+    if (!text || text.trim().length < 15) return;
+    const combined = `${this.title}. ${text}`.trim();
+    this.lastAutoChecked = combined;
+
+    // Kick off categorization & department in parallel (no candidates needed).
+    this.api.aiCategorize(combined).subscribe({
+      next: (res: any) => {
+        if (res.success && res.data?.category) {
+          this.aiSuggestion = res.data;
+          // Auto-apply only if the user hasn't picked one yet (don't fight
+          // a deliberate choice) and confidence is reasonable.
+          if (!this.userTouchedCategory &&
+              this.categories.includes(res.data.category) &&
+              res.data.confidence >= 0.55) {
+            this.category = res.data.category;
+          }
+        }
+      },
+      error: () => { /* silently degrade — button fallback still works */ },
+    });
+
+    this.api.aiSuggestDepartment(combined, this.category).subscribe({
+      next: (res: any) => {
+        if (res.success && res.data?.department) {
+          this.aiDepartment = res.data;
+        }
+      },
+      error: () => { /* silently degrade */ },
+    });
+
+    // Duplicate detection needs a list of recent issues. We cache the list
+    // for 60 seconds so the user gets instant checks while still typing.
+    this.ensureCandidates().then((candidates) => {
+      if (this.lastAutoChecked !== combined) return; // user typed more
+      this.api.aiDuplicates(combined, candidates).subscribe({
+        next: (res: any) => {
+          if (this.lastAutoChecked !== combined) return; // stale
+          if (res.success && Array.isArray(res.data?.matches)) {
+            this.duplicates = res.data.matches.filter(
+              (m: DuplicateMatch) => (m.score || 0) >= 0.35,
+            );
+          }
+        },
+        error: () => { /* silently degrade */ },
+      });
+    });
+  }
+
+  private ensureCandidates(): Promise<typeof this.candidatesCache> {
+    const now = Date.now();
+    if (this.candidatesCache.length && now - this.candidatesLoadedAt < 60_000) {
+      return Promise.resolve(this.candidatesCache);
+    }
+    // If a fetch is already in flight, share the same promise so all
+    // concurrent callers wait for the same result instead of returning [].
+    if (this.candidatesLoading) return this.candidatesLoading;
+    this.candidatesLoading = new Promise((resolve) => {
+      // Pull from all open-ish states (anything that could be a real duplicate
+      // of a fresh report) so we don't miss matches against in-progress ones.
+      this.api.getIssues({ pageSize: '30' }).subscribe({
+        next: (issueRes: any) => {
+          this.candidatesCache = (issueRes.data || []).map((i: any) => ({
+            id: i.id, title: i.title, description: i.description, category: i.category,
+          }));
+          this.candidatesLoadedAt = Date.now();
+          this.candidatesLoading = null;
+          resolve(this.candidatesCache);
+        },
+        error: () => {
+          this.candidatesLoading = null;
+          resolve(this.candidatesCache);
+        },
+      });
+    });
+    return this.candidatesLoading;
+  }
+
+  /**
+   * Marks the category as user-touched so the real-time AI assist stops
+   * auto-overwriting it.
+   */
+  onCategoryChange(value: IssueCategory) {
+    this.category = value;
+    this.userTouchedCategory = true;
   }
 
   applyTemplate(event: Event) {
@@ -240,6 +460,8 @@ export class IssueCreateComponent implements OnInit {
       this.category = template.category as IssueCategory;
     }
     if (template.location) this.location = template.location;
+    // A template is a deliberate choice — lock the category from AI override.
+    this.userTouchedCategory = true;
   }
 
   onFileSelect(event: Event) {
@@ -287,35 +509,29 @@ export class IssueCreateComponent implements OnInit {
   }
 
   checkDuplicates() {
+    // Manual trigger: forces a refresh of the candidates and an immediate
+    // dedup pass, bypassing the debounce delay.
     if (!this.description.trim()) return;
     this.dupLoading = true;
-    this.api.getIssues({ pageSize: '30', status: 'SUBMITTED' }).subscribe({
-      next: (issueRes: any) => {
-        const issues = (issueRes.data || []).map((i: any) => ({
-          id: i.id, title: i.title, description: i.description, category: i.category,
-        }));
-        this.api.aiDuplicates(`${this.title}. ${this.description}`, issues).subscribe({
-          next: (res: any) => {
-            this.dupLoading = false;
-            if (res.success && res.data?.matches) {
-              this.duplicates = res.data.matches;
-              if (this.duplicates.length > 0) {
-                this.toast.warning(this.i18n.t('ai.tagsExtracted', { n: this.duplicates.length }));
-              } else {
-                this.toast.info(this.i18n.t('issues.noDuplicates'));
-              }
+    this.candidatesLoadedAt = 0; // force a refresh
+    this.ensureCandidates().then((issues) => {
+      this.api.aiDuplicates(`${this.title}. ${this.description}`, issues).subscribe({
+        next: (res: any) => {
+          this.dupLoading = false;
+          if (res.success && res.data?.matches) {
+            this.duplicates = res.data.matches;
+            if (this.duplicates.length > 0) {
+              this.toast.warning(this.i18n.t('issues.duplicatesFoundToast', { n: this.duplicates.length }));
+            } else {
+              this.toast.info(this.i18n.t('issues.noDuplicates'));
             }
-          },
-          error: () => {
-            this.dupLoading = false;
-            this.toast.error(this.i18n.t('issues.duplicateUnavailable'));
-          },
-        });
-      },
-      error: () => {
-        this.dupLoading = false;
-        this.toast.error(this.i18n.t('issues.duplicateUnavailable'));
-      },
+          }
+        },
+        error: () => {
+          this.dupLoading = false;
+          this.toast.error(this.i18n.t('issues.duplicateUnavailable'));
+        },
+      });
     });
   }
 
@@ -398,6 +614,7 @@ export class IssueCreateComponent implements OnInit {
 
     this.loading = true;
     this.error = '';
+    this.fieldErrors = {};
 
     const payload: Record<string, unknown> = {
       title: this.title.trim(),
@@ -437,8 +654,21 @@ export class IssueCreateComponent implements OnInit {
       },
       error: (err) => {
         this.loading = false;
-        this.error = err.error?.error || this.i18n.t('issues.issueCreatedFailed');
-        this.toast.error(this.error);
+        const apiErr = toApiError(err);
+        // Surface field-level issues (Zod / BadRequestError) inline
+        // next to the matching inputs; fall back to a top-level error
+        // message + toast for everything else.
+        const fieldErrs = getFieldErrors(apiErr);
+        this.fieldErrors = groupFieldErrorsByField(fieldErrs);
+        // Form-level errors (e.g. someone hit the endpoint with a
+        // 502, or the response had no parseable body) get the toast +
+        // top-of-card banner treatment.
+        if (fieldErrs.length === 0) {
+          this.error = this.i18n.t('issues.issueCreatedFailed');
+          this.toast.error(this.error);
+        } else {
+          this.toast.warning(this.i18n.t('errorCodes.VALIDATION_FAILED'));
+        }
       },
     });
   }

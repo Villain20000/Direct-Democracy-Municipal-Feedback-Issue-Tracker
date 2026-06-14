@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth.middleware';
 import { commentService } from '../services/comment.service';
+import { sendDomainError } from '../errors/domain-errors';
 
 const router = Router();
 
@@ -28,7 +29,11 @@ router.post('/issues/:issueId/comments', authenticate, async (req: Authenticated
     });
     res.status(201).json({ success: true, data: comment });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    // service throws NotFoundError if the issue doesn't exist;
+    // mapped to 404 via sendDomainError.
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[comments.create]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -38,7 +43,11 @@ router.delete('/comments/:id', authenticate, async (req: AuthenticatedRequest, r
     await commentService.delete(req.params.id as string, req.user!.id);
     res.json({ success: true });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    // service throws NotFoundError (404) and ForbiddenError (403) when
+    // the caller is not the comment author; both mapped via sendDomainError.
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[comments.delete]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

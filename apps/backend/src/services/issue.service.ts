@@ -3,6 +3,9 @@ import { cache } from '../cache/redis';
 import { routingService } from './routing.service';
 import { auditService } from './audit.service';
 import { notificationService } from './notification.service';
+import { embedText, toPgVectorLiteral } from './embedding.service';
+import { spatialService } from './spatial.service';
+import { createHash } from 'crypto';
 
 const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'priority', 'upvotes', 'status', 'title'] as const;
 
@@ -55,6 +58,13 @@ export const issueService = {
       `Your report "${issue.title}" has been submitted and routed for review.`,
       { issueId: issue.id },
     );
+    // Keep the PostGIS geometry column in sync with lat/lng. Fire
+    // and forget — if this fails the issue is still created; the
+    // next migration-rerun or a manual `syncGeomFromLatLng` will
+    // catch up. Don't block the create on the spatial write.
+    void spatialService.syncGeomFromLatLng(issue.id, data.latitude ?? null, data.longitude ?? null).catch((err) => {
+      console.warn(`[issue.create] syncGeomFromLatLng failed for ${issue.id}:`, err.message);
+    });
     await cache.invalidatePattern('issues:stats');
     return issue;
   },
@@ -176,7 +186,22 @@ export const issueService = {
     return updated;
   },
 
-  async bulkUpdate(ids: string[], updates: { status?: string; assigneeId?: string; departmentId?: string }, changedBy: string) {
+  async bulkUpdate(
+    ids: string[],
+    updates: {
+      status?: string;
+      assigneeId?: string;
+      departmentId?: string;
+      // Optional location refinement. When provided, the PostGIS
+      // `location_geom` column is re-synced via `syncGeomFromLatLng`
+      // so radius / polygon queries see the new pin position
+      // immediately (not after the next migration-rerun). Either
+      // field alone is accepted; callers usually send both together.
+      latitude?: number;
+      longitude?: number;
+    },
+    changedBy: string,
+  ) {
     if (!ids.length) throw new Error('No issue IDs provided');
     if (ids.length > 100) throw new Error('Cannot update more than 100 issues at once');
 
@@ -188,6 +213,8 @@ export const issueService = {
       const data: any = {};
       if (updates.assigneeId) data.assigneeId = updates.assigneeId;
       if (updates.departmentId) data.departmentId = updates.departmentId;
+      if (updates.latitude !== undefined) data.latitude = updates.latitude;
+      if (updates.longitude !== undefined) data.longitude = updates.longitude;
       if (updates.status) {
         data.status = updates.status;
         if (updates.status === 'RESOLVED') data.resolvedAt = new Date();
@@ -214,6 +241,41 @@ export const issueService = {
       const updated = await prisma.issue.update({ where: { id }, data });
       await cache.del(`issues:detail:${id}`);
       results.push(updated);
+    }
+
+    // If the bulk update moved the pin, re-sync the PostGIS geometry
+    // column for every affected issue. Fire-and-forget per-issue
+    // (mirrors the create() pattern): a transient spatial write
+    // failure shouldn't fail the bulk operation.
+    //
+    // We pass `updated.latitude` / `updated.longitude` (the values
+    // Prisma just persisted for the row) rather than the raw
+    // `updates.latitude ?? null` / `updates.longitude ?? null` —
+    // `syncGeomFromLatLng` treats a `null` coordinate as "drop the
+    // pin", so a partial update (caller sends only latitude) would
+    // silently NULL the geometry. Reading from the merged row
+    // guarantees we always pass a full (or both-null) pair.
+    if (updates.latitude !== undefined || updates.longitude !== undefined) {
+      for (const updated of results) {
+        // The schema types the columns as `Decimal?` (Prisma's
+        // `Decimal` class, not `number`), so we coerce via
+        // `Number()` before handing them to the spatial helper
+        // (which expects `number | null`). `Number(Prisma.Decimal)`
+        // is safe — the class implements `valueOf()` returning the
+        // JS number. The merged-row read (vs `updates.latitude ??
+        // null`) guarantees we never pass a half-pair, which would
+        // be treated by `syncGeomFromLatLng` as "drop the pin".
+        const lat = updated.latitude == null ? null : Number(updated.latitude);
+        const lng = updated.longitude == null ? null : Number(updated.longitude);
+        void spatialService
+          .syncGeomFromLatLng(updated.id, lat, lng)
+          .catch((err) => {
+            console.warn(
+              `[issue.bulkUpdate] syncGeomFromLatLng failed for ${updated.id}:`,
+              err.message,
+            );
+          });
+      }
     }
 
     await cache.invalidatePattern('issues:stats');
@@ -349,5 +411,163 @@ export const issueService = {
     return prisma.statusHistory.create({
       data: { issueId, oldStatus, newStatus, changedBy, note },
     });
+  },
+
+  /**
+   * Semantic ("smart") search over the IssueEmbedding table. Powers the
+   * smart search bar in the issue list. Falls back to plain text search
+   * (the same `where: { title | description contains search }` used by
+   * getAll) if the embedding call fails — the search bar should never be
+   * totally broken just because Ollama is down.
+   *
+   * Caching: the result of each (query, topK, minScore) triple is cached
+   * in Redis for `SEARCH_CACHE_TTL_SECONDS` (default 5 min). The cache
+   * key is a SHA-256 of the canonicalized triple so different queries
+   * don't collide and we never expose user input in the key. We DO NOT
+   * cache text-fallback or text-empty results because:
+   *   - text-fallback reads from the live issue table; we'd serve
+   *     stale rows if an issue was just created.
+   *   - text-empty is already the cheap case.
+   *
+   * The embed worker also calls `cache.invalidatePattern('search:')`
+   * after each successful embed, so a freshly-embedded issue becomes
+   * searchable within seconds (worst case = current TTL).
+   *
+   * Returns issues in similarity order (highest first), with a `score`
+   * field (cosine similarity 0-1) attached to each row. The `mode` field
+   * on the result tells the caller whether the semantic path or the
+   * text fallback was used, so the UI can label the result accordingly.
+   */
+  async searchSimilar(
+    text: string,
+    topK: number = 5,
+    minScore: number = 0.2,
+  ): Promise<{
+    data: Array<any & { score?: number }>;
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+    mode: 'semantic' | 'semantic-cached' | 'text-fallback' | 'text-empty';
+    query: string;
+  }> {
+    const query = (text || '').trim();
+    if (query.length < 3) {
+      return {
+        data: [],
+        total: 0,
+        page: 1,
+        pageSize: topK,
+        totalPages: 0,
+        mode: 'text-empty',
+        query,
+      };
+    }
+
+    const k = Math.min(Math.max(1, topK), 20);
+    const SEARCH_CACHE_TTL_SECONDS = 300; // 5 min
+
+    // Cache key: SHA-256 of `query|topK|minScore`. Hashing means we
+    // don't put user input directly in the key, which keeps the
+    // keyspace bounded and avoids redis key-parsing quirks.
+    const cacheKey = `search:semantic:${createHash('sha256')
+      .update(`${query.toLowerCase()}|${k}|${minScore}`)
+      .digest('hex')}`;
+
+    const cached = await cache.get<{
+      data: Array<any & { score?: number }>;
+      total: number;
+    }>(cacheKey);
+    if (cached) {
+      return {
+        data: cached.data,
+        total: cached.total,
+        page: 1,
+        pageSize: k,
+        totalPages: 1,
+        mode: 'semantic-cached',
+        query,
+      };
+    }
+
+    try {
+      const queryVec = await embedText(query);
+      const vecLiteral = toPgVectorLiteral(queryVec);
+
+      // 1 - cosine_distance = cosine_similarity (0..1, higher = more similar).
+      // Filter in SQL so we don't ship irrelevant rows to the app server.
+      const rows = await prisma.$queryRaw<
+        Array<{ id: string; title: string; score: number }>
+      >`
+        SELECT
+          i."id",
+          i."title",
+          (1 - (e."embedding" <=> ${vecLiteral}::vector)) AS "score"
+        FROM "IssueEmbedding" e
+        JOIN "Issue" i ON i."id" = e."issueId"
+        WHERE e."embedding" IS NOT NULL
+          AND (1 - (e."embedding" <=> ${vecLiteral}::vector)) >= ${minScore}
+        ORDER BY e."embedding" <=> ${vecLiteral}::vector
+        LIMIT ${k}
+      `;
+
+      if (rows.length === 0) {
+        return {
+          data: [],
+          total: 0,
+          page: 1,
+          pageSize: k,
+          totalPages: 0,
+          mode: 'text-empty',
+          query,
+        };
+      }
+
+      // Hydrate the full issue rows in the same order as the similarity results.
+      const ids = rows.map((r) => r.id);
+      const issues = await prisma.issue.findMany({
+        where: { id: { in: ids } },
+        include: {
+          reporter: { select: { id: true, firstName: true, lastName: true } },
+          assignee: { select: { id: true, firstName: true, lastName: true } },
+          department: { select: { id: true, name: true } },
+          ward: { select: { id: true, name: true, code: true } },
+          tags: { select: { tag: true } },
+          _count: { select: { comments: true, votes: true } },
+        },
+      });
+      const byId = new Map(issues.map((i) => [i.id, i]));
+      const ordered = rows
+        .map((r) => {
+          const issue = byId.get(r.id);
+          if (!issue) return null; // embedding row for a since-deleted issue
+          return { ...issue, score: Number(r.score) };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+
+      // Cache the result so the next 50 citizens who search for
+      // "σπασμένος σωλήνας" hit Redis instead of Ollama + pgvector.
+      await cache.set(cacheKey, { data: ordered, total: ordered.length }, SEARCH_CACHE_TTL_SECONDS);
+
+      return {
+        data: ordered,
+        total: ordered.length,
+        page: 1,
+        pageSize: k,
+        totalPages: 1,
+        mode: 'semantic',
+        query,
+      };
+    } catch (err: any) {
+      // Don't let an Ollama outage break the search bar. Fall back to
+      // plain text matching so the user still gets useful results.
+      console.warn(`[issue.searchSimilar] Semantic path failed, using text fallback: ${err.message}`);
+      const fallback = await this.getAll({
+        page: 1,
+        pageSize: k,
+        search: query,
+      });
+      return { ...fallback, mode: 'text-fallback', query };
+    }
   },
 };

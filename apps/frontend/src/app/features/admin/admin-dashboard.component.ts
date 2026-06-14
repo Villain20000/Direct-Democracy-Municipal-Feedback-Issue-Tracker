@@ -155,6 +155,7 @@ export class AdminDashboardComponent implements OnInit {
     { icon: 'people', label: 'nav.users', route: '/admin/users' },
     { icon: 'apartment', label: 'nav.departments', route: '/admin/departments' },
     { icon: 'map', label: 'nav.wards', route: '/admin/wards' },
+    { icon: 'library_books', label: 'nav.documents', route: '/admin/documents' },
     { icon: 'settings', label: 'nav.settings', route: '/admin/settings' },
   ] as any;
 
@@ -164,7 +165,7 @@ export class AdminDashboardComponent implements OnInit {
   router = inject(Router);
 
   ngOnInit() {
-    fetch('/health').then(r => { this.apiHealthy = r.ok; }).catch(() => { this.apiHealthy = false; });
+    fetch('/api/v1/health').then(r => { this.apiHealthy = r.ok; }).catch(() => { this.apiHealthy = false; });
 
     this.api.getIssueStats().subscribe(res => {
       if (res.success) {

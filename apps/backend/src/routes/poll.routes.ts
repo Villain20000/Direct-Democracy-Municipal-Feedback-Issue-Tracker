@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth.middleware';
 import { authorize } from '../middleware/rbac.middleware';
 import { pollService } from '../services/poll.service';
+import { sendDomainError } from '../errors/domain-errors';
 
 const router = Router();
 
@@ -35,7 +36,9 @@ router.post('/', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'COUNCIL_MEMBER
     const poll = await pollService.create({ ...req.body, creatorId: req.user!.id });
     res.status(201).json({ success: true, data: poll });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[polls.create]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -47,7 +50,11 @@ router.post('/:id/vote', authenticate, async (req: AuthenticatedRequest, res) =>
     const poll = await pollService.vote(req.params.id as string, req.user!.id, optionId);
     res.json({ success: true, data: poll });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    // service throws AlreadyClosedError (409), AlreadyVotedError (409),
+    // BadRequestError (400), NotFoundError (404); all mapped via sendDomainError.
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[polls.vote]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -57,7 +64,9 @@ router.patch('/:id/close', authenticate, async (req: AuthenticatedRequest, res) 
     const poll = await pollService.close(req.params.id as string);
     res.json({ success: true, data: poll });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[polls.close]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -67,7 +76,9 @@ router.delete('/:id', authenticate, authorize('SUPER_ADMIN'), async (req: Authen
     await pollService.delete(req.params.id as string);
     res.json({ success: true });
   } catch (error: any) {
-    res.status(400).json({ error: error.message });
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[polls.delete]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
