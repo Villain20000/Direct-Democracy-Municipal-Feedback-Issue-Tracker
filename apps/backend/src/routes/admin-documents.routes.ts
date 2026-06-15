@@ -17,7 +17,7 @@
  * contentHash unique index protects us).
  */
 
-import { Router, RequestHandler as ExpressRequestHandler } from 'express';
+import { Router, RequestHandler } from 'express';
 import multer from 'multer';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth.middleware';
 import { authorize } from '../middleware/rbac.middleware';
@@ -34,6 +34,11 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB
 });
+
+// Multer 1.x's `.single()` returns its own `RequestHandler` type which
+// doesn't structurally overlap with Express 5's. The runtime signature
+// `(req, res, next) => void` is identical, so a single cast is safe.
+const uploadSingleFile: RequestHandler = upload.single('file') as unknown as RequestHandler;
 
 const ALLOWED_TYPES = new Set(['ORDINANCE', 'DECISION', 'REGULATION', 'GUIDE', 'OTHER']);
 
@@ -116,11 +121,7 @@ router.get('/:id', async (req, res) => {
  *   - multipart/form-data: `file` (PDF or .txt) + metadata fields
  *   - application/json:   { title, type, source, content, description?, documentDate? }
  */
-// TODO: multer 1.x's bundled RequestHandler type and Express 5's RequestHandler
-// come from different installs and don't structurally overlap. The runtime
-// signature `(req, res, next) => void` is identical, so the two-step cast
-// is safe. Re-evaluate when multer ships Express-5-aware types.
-router.post('/', upload.single('file') as unknown as ExpressRequestHandler, async (req: AuthenticatedRequest, res) => {
+router.post('/', uploadSingleFile, async (req: AuthenticatedRequest, res) => {
   try {
     let title = (req.body?.title as string | undefined)?.trim();
     let type = (req.body?.type as string | undefined)?.trim();

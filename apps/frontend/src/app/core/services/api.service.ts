@@ -407,6 +407,106 @@ export class ApiService {
     return this.http.patch(`${this.apiUrl}/resolutions/${id}/status`, { status });
   }
 
+  // Referendums (Phase D1) — distinct from Resolutions: public ballot with YES/NO/ABSTAIN
+  getReferendums(params: Record<string, string> = {}): Observable<{ success: boolean; data: any[]; total: number; page: number; pageSize: number; totalPages: number }> {
+    let httpParams = new HttpParams();
+    Object.entries(params).forEach(([key, value]) => { if (value) httpParams = httpParams.set(key, value); });
+    return this.http.get<{ success: boolean; data: any[]; total: number; page: number; pageSize: number; totalPages: number }>(
+      `${this.apiUrl}/referendums`, { params: httpParams },
+    );
+  }
+
+  getReferendum(id: string): Observable<{ success: boolean; data: any }> {
+    return this.http.get<{ success: boolean; data: any }>(`${this.apiUrl}/referendums/${id}`);
+  }
+
+  getMyReferendumVote(id: string): Observable<{ success: boolean; data: { choice: 'YES' | 'NO' | 'ABSTAIN' } | null }> {
+    return this.http.get<{ success: boolean; data: { choice: 'YES' | 'NO' | 'ABSTAIN' } | null }>(
+      `${this.apiUrl}/referendums/${id}/my-vote`,
+    );
+  }
+
+  getReferendumVotes(id: string): Observable<{ success: boolean; data: any[] }> {
+    return this.http.get<{ success: boolean; data: any[] }>(`${this.apiUrl}/referendums/${id}/votes`);
+  }
+
+  createReferendum(data: {
+    title: string; description: string; body: string;
+    opensAt: string; closesAt: string;
+    passThreshold?: number; minParticipation?: number; eligibleRoles?: string[];
+  }): Observable<{ success: boolean; data: any }> {
+    return this.http.post<{ success: boolean; data: any }>(`${this.apiUrl}/referendums`, data);
+  }
+
+  updateReferendum(id: string, data: any): Observable<{ success: boolean; data: any }> {
+    return this.http.patch<{ success: boolean; data: any }>(`${this.apiUrl}/referendums/${id}`, data);
+  }
+
+  updateReferendumStatus(id: string, status: string): Observable<{ success: boolean; data: any }> {
+    return this.http.patch<{ success: boolean; data: any }>(`${this.apiUrl}/referendums/${id}/status`, { status });
+  }
+
+  voteReferendum(id: string, choice: 'YES' | 'NO' | 'ABSTAIN'): Observable<{ success: boolean; data: any }> {
+    return this.http.post<{ success: boolean; data: any }>(`${this.apiUrl}/referendums/${id}/vote`, { choice });
+  }
+
+  closeReferendum(id: string): Observable<{ success: boolean; data: any }> {
+    return this.http.post<{ success: boolean; data: any }>(`${this.apiUrl}/referendums/${id}/close`, {});
+  }
+
+  deleteReferendum(id: string): Observable<{ success: boolean; data: any }> {
+    return this.http.delete<{ success: boolean; data: any }>(`${this.apiUrl}/referendums/${id}`);
+  }
+
+  // Transparency Portal (Phase D2) — public, no auth required
+  getPortalStats(): Observable<{ success: boolean; data: any }> {
+    return this.http.get<{ success: boolean; data: any }>(`${this.apiUrl}/portal/stats`);
+  }
+
+  getPortalIssues(params: Record<string, string> = {}): Observable<{ success: boolean; data: any[]; total: number; page: number; pageSize: number; totalPages: number }> {
+    let httpParams = new HttpParams();
+    Object.entries(params).forEach(([key, value]) => { if (value) httpParams = httpParams.set(key, value); });
+    return this.http.get<{ success: boolean; data: any[]; total: number; page: number; pageSize: number; totalPages: number }>(
+      `${this.apiUrl}/portal/issues`, { params: httpParams },
+    );
+  }
+
+  getPortalRecentIssues(limit: number = 10): Observable<{ success: boolean; data: any[] }> {
+    return this.http.get<{ success: boolean; data: any[] }>(`${this.apiUrl}/portal/issues/recent?limit=${limit}`);
+  }
+
+  getPortalTopIssues(limit: number = 10): Observable<{ success: boolean; data: any[] }> {
+    return this.http.get<{ success: boolean; data: any[] }>(`${this.apiUrl}/portal/issues/top?limit=${limit}`);
+  }
+
+  getPortalDepartments(): Observable<{ success: boolean; data: any[] }> {
+    return this.http.get<{ success: boolean; data: any[] }>(`${this.apiUrl}/portal/departments`);
+  }
+
+  getPortalWards(): Observable<{ success: boolean; data: any[] }> {
+    return this.http.get<{ success: boolean; data: any[] }>(`${this.apiUrl}/portal/wards`);
+  }
+
+  getPortalAnnouncements(limit: number = 20): Observable<{ success: boolean; data: any[] }> {
+    return this.http.get<{ success: boolean; data: any[] }>(`${this.apiUrl}/portal/announcements?limit=${limit}`);
+  }
+
+  getPortalMeetings(limit: number = 20): Observable<{ success: boolean; data: any[] }> {
+    return this.http.get<{ success: boolean; data: any[] }>(`${this.apiUrl}/portal/meetings?limit=${limit}`);
+  }
+
+  getPortalUpcomingEvents(limit: number = 10): Observable<{ success: boolean; data: any[] }> {
+    return this.http.get<{ success: boolean; data: any[] }>(`${this.apiUrl}/portal/events/upcoming?limit=${limit}`);
+  }
+
+  getPortalReferendums(limit: number = 10): Observable<{ success: boolean; data: any[] }> {
+    return this.http.get<{ success: boolean; data: any[] }>(`${this.apiUrl}/portal/referendums?limit=${limit}`);
+  }
+
+  getPortalResolutions(limit: number = 20): Observable<{ success: boolean; data: any[] }> {
+    return this.http.get<{ success: boolean; data: any[] }>(`${this.apiUrl}/portal/resolutions?limit=${limit}`);
+  }
+
   // Messages
   getConversations(): Observable<any> {
     return this.http.get(`${this.apiUrl}/messages/conversations`);

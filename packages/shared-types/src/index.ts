@@ -218,7 +218,7 @@ export interface IssueTemplate {
   id: string;
   title: string;
   description: string;
-  category: string;
+  category: IssueCategory;
   location: string;
 }
 
@@ -374,3 +374,232 @@ export interface ApiResponse<T> {
   error?: string;
   message?: string;
 }
+
+// =====================================================================
+// v1.5 additions: PostGIS spatial, RAG / pgvector, PWA, 10-feature sweep
+// =====================================================================
+
+// === Spatial types ===
+
+/** A longitude/latitude pair in WGS 84 (PostGIS SRID 4326). */
+export interface LngLat {
+  lng: number;
+  lat: number;
+}
+
+/** A closed polygon expressed as a ring of [lng, lat] points. */
+export type Polygon = LngLat[];
+
+/** Axis-aligned bounding box. */
+export interface BoundingBox {
+  minLng: number;
+  minLat: number;
+  maxLng: number;
+  maxLat: number;
+}
+
+export interface SpatialIssue {
+  id: string;
+  title: string;
+  status: IssueStatus;
+  latitude: number;
+  longitude: number;
+  distanceMeters?: number;
+}
+
+export interface AreaSummaryRequest {
+  polygon: Polygon;
+}
+
+export interface AreaSummaryResponse {
+  mode: 'postgis' | 'fallback';
+  summary: string;
+  issueCount: number;
+  issues: Issue[];
+}
+
+// === RAG / pgvector types ===
+
+export type DocumentType = 'ORDINANCE' | 'DECISION' | 'REGULATION' | 'GUIDE' | 'OTHER';
+
+export interface Document {
+  id: string;
+  title: string;
+  type: DocumentType;
+  source: string;
+  description?: string;
+  documentDate?: string;
+  charCount: number;
+  chunkCount: number;
+  uploadedById?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DocumentChunk {
+  id: string;
+  documentId: string;
+  chunkIndex: number;
+  content: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface RetrievedChunk {
+  documentId: string;
+  title: string;
+  type: DocumentType;
+  source: string;
+  documentDate?: string;
+  chunkIndex: number;
+  score: number;
+  chunk: string;
+}
+
+export interface DocumentIngestResult {
+  id: string;
+  chunksCreated: number;
+  skipped: boolean;
+}
+
+export interface IssueEmbedding {
+  id: string;
+  issueId: string;
+  model: string;
+  contentHash: string;
+  generatedAt: string;
+}
+
+export interface SimilarIssue {
+  id: string;
+  title: string;
+  description: string;
+  score: number;
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}
+
+export interface ChatCitation {
+  documentId: string;
+  title: string;
+  type: DocumentType;
+  source: string;
+  documentDate?: string;
+  chunkIndex: number;
+  score: number;
+  chunk: string;
+}
+
+export interface ChatResponse {
+  answer: string;
+  citations: ChatCitation[];
+  ragUsed: boolean;
+}
+
+// === Weekly summary ===
+
+export type WeeklySummarySource = 'AUTO' | 'MANUAL';
+
+export interface WeeklySummaryHighlight {
+  title: string;
+  body: string;
+}
+
+export interface WeeklySummary {
+  id: string;
+  weekKey: string;
+  weekStart: string;
+  weekEnd: string;
+  stats: Record<string, unknown>;
+  highlights: WeeklySummaryHighlight[];
+  body: string;
+  issueIds: string[];
+  source: WeeklySummarySource;
+  generatedAt: string;
+  createdAt: string;
+}
+
+// === 10-feature sweep ===
+
+export interface IssueSubscription {
+  id: string;
+  issueId: string;
+  userId: string;
+  createdAt: string;
+}
+
+export interface IssueShareLink {
+  id: string;
+  issueId: string;
+  token: string;
+  expiresAt?: string;
+  createdAt: string;
+  createdById: string;
+}
+
+export interface SavedSearch {
+  id: string;
+  userId: string;
+  name: string;
+  filters: Record<string, unknown>;
+  createdAt: string;
+}
+
+export type NotificationChannel = 'inApp' | 'email' | 'push';
+
+export interface NotificationPreference {
+  id: string;
+  userId: string;
+  channel: NotificationChannel;
+  type: string;
+  enabled: boolean;
+}
+
+export interface InternalNote {
+  id: string;
+  issueId: string;
+  authorId: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface SlaTracking {
+  id: string;
+  issueId: string;
+  priority: string;
+  dueAt: string;
+  firstResponseAt?: string;
+  resolvedAt?: string;
+  breached: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IssueAssignment {
+  id: string;
+  issueId: string;
+  assigneeId?: string;
+  assignedById: string;
+  unassignedById?: string;
+  assignedAt: string;
+  unassignedAt?: string;
+  reason?: string;
+}
+
+// === Status history ===
+
+export interface StatusHistory {
+  id: string;
+  issueId: string;
+  oldStatus?: IssueStatus;
+  newStatus: IssueStatus;
+  changedBy: string;
+  note?: string;
+  createdAt: string;
+}
+
+// === Issue template (refined in v1.5: category typed as IssueCategory) ===
+

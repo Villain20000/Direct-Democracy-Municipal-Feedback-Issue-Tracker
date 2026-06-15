@@ -38,6 +38,8 @@ model User {
   sentMessages        Message[]            @relation("MessageSender")
   receivedMessages    Message[]            @relation("MessageReceiver")
   resolutions         Resolution[]         @relation("ResolutionProposer")
+  referendumsCreated  Referendum[]         @relation("ReferendumCreator")
+  referendumVotes     ReferendumVote[]    @relation("ReferendumVoter")
   refreshTokens       RefreshToken[]
   forums              Forum[]
   forumPosts          ForumPost[]
@@ -466,6 +468,81 @@ model Resolution {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   decidedAt    DateTime?
+}
+
+// ====================================================================
+// Phase D1 — Referendum tracker (distinct from Resolution: a public
+// ballot on a yes/no/abstain question, with a participation threshold
+// and a pass threshold. Multiple users can vote; status transitions
+// follow DRAFT -> OPEN -> CLOSED -> PASSED|REJECTED|CANCELLED.)
+// ====================================================================
+
+enum ReferendumStatus {
+  DRAFT
+  OPEN
+  CLOSED
+  PASSED
+  REJECTED
+  CANCELLED
+}
+
+enum ReferendumChoice {
+  YES
+  NO
+  ABSTAIN
+}
+
+model Referendum {
+  id              String           @id @default(uuid())
+  title           String
+  description     String
+  /// The actual question / text on the ballot. May be longer than `description`.
+  body            String
+  status          ReferendumStatus @default(DRAFT)
+  createdById     String
+  createdBy       User             @relation("ReferendumCreator", fields: [createdById], references: [id])
+  /// When voting opens (inclusive). Required before the status can flip to OPEN.
+  opensAt         DateTime
+  /// When voting closes (exclusive). Required before the status can flip to OPEN.
+  closesAt        DateTime
+  /// Fraction of YES+NO votes that must be YES for the referendum to pass.
+  /// Default 0.5 (simple majority). Range 0 < passThreshold <= 1.
+  passThreshold   Float            @default(0.5)
+  /// Minimum total votes required for the result to be binding.
+  /// Below this number the referendum is recorded as INCONCLUSIVE even
+  /// if the yes-ratio would otherwise have passed.
+  minParticipation Int             @default(0)
+  /// Roles allowed to vote on this referendum. Empty array = any authenticated
+  /// user. Otherwise the voter must have one of these roles.
+  eligibleRoles   String[]         @default([])
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  /// When the result was finalised (status flipped to PASSED/REJECTED).
+  decidedAt       DateTime?
+  /// Cached tallies for fast reads. Kept in sync inside the vote transaction.
+  yesCount        Int              @default(0)
+  noCount         Int              @default(0)
+  abstainCount    Int              @default(0)
+  totalVotes      Int              @default(0)
+
+  votes           ReferendumVote[]
+
+  @@index([status])
+  @@index([closesAt])
+}
+
+model ReferendumVote {
+  id            String           @id @default(uuid())
+  referendumId  String
+  referendum    Referendum       @relation(fields: [referendumId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User             @relation("ReferendumVoter", fields: [userId], references: [id], onDelete: Cascade)
+  choice        ReferendumChoice
+  createdAt     DateTime         @default(now())
+
+  @@unique([referendumId, userId])
+  @@index([referendumId])
+  @@index([userId])
 }
 
 // === TAGS ===

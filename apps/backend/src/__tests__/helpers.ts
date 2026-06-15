@@ -97,6 +97,9 @@ export async function cleanupDatabase() {
   await prisma.auditLog.deleteMany();
   await prisma.message.deleteMany();
   await prisma.resolution.deleteMany();
+  // Phase D1 — referendum tracker (vote rows first because of FK CASCADE)
+  await prisma.referendumVote.deleteMany();
+  await prisma.referendum.deleteMany();
   await prisma.eventRSVP.deleteMany();
   await prisma.event.deleteMany();
   await prisma.announcement.deleteMany();
@@ -108,6 +111,19 @@ export async function cleanupDatabase() {
   await prisma.survey.deleteMany();
   await prisma.pollOption.deleteMany();
   await prisma.poll.deleteMany();
+  // Phase B — 10-feature sweep tables
+  await prisma.issueAssignment.deleteMany();
+  await prisma.slaTracking.deleteMany();
+  await prisma.internalNote.deleteMany();
+  await prisma.issueShareLink.deleteMany();
+  await prisma.issueSubscription.deleteMany();
+  await prisma.savedSearch.deleteMany();
+  await prisma.notificationPreference.deleteMany();
+  await prisma.documentChunk.deleteMany();
+  await prisma.document.deleteMany();
+  await prisma.issueEmbedding.deleteMany();
+  // Phase C — weekly executive briefings
+  await prisma.weeklySummary.deleteMany();
   await prisma.issue.deleteMany();
   await prisma.departmentWard.deleteMany();
   await prisma.refreshToken.deleteMany();

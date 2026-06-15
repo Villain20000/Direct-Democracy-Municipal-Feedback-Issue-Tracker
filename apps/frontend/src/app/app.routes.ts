@@ -27,6 +27,9 @@ export const routes: Routes = [
   { path: 'reset-password', loadComponent: () => import('./features/auth/reset-password.component').then(m => m.ResetPasswordComponent) },
   { path: 'unauthorized', loadComponent: () => import('./features/auth/unauthorized.component').then(m => m.UnauthorizedComponent) },
 
+  // Phase D2 — public transparency portal (no auth)
+  { path: 'portal', loadComponent: () => import('./features/public/portal-page.component').then(m => m.PortalPageComponent) },
+
   // Super Admin
   { path: 'admin', loadComponent: () => import('./features/admin/admin-dashboard.component').then(m => m.AdminDashboardComponent), canActivate: [authGuard, admin] },
   { path: 'admin/users', loadComponent: () => import('./features/shared/admin-users-page.component').then(m => m.AdminUsersPageComponent), canActivate: [authGuard, admin] },
@@ -40,6 +43,7 @@ export const routes: Routes = [
   { path: 'mayor', loadComponent: () => import('./features/mayor/mayor-dashboard.component').then(m => m.MayorDashboardComponent), canActivate: [authGuard, mayor] },
   { path: 'mayor/analytics', loadComponent: () => import('./features/shared/analytics-page.component').then(m => m.AnalyticsPageComponent), canActivate: [authGuard, mayor] },
   { path: 'mayor/resolutions', loadComponent: () => import('./features/shared/resolutions-page.component').then(m => m.ResolutionsPageComponent), canActivate: [authGuard, mayor] },
+  { path: 'mayor/referendums', loadComponent: () => import('./features/shared/referendums-page.component').then(m => m.ReferendumsPageComponent), canActivate: [authGuard, mayor] },
   { path: 'mayor/polls', loadComponent: () => import('./features/shared/polls-page.component').then(m => m.PollsPageComponent), canActivate: [authGuard, mayor] },
   { path: 'mayor/calendar', loadComponent: () => import('./features/shared/events-page.component').then(m => m.EventsPageComponent), canActivate: [authGuard, mayor] },
   { path: 'mayor/announcements', loadComponent: () => import('./features/shared/announcements-page.component').then(m => m.AnnouncementsPageComponent), canActivate: [authGuard, mayor] },
@@ -54,6 +58,7 @@ export const routes: Routes = [
   // Council
   { path: 'council', loadComponent: () => import('./features/council/council-dashboard.component').then(m => m.CouncilDashboardComponent), canActivate: [authGuard, council] },
   { path: 'council/resolutions', loadComponent: () => import('./features/shared/resolutions-page.component').then(m => m.ResolutionsPageComponent), canActivate: [authGuard, council] },
+  { path: 'council/referendums', loadComponent: () => import('./features/shared/referendums-page.component').then(m => m.ReferendumsPageComponent), canActivate: [authGuard, council] },
   { path: 'council/constituents', loadComponent: () => import('./features/issues/issue-list.component').then(m => m.IssueListComponent), canActivate: [authGuard, council] },
   { path: 'council/forums', loadComponent: () => import('./features/shared/forums-page.component').then(m => m.ForumsPageComponent), canActivate: [authGuard, council] },
   { path: 'council/calendar', loadComponent: () => import('./features/shared/events-page.component').then(m => m.EventsPageComponent), canActivate: [authGuard, council] },
@@ -76,6 +81,7 @@ export const routes: Routes = [
   { path: 'citizen/reports', loadComponent: () => import('./features/shared/issue-reports-page.component').then(m => m.IssueReportsPageComponent), canActivate: [authGuard, citizen] },
   { path: 'citizen/nearby', loadComponent: () => import('./features/issues/issue-list.component').then(m => m.IssueListComponent), canActivate: [authGuard, citizen] },
   { path: 'citizen/polls', loadComponent: () => import('./features/shared/polls-page.component').then(m => m.PollsPageComponent), canActivate: [authGuard, citizen] },
+  { path: 'citizen/referendums', loadComponent: () => import('./features/shared/referendums-page.component').then(m => m.ReferendumsPageComponent), canActivate: [authGuard] },
   { path: 'citizen/surveys', loadComponent: () => import('./features/shared/surveys-page.component').then(m => m.SurveysPageComponent), canActivate: [authGuard, citizen] },
   { path: 'citizen/forums', loadComponent: () => import('./features/shared/forums-page.component').then(m => m.ForumsPageComponent), canActivate: [authGuard, citizen] },
   { path: 'citizen/events', loadComponent: () => import('./features/shared/events-page.component').then(m => m.EventsPageComponent), canActivate: [authGuard, citizen] },

@@ -5,6 +5,9 @@ import { auditService } from './audit.service';
 import { notificationService } from './notification.service';
 import { embedText, toPgVectorLiteral } from './embedding.service';
 import { spatialService } from './spatial.service';
+import { issueSubscriptionService } from './issue-subscription.service';
+import { slaTrackingService } from './sla-tracking.service';
+import { issueAssignmentService, recordAssignChange } from './issue-assignment.service';
 import { createHash } from 'crypto';
 
 const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'priority', 'upvotes', 'status', 'title'] as const;
@@ -181,6 +184,19 @@ export const issueService = {
         { sendEmail: true },
       );
     }
+    // Phase B1: fan out the same status change to every subscriber
+    // (excluding the actor). Fire-and-forget — a fan-out failure
+    // shouldn't fail the status update.
+    void issueSubscriptionService
+      .fanOutStatusChange(id, changedBy, newStatus, issue.title)
+      .catch((err) => {
+        console.warn(`[issue.updateStatus] subscription fan-out failed for ${id}:`, err.message);
+      });
+    // Phase B6: mark SLA first-response / resolution timestamps
+    void slaTrackingService.markFirstResponse(id).catch(() => {});
+    if (newStatus === 'RESOLVED' || newStatus === 'VERIFIED') {
+      void slaTrackingService.markResolved(id).catch(() => {});
+    }
     await cache.del(`issues:detail:${id}`);
     await cache.invalidatePattern('issues:stats');
     return updated;
@@ -304,6 +320,11 @@ export const issueService = {
         entity: 'Issue',
         entityId: id,
         newValues: { assigneeId, departmentId },
+      });
+      // Phase B7: append to the assignment audit trail. Closes the
+      // prior open row (if any) and creates a new one.
+      void recordAssignChange(id, assigneeId, assignedBy).catch((err) => {
+        console.warn(`[issue.assign] recordAssignChange failed for ${id}:`, err.message);
       });
     }
 

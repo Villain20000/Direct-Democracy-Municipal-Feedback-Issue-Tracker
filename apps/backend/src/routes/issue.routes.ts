@@ -207,8 +207,9 @@ router.patch('/:id/status', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEP
   }
 });
 
-// Assign issue (admin/dept head only)
-router.patch('/:id/assign', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMENT_HEAD'), async (req: AuthenticatedRequest, res) => {
+// Assign issue (staff+ — STAFF is allowed because day-to-day routing of
+// issues to a specific staffer is exactly the action a STAFF takes).
+router.patch('/:id/assign', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMENT_HEAD', 'STAFF'), async (req: AuthenticatedRequest, res) => {
   try {
     const { assigneeId, departmentId } = req.body;
     const issue = await issueService.assign(req.params.id as string, assigneeId, departmentId, req.user!.id);

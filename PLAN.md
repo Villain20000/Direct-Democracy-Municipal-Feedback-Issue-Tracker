@@ -978,3 +978,144 @@ CORS_ORIGIN=http://localhost:4200
 # Frontend
 API_URL=http://localhost:3001/api/v1
 ```
+
+---
+
+## 13. v1.5 — PostGIS Spatial Layer
+
+Adds a true geographic column to `Issue` and three new endpoints under `/api/v1/spatial`.
+
+### Schema delta
+
+- `Issue.locationGeom GEOMETRY(Point, 4326)` (raw SQL via Prisma `Unsupported`)
+- GIST index `Issue_locationGeom_idx`
+- Backfill migration populates `locationGeom` from existing `latitude`/`longitude`
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/spatial/issues/within?lat&lng&radius` | `ST_DWithin` (geography, radius in meters) |
+| POST | `/spatial/issues/in-polygon` | `ST_Contains` on a user-drawn polygon |
+| GET | `/spatial/issues/nearest?lat&lng&k` | k-nearest-neighbour search |
+| POST | `/issues/summarize-area` | LLM-generated summary of issues inside a polygon |
+
+### Graceful degradation
+
+`spatialService.syncGeomFromLatLng()` is fired fire-and-forget on every issue create/update. If PostGIS is unavailable, `area-summary.service.ts` falls back to a JS bounding-box query so the page never breaks.
+
+---
+
+## 14. v1.5 — RAG over Municipal Legislation
+
+Augments the AI assistant with citation-aware retrieval over a documents table admins curate.
+
+### Schema delta
+
+- `Document` (id, title, type, source, contentHash UNIQUE, charCount, chunkCount, uploadedById)
+- `DocumentChunk` (id, documentId, chunkIndex, content, embedding `vector(768)`, metadata)
+- `IssueEmbedding` (id, issueId UNIQUE, embedding `vector(768)`, contentHash, model, generatedAt)
+- `WeeklySummary` (id, weekKey UNIQUE, weekStart, weekEnd, stats, highlights, body, issueIds, source)
+
+### Endpoints (under `/api/v1/admin/documents`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/` | List documents (most recent first) |
+| GET | `/:id` | Get one document + its chunks |
+| POST | `/` | Upload a PDF / .txt (multipart) or paste text (JSON) |
+| POST | `/retrieve` | Semantic search (no LLM) — for KB auditing |
+| DELETE | `/:id` | Remove a document (cascades to chunks) |
+
+Roles allowed: `SUPER_ADMIN`, `MAYOR`, `DEPARTMENT_HEAD`, `COUNCIL_MEMBER`.
+
+### RAG chat pipeline
+
+`POST /api/v1/ai/chat` performs:
+
+1. Embed the latest user message with `nomic-embed-text` (or pull from Redis cache).
+2. Retrieve the top-K similar chunks from `DocumentChunk` via pgvector cosine.
+3. Inject the chunks as a system message asking the model to **cite document numbers in brackets `[1]`, `[2]`, …**.
+4. Stream the chat completion back to the client.
+5. Return `{ answer, citations, ragUsed }`.
+
+### Semantic issue search
+
+`GET /api/v1/issues/search-similar?text&topK&minScore` — embed the query, run `1 - (embedding <=> query_vec) AS score`, cache in Redis (300 s TTL). Falls back to `ILIKE` text search when Ollama or pgvector is unavailable.
+
+---
+
+## 15. v1.5 — Progressive Web App + Offline-First
+
+Citizens in the field (low 4G/5G) can still report issues without connectivity.
+
+### Service worker
+
+- `apps/frontend/ngsw-config.json` precaches the app shell + assets
+- `provideServiceWorker('ngsw-worker.js')` registered in `app.config.ts`
+- API GETs are cached with a freshness strategy (10 s timeout, 1 h max)
+- API mutations are **bypassed** by the SW and handled by the queue below
+
+### Offline queue
+
+- `OfflineQueueService` (IndexedDB-backed) catches 503 responses on `POST /issues`
+- Persists the full payload + a client-generated `clientId`
+- On `window.online` (and on app start), replays each payload with exponential backoff
+- After 5 failed attempts a payload moves to a dead-letter store; red badge in install banner
+- `<app-install-prompt>` captures `beforeinstallprompt` and shows the current queue depth
+
+### Manifest
+
+`apps/frontend/src/manifest.webmanifest` declares name, icons (72 → 512, all `maskable any`), `display: standalone`, theme + background colors.
+
+---
+
+## 16. v1.5 — Embedding Pipeline (BullMQ Worker) + 10-Feature Sweep
+
+### Embedding worker
+
+- On `POST /issues` the API persists the row and **returns 202** *before* the embedding lands
+- A BullMQ job (`embed:<issueId>`, deduped by jobId) is enqueued in Redis
+- `apps/backend/src/worker.ts` consumes the queue, calls `nomic-embed-text`, upserts the 768-dim vector into `IssueEmbedding` with a `contentHash` so unchanged content is a no-op
+- `npm run embed:backfill` re-embeds anything missing or stale (e.g. after a model swap)
+- BullMQ `WORKER_CONCURRENCY` (default 2) and `EMBED_LOCK_DURATION_MS` (default 60 s) are tunable via env
+
+### 10-feature sweep (engagement / workflow / analytics)
+
+Schema-only models added in `20260614000000_ten_feature_sweep` — Phase B wires up the routes, services, validators, tests, and UI hooks:
+
+| # | Model | Purpose | API surface (Phase B) |
+|---|-------|---------|------------------------|
+| 1 | `IssueSubscription` | Citizens follow an issue for status updates | `POST/DELETE /issues/:id/subscribe`, `GET /users/me/subscriptions` |
+| 2 | `IssueShareLink` | Public, expiring share token for an issue | `POST /issues/:id/share-link`, `GET /share/:token` |
+| 3 | `SavedSearch` | Save a filter combination | `POST/GET/DELETE /users/me/saved-searches` |
+| 4 | `NotificationPreference` | Per-channel opt-in per notification type | `GET/PATCH /users/me/notification-prefs` |
+| 5 | `InternalNote` | Staff-only notes on an issue | `POST/GET/DELETE /issues/:id/internal-notes` |
+| 6 | `SlaTracking` | Response / resolution timer, breach detection | Cron job + dashboard widget |
+| 7 | `IssueAssignment` | Audit trail of who was assigned what and when | `GET /issues/:id/assignment-history` |
+
+### AI endpoints (extras)
+
+Beyond the original `/categorize`, `/priority`, `/sentiment`, `/summary`, `/trends`, `/chat` set, the AI surface now includes:
+
+`/duplicates`, `/resolve`, `/describe`, `/tags`, `/resolution-time`, `/department`, `/translate`, `/search` — all gated by `aiLimiter`.
+
+---
+
+## 17. Roles — v1.5 reconciliation
+
+The platform ships with **10 active roles** (the `AUDITOR` enum value is in the schema, a seeded demo account exists, and 7 backend routes authorize it):
+
+| # | Role | Dashboard |
+|---|------|-----------|
+| 1 | `SUPER_ADMIN` | `/admin` |
+| 2 | `MAYOR` | `/mayor` |
+| 3 | `DEPARTMENT_HEAD` | `/department` |
+| 4 | `COUNCIL_MEMBER` | `/council` |
+| 5 | `STAFF` | `/staff` |
+| 6 | `WARD_REP` | `/ward` |
+| 7 | `CITIZEN` | `/citizen` |
+| 8 | `VOLUNTEER` | `/volunteer` |
+| 9 | `AUDITOR` | `/auditor` |
+| 10 | `MEDIA` | `/media` |
+

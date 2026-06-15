@@ -147,9 +147,10 @@ flowchart LR
 | **Ward Rep** | Neighborhood feedback, community events | 🔵 Teal |
 | **Citizen** | Report issues, vote, participate in forums, **PWA offline mode** | 🔵 Sky Blue |
 | **Volunteer** | Community projects, events, observations | 🟡 Amber |
+| **Auditor** | Compliance oversight, audit log explorer, anomaly detection, CSV export | ⚫ Slate Gray |
 | **Media** | Public statistics, trending issues, press reports | 🔵 Indigo |
 
-> The README previously listed an `Auditor` role; that role has been removed in the latest schema in favor of cross-role audit log access.
+> The platform ships with **10 active roles** (see table above), including the `Auditor` role which has a dedicated dashboard, read access to the immutable `AuditLog`, anomaly detection view, and CSV report export. The `AUDITOR` enum value is in `schema.prisma`, a seeded demo account exists (`auditor@city.gov`), and 7 backend routes authorize it.
 
 ### 30+ Features
 
