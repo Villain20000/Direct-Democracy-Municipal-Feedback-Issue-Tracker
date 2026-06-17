@@ -6,10 +6,13 @@ A full-stack civic engagement platform enabling citizens to report issues, vote 
 >
 > - 🗺️ **PostGIS spatial queries** — radius / polygon / nearest-issue endpoints with a GIST index
 > - 🧠 **RAG over municipal legislation** — pgvector + `nomic-embed-text` + BullMQ worker, citation-aware chat
+> - ⚡ **Real-Time AI Streaming (SSE)** — chat chatbot endpoints stream tokens from Gemma 2B via Server-Sent Events (SSE)
+> - 🎨 **Premium Glassmorphic UI & Dark Mode** — slate HSL color system, Outfit typography, glassmorphic layout elements, and theme toggler saved in localStorage
 > - 📦 **Offline-first PWA** — service worker, manifest, IndexedDB submission queue with auto-drain
 > - 🧪 **Playwright E2E suite** — auth, issue flow, semantic search
 > - ⚡ **Redis cache for semantic search** — 300 s TTL, in-memory fallback
 > - 🗂 **Admin legislation KB** — upload ordinances / decisions, browse / retrieve with citations
+> - 🛠 **Database Schema Alignment** — removed database unique index drift on `User(departmentId)` to support multiple staff per department as defined in Prisma schema
 
 ---
 
