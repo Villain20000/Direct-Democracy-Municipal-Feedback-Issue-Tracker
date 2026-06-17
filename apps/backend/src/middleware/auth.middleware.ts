@@ -15,13 +15,19 @@ export interface AuthenticatedRequest extends Request {
 }
 
 export function authenticate(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
+  let token: string | undefined;
   const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
+  if (authHeader?.startsWith('Bearer ')) {
+    token = authHeader.split(' ')[1];
+  } else if (req.query.token) {
+    token = req.query.token as string;
+  }
+
+  if (!token) {
     res.status(401).json({ error: 'No token provided' });
     return;
   }
 
-  const token = authHeader.split(' ')[1];
   try {
     const decoded = jwt.verify(token, config.jwt.secret) as AuthUser;
     req.user = decoded;

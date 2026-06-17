@@ -4,6 +4,7 @@ import { Router } from '@angular/router';
 import { environment } from '../../../environments/environment';
 import { User, UserRole } from '@dd/shared-types';
 import { Observable, tap, catchError, of, firstValueFrom, map } from 'rxjs';
+import { OfflineQueueService } from './offline-queue.service';
 
 interface AuthData {
   accessToken: string;
@@ -19,7 +20,11 @@ export class AuthService {
   isAuthenticated = computed(() => !!this.currentUser());
   userRole = computed(() => this.currentUser()?.role);
 
-  constructor(private http: HttpClient, private router: Router) {
+  constructor(
+    private http: HttpClient,
+    private router: Router,
+    private offlineQueue: OfflineQueueService
+  ) {
     this.loadFromStorage();
   }
 
@@ -29,6 +34,7 @@ export class AuthService {
     if (token && userJson) {
       try {
         this.currentUser.set(JSON.parse(userJson));
+        void this.offlineQueue.saveToken(token);
       } catch {
         this.clearSession();
       }
@@ -55,6 +61,7 @@ export class AuthService {
     localStorage.removeItem('accessToken');
     localStorage.removeItem('user');
     this.currentUser.set(null);
+    void this.offlineQueue.saveToken(null);
   }
 
   get token(): string | null {
@@ -68,6 +75,7 @@ export class AuthService {
           localStorage.setItem('accessToken', res.data.accessToken);
           localStorage.setItem('user', JSON.stringify(res.data.user));
           this.currentUser.set(res.data.user);
+          void this.offlineQueue.saveToken(res.data.accessToken);
         }
       })
     );
@@ -80,6 +88,7 @@ export class AuthService {
           localStorage.setItem('accessToken', res.data.accessToken);
           localStorage.setItem('user', JSON.stringify(res.data.user));
           this.currentUser.set(res.data.user);
+          void this.offlineQueue.saveToken(res.data.accessToken);
         }
       })
     );
@@ -92,6 +101,7 @@ export class AuthService {
           localStorage.setItem('accessToken', res.data.accessToken);
           localStorage.setItem('user', JSON.stringify(res.data.user));
           this.currentUser.set(res.data.user);
+          void this.offlineQueue.saveToken(res.data.accessToken);
         }
       }),
       catchError(() => {

@@ -20,7 +20,7 @@ export const appConfig: ApplicationConfig = {
     // production builds and disable it in dev so HMR stays
     // snappy. The OFFLINE queue init runs once the SW is ready;
     // see OfflineQueueService for the IndexedDB contract.
-    provideServiceWorker('ngsw-worker.js', {
+    provideServiceWorker('custom-sw.js', {
       enabled: !isDevMode(),
       registrationStrategy: 'registerWhenStable:30000',
     }),

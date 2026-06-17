@@ -55,7 +55,7 @@ export interface QueuedIssue {
 }
 
 const DB_NAME = 'dd-offline';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'issue-queue';
 const MAX_ATTEMPTS = 5;
 const BACKOFF_BASE_MS = 1000;
@@ -115,8 +115,33 @@ export class OfflineQueueService {
     };
     const id = await this.put(entry);
     await this.refresh();
+
+    // Register Background Sync if supported
+    if ('serviceWorker' in navigator && 'SyncManager' in window) {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        await (reg as any).sync.register('issue-sync');
+      } catch (err) {
+        console.warn('[OfflineQueue] Background sync registration failed:', err);
+      }
+    }
+
     if (navigator.onLine) void this.drain();
     return id;
+  }
+
+  async saveToken(token: string | null): Promise<void> {
+    if (!this.db) {
+      this.db = await this.openDB();
+    }
+    return new Promise((resolve, reject) => {
+      if (!this.db) return reject(new Error('db not open'));
+      const tx = this.db.transaction('auth-store', 'readwrite');
+      const store = tx.objectStore('auth-store');
+      const req = store.put(token, 'accessToken');
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+    });
   }
 
   /** Drop a single entry from the queue (e.g. user cancelled it). */
@@ -209,11 +234,14 @@ export class OfflineQueueService {
   private openDB(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
-      req.onupgradeneeded = () => {
+      req.onupgradeneeded = (event: any) => {
         const db = req.result;
         if (!db.objectStoreNames.contains(STORE_NAME)) {
           const store = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
           store.createIndex('dead', 'dead', { unique: false });
+        }
+        if (!db.objectStoreNames.contains('auth-store')) {
+          db.createObjectStore('auth-store');
         }
       };
       req.onsuccess = () => resolve(req.result);

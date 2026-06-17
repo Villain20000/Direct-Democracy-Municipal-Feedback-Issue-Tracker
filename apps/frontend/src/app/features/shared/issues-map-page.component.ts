@@ -161,6 +161,7 @@ export class IssuesMapPageComponent implements OnInit, AfterViewInit, OnDestroy 
   private markers: L.LayerGroup | null = null;
   private viewReady = false;
   private dataReady = false;
+  private sse: EventSource | null = null;
 
   i18n = inject(TranslationService);
 
@@ -185,6 +186,10 @@ export class IssuesMapPageComponent implements OnInit, AfterViewInit, OnDestroy 
   ngOnDestroy() {
     this.detachDrawHandlers();
     this.map?.remove();
+    if (this.sse) {
+      this.sse.close();
+      this.sse = null;
+    }
   }
 
   loadIssues() {
@@ -385,5 +390,63 @@ export class IssuesMapPageComponent implements OnInit, AfterViewInit, OnDestroy 
     }
 
     this.map.fitBounds(L.latLngBounds(bounds), { padding: [40, 40] });
+    this.initRealtime();
+  }
+
+  private initRealtime() {
+    if (typeof window === 'undefined') return;
+    const token = this.auth.token;
+    if (!token) return;
+
+    const url = `/api/v1/issues/realtime?token=${encodeURIComponent(token)}`;
+    this.sse = new EventSource(url);
+
+    this.sse.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.status === 'connected') {
+          console.log('[Map SSE] Connected to real-time updates');
+          return;
+        }
+
+        this.handleNewRealtimeIssue(payload);
+      } catch (err) {
+        console.error('[Map SSE] Failed to parse message:', err);
+      }
+    };
+
+    this.sse.onerror = (err) => {
+      console.warn('[Map SSE] Connection lost, retrying...', err);
+    };
+  }
+
+  private handleNewRealtimeIssue(issue: any) {
+    if (!this.map || !this.markers) return;
+    if (issue.latitude == null || issue.longitude == null) return;
+
+    const latlng: L.LatLngExpression = [issue.latitude, issue.longitude];
+
+    if (this.issues.some((i) => i.id === issue.id)) return;
+    this.issues.push(issue);
+    this.mappedCount++;
+
+    const colors = statusColors(issue.status);
+    const marker = L.circleMarker(latlng, {
+      radius: 8,
+      fillColor: colors.fill,
+      color: colors.stroke,
+      weight: 2,
+      fillOpacity: 0.85,
+    });
+    marker.bindPopup(
+      `<strong>${issue.title}</strong><br>` +
+      `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:${colors.fill}22;color:${colors.stroke};font-size:11px;font-weight:700;margin:4px 0;">${issue.status}</span><br>` +
+      `${issue.location}<br><a href="/issues/${issue.id}">View details</a>`
+    );
+    marker.addTo(this.markers);
+
+    if (this.mappedCount === 1) {
+      this.map.setView(latlng, 12);
+    }
   }
 }

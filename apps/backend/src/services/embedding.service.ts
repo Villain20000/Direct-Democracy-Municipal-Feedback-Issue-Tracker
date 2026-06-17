@@ -1,4 +1,6 @@
+import { createHash } from 'crypto';
 import { config } from '../config';
+import { cache } from '../cache/redis';
 
 const DEFAULT_MODEL = 'nomic-embed-text';
 const EXPECTED_DIM = 768;
@@ -12,7 +14,6 @@ let cachedModel: string | null = null;
 
 function getModel(): string {
   if (cachedModel) return cachedModel;
-  // Read from env at startup so we don't pay the cost on every call
   cachedModel = process.env.EMBED_MODEL || DEFAULT_MODEL;
   return cachedModel;
 }
@@ -22,12 +23,24 @@ function getModel(): string {
  * dependency) because the `ollama` npm package does not yet expose a
  * stable embeddings helper for all versions.
  *
- * Throws if Ollama is unreachable or the returned vector has the wrong
- * dimension — callers should treat that as a hard fail.
+ * Checks Redis cache first before requesting a new vector from Ollama.
+ * Caches calculated vectors for 24 hours.
  */
 export async function embedText(text: string): Promise<number[]> {
   const cleaned = text.replace(/\s+/g, ' ').trim().slice(0, 2000);
   if (!cleaned) throw new Error('Cannot embed empty text');
+
+  const textHash = createHash('sha256').update(cleaned).digest('hex');
+  const cacheKey = `embedding:${getModel()}:${textHash}`;
+
+  try {
+    const cached = await cache.get<number[]>(cacheKey);
+    if (cached && Array.isArray(cached) && cached.length === EXPECTED_DIM) {
+      return cached;
+    }
+  } catch (err: any) {
+    console.warn(`[embedding.service] Cache read failed: ${err.message}`);
+  }
 
   const res = await fetch(`${config.ollama.baseUrl}/api/embeddings`, {
     method: 'POST',
@@ -45,6 +58,14 @@ export async function embedText(text: string): Promise<number[]> {
       `Did you swap EMBED_MODEL? Update EXPECTED_DIM and the pgvector column.`,
     );
   }
+
+  try {
+    // Cache for 24 hours (86400 seconds) since embeddings are deterministic for the same model and text
+    await cache.set(cacheKey, json.embedding, 86400);
+  } catch (err: any) {
+    console.warn(`[embedding.service] Cache write failed: ${err.message}`);
+  }
+
   return json.embedding;
 }
 
@@ -57,3 +78,4 @@ export function toPgVectorLiteral(vec: number[]): string {
 }
 
 export const EMBED_DIM = EXPECTED_DIM;
+

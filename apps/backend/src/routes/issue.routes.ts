@@ -8,6 +8,8 @@ import { createIssueSchema, updateStatusSchema } from '../validators/issue.valid
 import { getEmbedIssueQueue } from '../queue/embed-issue.queue';
 import { sendDomainError } from '../errors/domain-errors';
 import { parsePagination } from '../utils/pagination';
+import { prisma } from '../db/client';
+import { mapPushService } from '../services/map-push.service';
 
 const router = Router();
 
@@ -139,6 +141,40 @@ router.get('/search-similar', authenticate, async (req, res) => {
   }
 });
 
+// Real-time map push stream (SSE)
+router.get('/realtime', authenticate, async (req: AuthenticatedRequest, res) => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    // Get ward ID for ward representatives
+    let wardId: string | undefined;
+    if (req.user.role === 'WARD_REP') {
+      const user = await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: { wardId: true },
+      });
+      if (user?.wardId) {
+        wardId = user.wardId;
+      }
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    // Send initial handshake
+    res.write('data: {"status":"connected"}\n\n');
+
+    mapPushService.addClient(res, req.user.role, wardId);
+  } catch (error: any) {
+    console.error('[issues.realtime]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get single issue
 router.get('/:id', async (req, res) => {
   try {
@@ -165,6 +201,13 @@ router.post('/', authenticate, async (req: AuthenticatedRequest, res) => {
       ...data,
       reporterId: req.user!.id,
     });
+
+    // Broadcast newly created issue in real-time to active map connections
+    try {
+      mapPushService.broadcastNewIssue(issue);
+    } catch (broadcastErr: any) {
+      console.warn(`[issues.create] Real-time map push broadcast failed: ${broadcastErr.message}`);
+    }
 
     // Fire-and-forget enqueue. If Redis is unreachable, the issue is
     // still created — the backfill script (`npm run embed:backfill`)
