@@ -3,6 +3,7 @@ import { authenticate, AuthenticatedRequest } from '../middleware/auth.middlewar
 import { authorize } from '../middleware/rbac.middleware';
 import { resolutionService } from '../services/resolution.service';
 import { sendDomainError } from '../errors/domain-errors';
+import { parsePagination } from '../utils/pagination';
 
 const router = Router();
 
@@ -10,8 +11,7 @@ const router = Router();
 router.get('/', async (req, res) => {
   try {
     const result = await resolutionService.getAll({
-      page: parseInt(req.query.page as string) || 1,
-      pageSize: parseInt(req.query.pageSize as string) || 20,
+      ...parsePagination(req.query as Record<string, unknown>, { defaultPageSize: 20 }),
       status: req.query.status as string,
     });
     res.json({ success: true, ...result });

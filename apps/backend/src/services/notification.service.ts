@@ -1,6 +1,7 @@
 import { prisma } from '../db/client';
 import type { Prisma } from '@prisma/client';
 import { emailService } from './email.service';
+import { NotFoundError } from '../errors/domain-errors';
 
 export const notificationService = {
   async create(
@@ -47,7 +48,7 @@ export const notificationService = {
       where: { id, userId },
       data: { isRead: true },
     });
-    if (result.count === 0) throw new Error('Notification not found');
+    if (result.count === 0) throw new NotFoundError('Notification not found');
   },
 
   async markAllAsRead(userId: string) {
@@ -61,6 +62,6 @@ export const notificationService = {
     const result = await prisma.notification.deleteMany({
       where: { id, userId },
     });
-    if (result.count === 0) throw new Error('Notification not found');
+    if (result.count === 0) throw new NotFoundError('Notification not found');
   },
 };

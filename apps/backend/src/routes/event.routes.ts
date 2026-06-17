@@ -10,8 +10,7 @@ const router = Router();
 router.get('/', async (req, res) => {
   try {
     const result = await eventService.getAll({
-      page: parseInt(req.query.page as string) || 1,
-      pageSize: parseInt(req.query.pageSize as string) || 20,
+      ...parsePagination(req.query as Record<string, unknown>, { defaultPageSize: 20 }),
       type: req.query.type as string,
       search: req.query.search as string,
       upcoming: req.query.upcoming === 'true',

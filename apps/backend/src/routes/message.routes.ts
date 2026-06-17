@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth.middleware';
 import { messageService } from '../services/message.service';
+import { sendDomainError } from '../errors/domain-errors';
+import { parsePagination } from '../utils/pagination';
 
 const router = Router();
 
@@ -10,6 +12,8 @@ router.get('/conversations', authenticate, async (req: AuthenticatedRequest, res
     const conversations = await messageService.getConversations(req.user!.id);
     res.json({ success: true, data: conversations });
   } catch (error: any) {
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[messages.conversations]', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -18,13 +22,14 @@ router.get('/conversations', authenticate, async (req: AuthenticatedRequest, res
 router.get('/conversations/:userId', authenticate, async (req: AuthenticatedRequest, res) => {
   try {
     const result = await messageService.getConversation(req.user!.id, req.params.userId as string, {
-      page: parseInt(req.query.page as string) || 1,
-      pageSize: parseInt(req.query.pageSize as string) || 50,
+      ...parsePagination(req.query as Record<string, unknown>, { defaultPageSize: 50 }),
     });
     // Mark conversation as read
     await messageService.markConversationRead(req.user!.id, req.params.userId as string);
     res.json({ success: true, ...result });
   } catch (error: any) {
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[messages.conversation]', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -37,6 +42,7 @@ router.post('/', authenticate, async (req: AuthenticatedRequest, res) => {
     const message = await messageService.send({ senderId: req.user!.id, receiverId, content });
     res.status(201).json({ success: true, data: message });
   } catch (error: any) {
+    if (sendDomainError(res, error, { logger: console })) return;
     console.error('[messages.send]', error);
     res.status(500).json({ error: error.message });
   }
@@ -48,6 +54,7 @@ router.patch('/:id/read', authenticate, async (req: AuthenticatedRequest, res) =
     await messageService.markAsRead(req.params.id as string, req.user!.id);
     res.json({ success: true });
   } catch (error: any) {
+    if (sendDomainError(res, error, { logger: console })) return;
     console.error('[messages.markRead]', error);
     res.status(500).json({ error: error.message });
   }
@@ -59,6 +66,10 @@ router.delete('/:id', authenticate, async (req: AuthenticatedRequest, res) => {
     await messageService.delete(req.params.id as string, req.user!.id);
     res.json({ success: true });
   } catch (error: any) {
+    // The service throws NotFoundError (404) for unknown ids and
+    // ForbiddenError (403) when you try to delete a message that
+    // isn't yours. Both are mapped by sendDomainError.
+    if (sendDomainError(res, error, { logger: console })) return;
     console.error('[messages.delete]', error);
     res.status(500).json({ error: error.message });
   }

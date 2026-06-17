@@ -18,6 +18,7 @@ import { prisma } from '../db/client';
 import type { Prisma } from '@prisma/client';
 import { aiService } from '../ai/ollama.service';
 import { config } from '../config';
+import { BadRequestError } from '../errors/domain-errors';
 
 /** ISO-8601 week-of-year key, e.g. `2026-W24`. Matches the @unique index. */
 export function getCurrentWeekKey(now: Date = new Date()): string {
@@ -51,7 +52,7 @@ export const weeklySummaryService = {
   /** Parse "2026-W24" back to a Date range. */
   parseWeekKey(weekKey: string): { weekStart: Date; weekEnd: Date } {
     const match = /^(\d{4})-W(\d{2})$/.exec(weekKey);
-    if (!match) throw new Error(`Invalid weekKey: ${weekKey}`);
+    if (!match) throw new BadRequestError(`Invalid weekKey: ${weekKey}`);
     const year = parseInt(match[1], 10);
     const week = parseInt(match[2], 10);
     // Jan 4 is always in week 1 (ISO)
@@ -240,7 +241,7 @@ export const weeklySummaryService = {
    */
   async generate(weekKey: string, options: { force?: boolean; source?: 'AUTO' | 'MANUAL' } = {}) {
     if (!/^\d{4}-W\d{2}$/.test(weekKey)) {
-      throw new Error(`Invalid weekKey: ${weekKey}`);
+      throw new BadRequestError(`Invalid weekKey: ${weekKey}`);
     }
     const existing = await prisma.weeklySummary.findUnique({ where: { weekKey } });
     if (existing && !options.force) return { row: existing, created: false };

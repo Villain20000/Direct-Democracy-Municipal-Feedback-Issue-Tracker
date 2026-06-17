@@ -37,14 +37,14 @@ import { TranslatePipe } from '../core/i18n/translate.pipe';
 
     @if (queue.hasPending()) {
       <div class="queue-badge" role="status">
-        🔄 {{ queue.pending().filter((q) => !q.dead).length }}
+        🔄 {{ pendingCount() }}
         {{ 'pwa.reportsWaiting' | t }}
       </div>
     }
 
     @if (queue.hasDeadLetters()) {
       <div class="queue-badge queue-badge--error" role="alert">
-        ⚠ {{ queue.pending().filter((q) => q.dead).length }}
+        ⚠ {{ deadCount() }}
         {{ 'pwa.reportsFailed' | t }}
       </div>
     }
@@ -126,6 +126,16 @@ export class InstallPromptComponent implements OnInit {
   private deferredPrompt: any = null;
   private dismissed = false;
   showInstall = signal(false);
+
+  // Angular templates can't run arrow functions inside `{{ }}`,
+  // so we expose precomputed counts as signals and read them from
+  // the view. These re-run whenever `queue.pending()` changes.
+  readonly pendingCount = computed(
+    () => this.queue.pending().filter((q) => !q.dead).length,
+  );
+  readonly deadCount = computed(
+    () => this.queue.pending().filter((q) => q.dead).length,
+  );
 
   ngOnInit() {
     if (typeof window === 'undefined') return;

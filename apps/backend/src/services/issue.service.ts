@@ -9,6 +9,7 @@ import { issueSubscriptionService } from './issue-subscription.service';
 import { slaTrackingService } from './sla-tracking.service';
 import { issueAssignmentService, recordAssignChange } from './issue-assignment.service';
 import { createHash } from 'crypto';
+import { NotFoundError, BadRequestError } from '../errors/domain-errors';
 
 const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'priority', 'upvotes', 'status', 'title'] as const;
 
@@ -147,7 +148,7 @@ export const issueService = {
         statusHistory: { orderBy: { createdAt: 'desc' } },
       },
     });
-    if (!issue) throw new Error('Issue not found');
+    if (!issue) throw new NotFoundError('Issue not found');
 
     await prisma.issue.update({ where: { id }, data: { viewCount: { increment: 1 } } });
     await cache.set(cacheKey, issue, 120);
@@ -156,7 +157,7 @@ export const issueService = {
 
   async updateStatus(id: string, newStatus: string, changedBy: string, note?: string) {
     const issue = await prisma.issue.findUnique({ where: { id } });
-    if (!issue) throw new Error('Issue not found');
+    if (!issue) throw new NotFoundError('Issue not found');
 
     const updated = await prisma.issue.update({
       where: { id },
@@ -218,8 +219,8 @@ export const issueService = {
     },
     changedBy: string,
   ) {
-    if (!ids.length) throw new Error('No issue IDs provided');
-    if (ids.length > 100) throw new Error('Cannot update more than 100 issues at once');
+    if (!ids.length) throw new BadRequestError('No issue IDs provided');
+    if (ids.length > 100) throw new BadRequestError('Cannot update more than 100 issues at once');
 
     const results = [];
     for (const id of ids) {
@@ -300,7 +301,7 @@ export const issueService = {
 
   async assign(id: string, assigneeId: string, departmentId?: string, assignedBy?: string) {
     const issue = await prisma.issue.findUnique({ where: { id } });
-    if (!issue) throw new Error('Issue not found');
+    if (!issue) throw new NotFoundError('Issue not found');
 
     const updated = await prisma.issue.update({
       where: { id },

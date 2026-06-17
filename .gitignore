@@ -10,3 +10,11 @@ coverage/
 .vscode/
 *.swp
 *.swo
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# System packages & packages
+*.deb

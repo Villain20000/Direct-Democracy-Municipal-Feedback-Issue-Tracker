@@ -12,6 +12,7 @@ import {
   NotFoundError,
   TokenExpiredError,
 } from '../errors/domain-errors';
+import { parseExpiresIn } from '../utils/duration';
 
 const SALT_ROUNDS = 12;
 
@@ -39,16 +40,12 @@ function toAuthResponse(user: {
   };
 }
 
-function parseExpiresIn(ms: string): number {
-  const unit = ms.slice(-1);
-  const value = parseInt(ms.slice(0, -1), 10);
-  switch (unit) {
-    case 'm': return value * 60 * 1000;
-    case 'h': return value * 60 * 60 * 1000;
-    case 'd': return value * 24 * 60 * 60 * 1000;
-    default: return 7 * 24 * 60 * 60 * 1000;
-  }
-}
+// `parseExpiresIn` lives in `utils/duration` so it can also be called
+// at config-load time to validate `JWT_EXPIRES_IN` /
+// `REFRESH_TOKEN_EXPIRES_IN` before the app starts handling requests.
+// Previously a malformed value fell through to a 7-day default here,
+// which meant a typo in `REFRESH_TOKEN_EXPIRES_IN` would silently
+// serve long-lived refresh tokens in production.
 
 export const authService = {
   async register(data: { email: string; password: string; firstName: string; lastName: string; phone?: string; role?: string }) {

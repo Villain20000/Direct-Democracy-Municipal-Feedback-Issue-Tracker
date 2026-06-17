@@ -6,6 +6,8 @@ import { issueService } from '../services/issue.service';
 import { areaSummaryService } from '../services/area-summary.service';
 import { createIssueSchema, updateStatusSchema } from '../validators/issue.validators';
 import { getEmbedIssueQueue } from '../queue/embed-issue.queue';
+import { sendDomainError } from '../errors/domain-errors';
+import { parsePagination } from '../utils/pagination';
 
 const router = Router();
 
@@ -13,8 +15,7 @@ const router = Router();
 router.get('/', async (req, res) => {
   try {
     const result = await issueService.getAll({
-      page: parseInt(req.query.page as string) || 1,
-      pageSize: parseInt(req.query.pageSize as string) || 20,
+      ...parsePagination(req.query as Record<string, unknown>, { defaultPageSize: 20 }),
       status: req.query.status as string,
       category: req.query.category as string,
       departmentId: req.query.departmentId as string,
@@ -27,6 +28,8 @@ router.get('/', async (req, res) => {
     });
     res.json({ success: true, ...result });
   } catch (error: any) {
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[issues.list]', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -49,9 +52,11 @@ router.post('/summarize-area', authenticate, async (req: AuthenticatedRequest, r
     const result = await areaSummaryService.summarize(polygon);
     res.json({ success: true, data: result });
   } catch (error: any) {
-    // The polygon was already validated above, so anything thrown from
-    // here is a server-side failure (DB outage, AI service down, etc.).
-    // Don't surface those as 400 — the client did nothing wrong.
+    // The polygon was already validated above, but if the service
+    // throws a BadRequestError (defence-in-depth), sendDomainError
+    // maps it to 400. Anything else is a server-side failure (DB
+    // outage, AI service down, etc.) — surface as 500.
+    if (sendDomainError(res, error, { logger: console })) return;
     console.error('[issues.summarize-area]', error);
     res.status(500).json({ error: error.message });
   }
@@ -68,8 +73,11 @@ router.patch('/bulk', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMEN
     const results = await issueService.bulkUpdate(ids, { status, assigneeId, departmentId }, req.user!.id);
     res.json({ success: true, data: results });
   } catch (error: any) {
-    // Input was already validated above (ids array, non-empty), so any
-    // thrown error here is a server-side failure (DB outage, etc.).
+    // Defence-in-depth: the service throws BadRequestError(400) when
+    // ids is empty or > 100. Even though we pre-validated above,
+    // delegating the status decision to sendDomainError keeps the
+    // behaviour consistent with other routes.
+    if (sendDomainError(res, error, { logger: console })) return;
     console.error('[issues.bulk]', error);
     res.status(500).json({ error: error.message });
   }
@@ -81,6 +89,8 @@ router.get('/stats/departments', authenticate, authorize('SUPER_ADMIN', 'MAYOR',
     const rates = await issueService.getDepartmentResolutionRates();
     res.json({ success: true, data: rates });
   } catch (error: any) {
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[issues.stats.departments]', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -94,6 +104,8 @@ router.get('/stats', authenticate, async (req: AuthenticatedRequest, res) => {
     });
     res.json({ success: true, data: stats });
   } catch (error: any) {
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[issues.stats]', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -121,6 +133,8 @@ router.get('/search-similar', authenticate, async (req, res) => {
     const result = await issueService.searchSimilar(text, topK, minScore);
     res.json({ success: true, ...result });
   } catch (error: any) {
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[issues.searchSimilar]', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -131,7 +145,12 @@ router.get('/:id', async (req, res) => {
     const issue = await issueService.getById(req.params.id as string);
     res.json({ success: true, data: issue });
   } catch (error: any) {
-    res.status(404).json({ error: error.message });
+    // Issue not found → 404 (was previously hard-coded below; now
+    // delegated to sendDomainError so the code/details fields are
+    // populated the same way as other domain errors).
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[issues.getById]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -183,6 +202,10 @@ router.post('/', authenticate, async (req: AuthenticatedRequest, res) => {
       res.status(400).json({ error: 'Validation failed', details: error.issues });
       return;
     }
+    // NotFoundError → 404 (e.g. assigneeId refers to a missing user in
+    // a future refactor). Defence-in-depth: anything else is a
+    // server-side failure.
+    if (sendDomainError(res, error, { logger: console })) return;
     // Any other thrown error is a server-side failure (DB outage, queue
     // crash, etc.). The client did nothing wrong; surface it as 500 so
     // monitoring / retries can react properly.
@@ -202,6 +225,9 @@ router.patch('/:id/status', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEP
       res.status(400).json({ error: 'Validation failed', details: error.issues });
       return;
     }
+    // updateStatus now throws NotFoundError when the id doesn't exist;
+    // delegate the rest to sendDomainError for 403/BadRequest consistency.
+    if (sendDomainError(res, error, { logger: console })) return;
     console.error('[issues.status]', error);
     res.status(500).json({ error: error.message });
   }
@@ -215,6 +241,8 @@ router.patch('/:id/assign', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEP
     const issue = await issueService.assign(req.params.id as string, assigneeId, departmentId, req.user!.id);
     res.json({ success: true, data: issue });
   } catch (error: any) {
+    // assign now throws NotFoundError when the id is missing.
+    if (sendDomainError(res, error, { logger: console })) return;
     // No Zod validation on the body (assigneeId/departmentId are simple
     // strings), so any thrown error is a server-side failure.
     console.error('[issues.assign]', error);
@@ -228,7 +256,10 @@ router.post('/:id/upvote', authenticate, async (req: AuthenticatedRequest, res) 
     const result = await issueService.upvote(req.params.id as string, req.user!.id);
     res.json({ success: true, data: result });
   } catch (error: any) {
-    // No request-body validation; anything thrown is a server failure.
+    // upvote currently can't hit a NotFoundError on the issue (it uses
+    // upsert semantics), but future changes might — delegate just in
+    // case.
+    if (sendDomainError(res, error, { logger: console })) return;
     console.error('[issues.upvote]', error);
     res.status(500).json({ error: error.message });
   }

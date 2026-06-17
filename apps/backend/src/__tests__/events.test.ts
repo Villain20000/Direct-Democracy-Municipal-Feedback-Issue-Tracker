@@ -354,7 +354,10 @@ describe('Event Endpoints', () => {
         .delete('/api/v1/events/non-existent-id/rsvp')
         .set('Authorization', `Bearer ${attendee.accessToken}`);
 
-      expect(res.status).toBe(400);
+      // 404 is the correct REST status for "resource not found" (event
+      // doesn't exist). The route returns 404 via the domain-errors
+      // NotFoundError throw; the old assertion of 400 was wrong.
+      expect(res.status).toBe(404);
     });
   });
 });

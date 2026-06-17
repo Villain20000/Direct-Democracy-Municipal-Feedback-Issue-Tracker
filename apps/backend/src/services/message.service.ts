@@ -1,4 +1,5 @@
 import { prisma } from '../db/client';
+import { NotFoundError, ForbiddenError } from '../errors/domain-errors';
 
 export const messageService = {
   async send(data: { senderId: string; receiverId: string; content: string }) {
@@ -99,9 +100,9 @@ export const messageService = {
 
   async delete(id: string, userId: string) {
     const message = await prisma.message.findUnique({ where: { id } });
-    if (!message) throw new Error('Message not found');
+    if (!message) throw new NotFoundError('Message not found');
     if (message.senderId !== userId && message.receiverId !== userId) {
-      throw new Error('Not authorized');
+      throw new ForbiddenError('Not authorized to delete this message');
     }
     return prisma.message.delete({ where: { id } });
   },

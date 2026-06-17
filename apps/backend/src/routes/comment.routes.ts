@@ -9,8 +9,7 @@ const router = Router();
 router.get('/issues/:issueId/comments', async (req, res) => {
   try {
     const result = await commentService.getByIssue(req.params.issueId as string, {
-      page: parseInt(req.query.page as string) || 1,
-      pageSize: parseInt(req.query.pageSize as string) || 50,
+      ...parsePagination(req.query as Record<string, unknown>, { defaultPageSize: 50 }),
     });
     res.json({ success: true, ...result });
   } catch (error: any) {

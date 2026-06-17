@@ -1,6 +1,7 @@
 import { prisma } from '../db/client';
 import { aiService } from '../ai/ollama.service';
 import { spatialService } from './spatial.service';
+import { BadRequestError } from '../errors/domain-errors';
 
 /**
  * Input vertex order. We accept [lat, lng] (the convention the
@@ -45,11 +46,11 @@ export const areaSummaryService = {
    */
   async summarize(polygonLatLng: LatLngInput[]): Promise<AreaSummary> {
     if (!Array.isArray(polygonLatLng) || polygonLatLng.length < 3) {
-      throw new Error('Polygon must have at least 3 vertices');
+      throw new BadRequestError('Polygon must have at least 3 vertices');
     }
     for (const v of polygonLatLng) {
       if (!Array.isArray(v) || v.length !== 2 || typeof v[0] !== 'number' || typeof v[1] !== 'number') {
-        throw new Error('Each polygon vertex must be a [lat, lng] pair');
+        throw new BadRequestError('Each polygon vertex must be a [lat, lng] pair');
       }
     }
 

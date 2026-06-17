@@ -1,4 +1,5 @@
 import { prisma } from '../db/client';
+import { BadRequestError } from '../errors/domain-errors';
 
 /**
  * PostGIS-backed spatial queries for issues.
@@ -36,10 +37,10 @@ export const spatialService = {
     opts: { statuses?: string[]; limit?: number } = {},
   ): Promise<Array<{ id: string; title: string; distanceMeters: number }>> {
     if (typeof lat !== 'number' || typeof lng !== 'number') {
-      throw new Error('lat and lng must be numbers');
+      throw new BadRequestError('lat and lng must be numbers');
     }
     if (typeof radiusMeters !== 'number' || radiusMeters <= 0 || radiusMeters > 50_000) {
-      throw new Error('radiusMeters must be > 0 and <= 50000');
+      throw new BadRequestError('radiusMeters must be > 0 and <= 50000');
     }
     const limit = Math.min(Math.max(opts.limit ?? 200, 1), 2000);
 
@@ -101,11 +102,11 @@ export const spatialService = {
     opts: { statuses?: string[]; limit?: number } = {},
   ): Promise<Array<{ id: string; title: string; status: string; latitude: number; longitude: number }>> {
     if (!Array.isArray(polygon) || polygon.length < 3) {
-      throw new Error('polygon must have at least 3 vertices');
+      throw new BadRequestError('polygon must have at least 3 vertices');
     }
     for (const v of polygon) {
       if (!Array.isArray(v) || v.length !== 2) {
-        throw new Error('Each polygon vertex must be a [lng, lat] pair');
+        throw new BadRequestError('Each polygon vertex must be a [lng, lat] pair');
       }
     }
     const limit = Math.min(Math.max(opts.limit ?? 2000, 1), 5000);
@@ -164,7 +165,7 @@ export const spatialService = {
     k: number = 5,
   ): Promise<Array<{ id: string; title: string; distanceMeters: number }>> {
     if (typeof lat !== 'number' || typeof lng !== 'number') {
-      throw new Error('lat and lng must be numbers');
+      throw new BadRequestError('lat and lng must be numbers');
     }
     const n = Math.min(Math.max(k, 1), 50);
     return prisma.$queryRaw<Array<{ id: string; title: string; distanceMeters: number }>>`

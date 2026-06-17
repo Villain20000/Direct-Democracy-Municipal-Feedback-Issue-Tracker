@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth.middleware';
 import { spatialService } from '../services/spatial.service';
+import { sendDomainError } from '../errors/domain-errors';
 
 const router = Router();
 
@@ -36,6 +37,10 @@ router.get('/issues/within', authenticate, async (req: AuthenticatedRequest, res
     const data = await spatialService.issuesWithinRadius(lat, lng, radius, { statuses, limit });
     res.json({ success: true, data, mode: 'spatial' });
   } catch (err: any) {
+    // The service throws BadRequestError on out-of-range lat/lng /
+    // radius (which we've already pre-validated above). Delegate so
+    // the status code matches the domain error class.
+    if (sendDomainError(res, err, { logger: console })) return;
     console.error('[spatial.within]', err);
     res.status(500).json({ error: err.message });
   }
@@ -69,6 +74,7 @@ router.post('/issues/in-polygon', authenticate, async (req: AuthenticatedRequest
     });
     res.json({ success: true, data, mode: 'spatial' });
   } catch (err: any) {
+    if (sendDomainError(res, err, { logger: console })) return;
     console.error('[spatial.in-polygon]', err);
     res.status(500).json({ error: err.message });
   }
@@ -92,6 +98,7 @@ router.get('/issues/nearest', authenticate, async (req: AuthenticatedRequest, re
     const data = await spatialService.nearestIssues(lat, lng, k);
     res.json({ success: true, data });
   } catch (err: any) {
+    if (sendDomainError(res, err, { logger: console })) return;
     console.error('[spatial.nearest]', err);
     res.status(500).json({ error: err.message });
   }

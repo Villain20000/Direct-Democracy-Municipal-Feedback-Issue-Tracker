@@ -48,7 +48,7 @@ export const userService = {
         wardId: true, departmentId: true,
       },
     });
-    if (!user) throw new Error('User not found');
+    if (!user) throw new NotFoundError('User not found');
     return user;
   },
 

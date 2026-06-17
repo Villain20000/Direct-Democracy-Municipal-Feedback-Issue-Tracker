@@ -99,6 +99,10 @@ describe('Survey Endpoints', () => {
       .set('Authorization', `Bearer ${citizenToken}`)
       .send({ answers: { q1: 'no' } });
 
-    expect(res.status).toBe(400);
+    // 409 Conflict is the correct REST status when the same user has
+    // already responded to the survey — the unique (surveyId, userId)
+    // index throws P2002 which the service maps to ConflictError.
+    // Old assertion of 400 was underspecified.
+    expect(res.status).toBe(409);
   });
 });

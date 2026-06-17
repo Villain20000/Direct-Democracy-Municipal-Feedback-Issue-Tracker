@@ -130,6 +130,25 @@ describe('Notification Endpoints', () => {
       expect(res.status).toBe(200);
     });
 
+    it('should return 404 for a missing notification id', async () => {
+      // Mirrors the DELETE missing-id test below. Without this, a
+      // regression in `sendDomainError` wiring on `markAsRead` would
+      // be silently masked by the > 400 assertions elsewhere in this
+      // file (or by the already-read happy path).
+      const testUser = await createTestUser({ email: 'patch-notfound@test.com' });
+
+      const res = await request(app)
+        .patch('/api/v1/notifications/non-existent-id/read')
+        .set('Authorization', `Bearer ${testUser.accessToken}`);
+
+      // Same `markAsRead` → `updateMany({ id, userId })` → `count === 0`
+      // → `NotFoundError` → `sendDomainError` → 404 path as the
+      // DELETE endpoint, just on the PATCH verb.
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe('NOT_FOUND');
+      expect(res.body.error).toBe('Notification not found');
+    });
+
     it('should reject without authentication', async () => {
       const res = await request(app).patch('/api/v1/notifications/fake-id/read');
       expect(res.status).toBe(401);
@@ -144,7 +163,14 @@ describe('Notification Endpoints', () => {
         .patch(`/api/v1/notifications/${notif.id}/read`)
         .set('Authorization', `Bearer ${other.accessToken}`);
 
-      expect(res.status).toBeGreaterThanOrEqual(400);
+      // PATCH `/:id/read` on a notification owned by someone else:
+      // the service's `updateMany({ id, userId })` returns
+      // `count === 0`, the service throws `NotFoundError`, and the
+      // route's `sendDomainError` maps that to 404. Same regression
+      // lock-in as the missing-id case below — a > 400 would have
+      // masked 500 mode.
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe('NOT_FOUND');
 
       const unchanged = await prisma.notification.findUnique({ where: { id: notif.id } });
       expect(unchanged!.isRead).toBe(false);
@@ -193,14 +219,27 @@ describe('Notification Endpoints', () => {
       expect(deleted).toBeNull();
     });
 
-    it('should return 404/400 for non-existent notification', async () => {
+    it('should return 404 for a non-existent notification id', async () => {
       const testUser = await createTestUser({ email: 'del-notfound@test.com' });
 
       const res = await request(app)
         .delete('/api/v1/notifications/non-existent-id')
         .set('Authorization', `Bearer ${testUser.accessToken}`);
 
-      expect(res.status).toBeGreaterThanOrEqual(400);
+      // The previous assertion (`toBeGreaterThanOrEqual(400)`) was
+      // accurate but underspecified — it would have hidden a
+      // regression where delete-on-missing silently returned 500
+      // (the message falls through to the bare 500 catch when
+      // `sendDomainError` isn't called in the route). The service
+      // now throws `NotFoundError` and the route delegates via
+      // `sendDomainError`, so the answer is firmly 404.
+      expect(res.status).toBe(404);
+      // Lock in the machine-readable error code so the frontend can
+      // branch on it without parsing the human message. We don't
+      // assert the exact human string \u2014 a cosmetic copy tweak
+      // shouldn't break the test.
+      expect(res.body.code).toBe('NOT_FOUND');
+      expect(res.body.error).toMatch(/not found/i);
     });
 
     it('should reject without authentication', async () => {
@@ -217,7 +256,16 @@ describe('Notification Endpoints', () => {
         .delete(`/api/v1/notifications/${notif.id}`)
         .set('Authorization', `Bearer ${other.accessToken}`);
 
-      expect(res.status).toBeGreaterThanOrEqual(400);
+      // Cross-user delete: same code path as delete-on-missing -
+      // the service's `deleteMany({ id, userId })` returns
+      // `count === 0` and throws `NotFoundError`. The route's
+      // `sendDomainError` then maps to 404. (We *could* arguably
+      // expose 403 vs. 404 here to avoid leaking the existence of
+      // another user's notification, but that's a separate security
+      // fix; the current behavior matches the other related tests in
+      // this file.)
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe('NOT_FOUND');
 
       const stillExists = await prisma.notification.findUnique({ where: { id: notif.id } });
       expect(stillExists).not.toBeNull();

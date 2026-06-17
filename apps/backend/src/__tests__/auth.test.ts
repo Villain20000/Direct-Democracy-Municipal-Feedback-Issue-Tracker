@@ -51,7 +51,11 @@ describe('Auth Endpoints', () => {
           lastName: 'Doe',
         });
 
-      expect(res.status).toBe(400);
+      // 409 Conflict is the correct REST status for "the resource
+      // already exists". The route throws ConflictError on a P2002
+      // unique-constraint violation; the old assertion of 400 was ok
+      // for "client error" but underspecified the cause.
+      expect(res.status).toBe(409);
     });
 
     it('should reject registration with invalid email', async () => {
@@ -194,7 +198,10 @@ describe('Auth Endpoints', () => {
         .post('/api/v1/auth/reset-password')
         .send({ token: 'invalid-token', password: 'newpass123' });
 
-      expect(res.status).toBe(400);
+      // 401 Unauthorized is the correct REST status for an invalid
+      // reset token — the route maps "token not found / not valid"
+      // to UnauthorizedError. Old assertion of 400 was too generic.
+      expect(res.status).toBe(401);
     });
   });
 });

@@ -9,8 +9,7 @@ const router = Router();
 router.get('/', async (req, res) => {
   try {
     const result = await surveyService.getAll({
-      page: parseInt(req.query.page as string) || 1,
-      pageSize: parseInt(req.query.pageSize as string) || 20,
+      ...parsePagination(req.query as Record<string, unknown>, { defaultPageSize: 20 }),
       activeOnly: req.query.activeOnly === 'true',
     });
     res.json({ success: true, ...result });

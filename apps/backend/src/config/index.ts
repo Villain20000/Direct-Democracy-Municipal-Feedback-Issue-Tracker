@@ -1,7 +1,30 @@
 import dotenv from 'dotenv';
 import path from 'path';
+import { parseExpiresIn } from '../utils/duration';
 
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+
+// Validate the JWT duration values at module load. If
+// JWT_EXPIRES_IN / REFRESH_TOKEN_EXPIRES_IN is malformed (e.g. a
+// typo like "15x" or a forgotten unit like "60") we'd rather crash
+// the boot than silently default to long-lived tokens in
+// production. `parseExpiresIn` throws on bad input, so this is the
+// one line that does the actual validation: the rest is just
+// building the config object.
+function validateDuration(value: string, envName: string): void {
+  try {
+    parseExpiresIn(value);
+  } catch (err: any) {
+    throw new Error(
+      `[config] Invalid ${envName}=${JSON.stringify(value)}: ${err.message}`,
+    );
+  }
+}
+
+const jwtExpiresIn = process.env.JWT_EXPIRES_IN || '15m';
+const refreshExpiresIn = process.env.REFRESH_TOKEN_EXPIRES_IN || '7d';
+validateDuration(jwtExpiresIn, 'JWT_EXPIRES_IN');
+validateDuration(refreshExpiresIn, 'REFRESH_TOKEN_EXPIRES_IN');
 
 export const config = {
   port: parseInt(process.env.PORT || '3001', 10),
@@ -10,9 +33,9 @@ export const config = {
 
   jwt: {
     secret: process.env.JWT_SECRET || 'dev-secret',
-    expiresIn: process.env.JWT_EXPIRES_IN || '15m',
+    expiresIn: jwtExpiresIn,
     refreshSecret: process.env.REFRESH_TOKEN_SECRET || 'dev-refresh-secret',
-    refreshExpiresIn: process.env.REFRESH_TOKEN_EXPIRES_IN || '7d',
+    refreshExpiresIn: refreshExpiresIn,
   },
 
   ollama: {
