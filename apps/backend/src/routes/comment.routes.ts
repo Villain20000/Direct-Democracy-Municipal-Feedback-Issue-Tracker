@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth.middleware';
 import { commentService } from '../services/comment.service';
 import { sendDomainError } from '../errors/domain-errors';
+import { parsePagination } from '../utils/pagination';
+
 
 const router = Router();
 

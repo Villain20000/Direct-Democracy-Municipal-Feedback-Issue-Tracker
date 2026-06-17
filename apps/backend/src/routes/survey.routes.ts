@@ -3,6 +3,8 @@ import { authenticate, AuthenticatedRequest } from '../middleware/auth.middlewar
 import { authorize } from '../middleware/rbac.middleware';
 import { surveyService } from '../services/survey.service';
 import { sendDomainError } from '../errors/domain-errors';
+import { parsePagination } from '../utils/pagination';
+
 
 const router = Router();
 
