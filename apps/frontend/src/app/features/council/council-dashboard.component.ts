@@ -440,37 +440,52 @@ export class CouncilDashboardComponent implements OnInit {
       .slice(-20) // keep the last 20 turns to limit context bloat
       .map(m => ({ role: m.role, content: m.content }));
 
-    this.api.aiChatWithCitations(apiMessages, true).subscribe({
-      next: (res) => {
-        this.chatThinking = false;
-        if (res?.success && res.data) {
-          this.chatMessages = [
-            ...this.chatMessages,
-            {
-              role: 'assistant',
-              content: res.data.answer || '',
-              citations: res.data.citations || [],
-              ragUsed: !!res.data.ragUsed,
-              fallback: !!res.data.fallback,
-            },
-          ];
-        } else {
-          this.chatMessages = [
-            ...this.chatMessages,
-            { role: 'assistant', content: this.i18n.t('council.chatError'), error: true },
-          ];
+    // Append an empty assistant message that we will populate chunk-by-chunk.
+    const assistantIndex = this.chatMessages.length;
+    this.chatMessages = [
+      ...this.chatMessages,
+      {
+        role: 'assistant',
+        content: '',
+        citations: [],
+        ragUsed: false,
+        fallback: false,
+      }
+    ];
+
+    this.api.aiChatStream(
+      apiMessages,
+      true,
+      (chunk) => {
+        this.chatMessages = this.chatMessages.map((m, idx) => {
+          if (idx === assistantIndex) {
+            return { ...m, content: m.content + chunk };
+          }
+          return m;
+        });
+        this.scrollChatToBottom();
+      },
+      (meta) => {
+        this.chatMessages = this.chatMessages.map((m, idx) => {
+          if (idx === assistantIndex) {
+            return { ...m, citations: meta.citations || [], ragUsed: !!meta.ragUsed };
+          }
+          return m;
+        });
+      }
+    ).then(() => {
+      this.chatThinking = false;
+      this.scrollChatToBottom();
+    }).catch((err) => {
+      this.chatThinking = false;
+      const msg = err?.message || this.i18n.t('council.chatError');
+      this.chatMessages = this.chatMessages.map((m, idx) => {
+        if (idx === assistantIndex) {
+          return { ...m, content: msg, error: true };
         }
-        this.scrollChatToBottom();
-      },
-      error: (err) => {
-        this.chatThinking = false;
-        const msg = err?.error?.error || this.i18n.t('council.chatError');
-        this.chatMessages = [
-          ...this.chatMessages,
-          { role: 'assistant', content: msg, error: true },
-        ];
-        this.scrollChatToBottom();
-      },
+        return m;
+      });
+      this.scrollChatToBottom();
     });
   }
 

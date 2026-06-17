@@ -33,6 +33,10 @@ export const el: TranslationDictionary = {
     noneFound: 'Δεν βρέθηκαν στοιχεία.',
     optional: 'προαιρετικό',
   },
+  theme: {
+    dark: 'Σκούρο Θέμα',
+    light: 'Φωτεινό Θέμα',
+  },
   nav: {
     overview: 'Επισκόπηση',
     dashboard: 'Πίνακας',

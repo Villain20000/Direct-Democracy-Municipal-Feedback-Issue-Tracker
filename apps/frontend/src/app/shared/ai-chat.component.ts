@@ -500,26 +500,39 @@ export class AiChatWidgetComponent implements OnInit {
     this.sending.set(true);
 
     const apiMessages = this.messages().map((m) => ({ role: m.role, content: m.content }));
-    this.api.aiChat(apiMessages).subscribe({
-      next: (res: any) => {
-        const reply = res?.data?.response || res?.data?.message || "I'm sorry, I couldn't generate a response. Please try again.";
-        this.messages.update((list) => [
-          ...list,
-          { role: 'assistant', content: reply, time: new Date().toISOString() },
-        ]);
-        this.sending.set(false);
-      },
-      error: () => {
-        this.messages.update((list) => [
-          ...list,
-          {
-            role: 'assistant',
-            content: "I'm having trouble connecting to my AI brain right now. Please try again in a moment, or contact city services directly for urgent matters.",
-            time: new Date().toISOString(),
-          },
-        ]);
-        this.sending.set(false);
-      },
+
+    const assistantIndex = this.messages().length;
+    const initialAssistantMsg: ChatMessage = { role: 'assistant', content: '', time: new Date().toISOString() };
+    this.messages.update((list) => [...list, initialAssistantMsg]);
+
+    this.api.aiChatStream(
+      apiMessages,
+      true,
+      (chunk) => {
+        this.messages.update((list) =>
+          list.map((m, idx) => {
+            if (idx === assistantIndex) {
+              return { ...m, content: m.content + chunk };
+            }
+            return m;
+          })
+        );
+      }
+    ).then(() => {
+      this.sending.set(false);
+    }).catch(() => {
+      this.messages.update((list) =>
+        list.map((m, idx) => {
+          if (idx === assistantIndex) {
+            return {
+              ...m,
+              content: "I'm having trouble connecting to my AI brain right now. Please try again in a moment, or contact city services directly for urgent matters."
+            };
+          }
+          return m;
+        })
+      );
+      this.sending.set(false);
     });
   }
 }

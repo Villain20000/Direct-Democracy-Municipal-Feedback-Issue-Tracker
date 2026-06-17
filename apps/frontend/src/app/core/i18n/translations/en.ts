@@ -32,6 +32,10 @@ export const en = {
     noneFound: 'No items found.',
     optional: 'optional',
   },
+  theme: {
+    dark: 'Dark Mode',
+    light: 'Light Mode',
+  },
   nav: {
     overview: 'Overview',
     dashboard: 'Dashboard',

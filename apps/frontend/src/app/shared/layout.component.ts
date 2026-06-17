@@ -72,6 +72,9 @@ export interface NavItem {
               />
             </div>
             <app-language-switcher />
+            <button class="theme-toggle-btn" (click)="toggleTheme()" [title]="isDarkMode ? i18n.t('theme.light') : i18n.t('theme.dark')">
+              <i class="material-icons-outlined">{{ isDarkMode ? 'light_mode' : 'dark_mode' }}</i>
+            </button>
             <div class="notification-wrapper">
               <button class="notification-btn" (click)="toggleNotifications($event)">
                 <i class="material-icons-outlined">notifications</i>
@@ -209,6 +212,25 @@ export interface NavItem {
       font-size: 13px;
       color: var(--text-muted);
     }
+
+    .theme-toggle-btn {
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 24px;
+      padding: 8px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all var(--transition);
+    }
+
+    .theme-toggle-btn:hover {
+      background: var(--border-light);
+      color: var(--text-primary);
+    }
   `],
   host: {
     '(document:click)': 'closeNotifications()',
@@ -222,6 +244,7 @@ export class LayoutComponent implements OnInit {
 
   searchQuery = '';
   showNotifications = false;
+  isDarkMode = false;
 
   constructor(
     private auth: AuthService,
@@ -233,6 +256,31 @@ export class LayoutComponent implements OnInit {
   ngOnInit(): void {
     if (this.auth.isAuthenticated()) {
       this.notifications.load();
+    }
+    // Initialize theme
+    if (typeof window !== 'undefined') {
+      const savedTheme = localStorage.getItem('theme');
+      this.isDarkMode = savedTheme === 'dark' || 
+        (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      this.applyTheme();
+    }
+  }
+
+  toggleTheme(): void {
+    this.isDarkMode = !this.isDarkMode;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('theme', this.isDarkMode ? 'dark' : 'light');
+      this.applyTheme();
+    }
+  }
+
+  applyTheme(): void {
+    if (typeof document !== 'undefined') {
+      if (this.isDarkMode) {
+        document.body.classList.add('dark-mode');
+      } else {
+        document.body.classList.remove('dark-mode');
+      }
     }
   }
 

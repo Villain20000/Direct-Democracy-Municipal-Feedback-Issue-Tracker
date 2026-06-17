@@ -225,16 +225,31 @@ export class CitizenDashboardComponent implements OnInit {
     this.chatMessages.push({ role: 'user', content: text });
     this.chatInput = '';
     this.chatSending = true;
-    this.api.aiChat(this.chatMessages).subscribe({
-      next: (res: any) => {
-        const reply = res.data?.response || res.data?.message || this.i18n.t('citizen.chatFallback');
-        this.chatMessages.push({ role: 'assistant', content: reply });
-        this.chatSending = false;
-      },
-      error: () => {
-        this.chatMessages.push({ role: 'assistant', content: this.i18n.t('citizen.chatError') });
-        this.chatSending = false;
-      },
+    // Append an empty assistant message to populate chunk-by-chunk
+    const assistantIndex = this.chatMessages.length;
+    this.chatMessages.push({ role: 'assistant', content: '' });
+
+    this.api.aiChatStream(
+      this.chatMessages.slice(0, -1),
+      true,
+      (chunk) => {
+        this.chatMessages = this.chatMessages.map((m, idx) => {
+          if (idx === assistantIndex) {
+            return { ...m, content: m.content + chunk };
+          }
+          return m;
+        });
+      }
+    ).then(() => {
+      this.chatSending = false;
+    }).catch(() => {
+      this.chatMessages = this.chatMessages.map((m, idx) => {
+        if (idx === assistantIndex) {
+          return { ...m, content: this.i18n.t('citizen.chatError') };
+        }
+        return m;
+      });
+      this.chatSending = false;
     });
   }
 }

@@ -246,6 +246,66 @@ export class ApiService {
     );
   }
 
+  async aiChatStream(
+    messages: { role: string; content: string }[],
+    useRag: boolean = true,
+    onChunk: (text: string) => void,
+    onMeta?: (meta: { citations: any[]; ragUsed: boolean }) => void
+  ): Promise<void> {
+    const token = localStorage.getItem('accessToken');
+    const response = await fetch(`${this.apiUrl}/ai/chat/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`
+      },
+      body: JSON.stringify({ messages, useRag })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error('ReadableStream not supported by response body');
+    }
+
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const cleaned = line.trim();
+        if (!cleaned.startsWith('data: ')) continue;
+        
+        const dataStr = cleaned.slice(6);
+        if (dataStr === '[DONE]') continue;
+
+        try {
+          const parsed = JSON.parse(dataStr);
+          if (parsed.type === 'meta') {
+            if (onMeta) onMeta({ citations: parsed.citations, ragUsed: parsed.ragUsed });
+          } else if (parsed.type === 'content') {
+            onChunk(parsed.content);
+          } else if (parsed.type === 'error') {
+            throw new Error(parsed.error);
+          }
+        } catch (e) {
+          // ignore parsing error for partial buffers or heartbeats
+        }
+      }
+    }
+  }
+
+
   // Documents (legislation KB) — admin only
   listDocuments(): Observable<{ success: boolean; data: any[] }> {
     return this.http.get<{ success: boolean; data: any[] }>(`${this.apiUrl}/admin/documents`);
