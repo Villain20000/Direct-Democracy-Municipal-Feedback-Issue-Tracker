@@ -3,7 +3,7 @@ import { CommonModule, formatDate } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
-import { ApiService } from '../../core/services/api.service';
+import { ApiService, WardDigestRow } from '../../core/services/api.service';
 import { TranslationService } from '../../core/i18n/translation.service';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { Event, Issue } from '@dd/shared-types';
@@ -39,6 +39,31 @@ interface WardEvent {
           <div><div style="font-size:28px;font-weight:800;">{{ activeIssueCount }}</div><div style="opacity:0.7;font-size:12px;">{{ 'ward.activeIssues' | t }}</div></div>
           <div><div style="font-size:28px;font-weight:800;">{{ wardIssues.length }}</div><div style="opacity:0.7;font-size:12px;">{{ 'ward.totalIssues' | t }}</div></div>
           <div><div style="font-size:28px;font-weight:800;">{{ events.length }}</div><div style="opacity:0.7;font-size:12px;">{{ 'ward.upcomingEvents' | t }}</div></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:24px;" data-testid="ward-daily-digest">
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+          <h3>{{ 'ward.dailyDigestTitle' | t }}</h3>
+          @if (wardDigest) {
+            <span style="font-size:12px;color:var(--text-muted);">{{ wardDigest.dateKey }}</span>
+          }
+        </div>
+        <div class="card-body">
+          @if (digestLoading && !wardDigest) {
+            <p style="font-size:13px;color:var(--text-muted);">{{ 'ward.loadingDigest' | t }}</p>
+          } @else if (wardDigest) {
+            <p style="font-size:14px;color:var(--text-secondary);line-height:1.7;">{{ wardDigest.body }}</p>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">
+              {{ i18n.t('ward.digestIssueCount', { n: wardDigest.issueCount }) }}
+            </div>
+          } @else {
+            <p style="font-size:13px;color:var(--text-muted);">{{ 'ward.noDigest' | t }}</p>
+          }
+          <button type="button" class="btn btn-primary btn-sm" style="margin-top:12px;" (click)="regenerateDigest()" [disabled]="digestLoading">
+            <i class="material-icons-outlined" style="font-size:16px;">auto_awesome</i>
+            {{ digestLoading ? ('ward.generatingDigest' | t) : ('ward.regenerateDigest' | t) }}
+          </button>
         </div>
       </div>
 
@@ -133,6 +158,8 @@ export class WardDashboardComponent implements OnInit {
   wardTitle = 'Ward Dashboard';
   mapPins: Array<{ x: number; y: number; color: string }> = [];
   feedback: Array<{ id: string; name: string; initials: string; time: string; text: string; sentiment: string; sentimentBadge: string; category: string }> = [];
+  wardDigest: WardDigestRow | null = null;
+  digestLoading = false;
   navItems = [
     { icon: 'dashboard', label: 'nav.overview', route: '/ward' },
     { icon: 'map', label: 'nav.map', route: '/ward/map' },
@@ -158,6 +185,7 @@ export class WardDashboardComponent implements OnInit {
   }
 
   ngOnInit() {
+    this.loadDigest();
     const wardId = this.auth.user()?.wardId;
     if (wardId) {
       this.api.getIssues({ wardId, pageSize: '20' }).subscribe((res: any) => {
@@ -230,6 +258,29 @@ export class WardDashboardComponent implements OnInit {
       y: 10 + ((maxLat - Number(issue.latitude)) / latRange) * 80,
       color: this.categoryColors[issue.category] || '#64748B',
     }));
+  }
+
+  loadDigest() {
+    this.digestLoading = true;
+    this.api.getLatestWardDigest().subscribe({
+      next: (res) => {
+        this.wardDigest = res.success ? res.data : null;
+        this.digestLoading = false;
+      },
+      error: () => { this.digestLoading = false; },
+    });
+  }
+
+  regenerateDigest() {
+    if (this.digestLoading) return;
+    this.digestLoading = true;
+    this.api.generateWardDigest().subscribe({
+      next: (res) => {
+        if (res.success) this.wardDigest = res.data;
+        this.digestLoading = false;
+      },
+      error: () => { this.digestLoading = false; },
+    });
   }
 
   private mapEvent(event: Event): WardEvent {

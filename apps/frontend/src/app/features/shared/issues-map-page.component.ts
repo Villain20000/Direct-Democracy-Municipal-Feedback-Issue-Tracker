@@ -24,12 +24,19 @@ interface AreaSummary {
   fallback?: boolean;
 }
 
+interface ClusterReport {
+  totalIssues: number;
+  clusters: Array<{ label: string; category: string; count: number; issueIds: string[]; sampleTitles: string[] }>;
+  narrative: string;
+  fallback?: boolean;
+}
+
 @Component({
   selector: 'app-issues-map-page',
   standalone: true,
   imports: [CommonModule, LayoutComponent, RouterLink],
   template: `
-    <app-layout [pageTitle]="i18n.t('issuesMap.pageTitle')" [navItems]="navItems" (logout)="auth.logout()">
+    <app-layout [pageTitle]="i18n.t('issuesMap.pageTitle')" [navItems]="navItems" (logout)="auth.logout()" data-testid="issues-map-page">
       @if (error) {
         <div class="card" style="margin-bottom:24px;border-color:var(--danger);">
           <div class="card-body" style="color:var(--danger);">{{ error }}</div>
@@ -95,6 +102,22 @@ interface AreaSummary {
                 @if (areaSummary.fallback) { <span class="badge badge-amber">fallback</span> }
               </div>
               <p style="white-space:pre-line;margin-bottom:12px;">{{ areaSummary.summary }}</p>
+              <button type="button" class="btn btn-secondary btn-sm" style="width:100%;margin-bottom:12px;" (click)="generateClusterReport()" [disabled]="clusterLoading || !lastPolygon.length">
+                {{ clusterLoading ? clusterLoadingLabel : clusterButtonLabel }}
+              </button>
+              @if (clusterReport) {
+                <div style="border-top:1px solid var(--border-light);padding-top:12px;margin-top:4px;">
+                  <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;">{{ clusterTitleLabel }}</div>
+                  <p style="white-space:pre-line;font-size:12px;margin-bottom:8px;">{{ clusterReport.narrative }}</p>
+                  @for (cluster of clusterReport.clusters.slice(0, 5); track cluster.label) {
+                    <div style="font-size:12px;padding:6px 0;border-bottom:1px solid var(--border-light);">
+                      <span class="badge badge-slate">{{ cluster.category }}</span>
+                      <strong style="margin-left:6px;">{{ cluster.label }}</strong>
+                      <span style="color:var(--text-muted);"> ({{ cluster.count }})</span>
+                    </div>
+                  }
+                </div>
+              }
               @if (areaSummary.issues.length) {
                 <div style="border-top:1px solid var(--border-light);padding-top:10px;">
                   <div style="font-size:11px;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;letter-spacing:0.04em;">{{ summarySampleLabel }}</div>
@@ -156,6 +179,9 @@ export class IssuesMapPageComponent implements OnInit, AfterViewInit, OnDestroy 
   // Summary state
   summarizing = false;
   areaSummary: AreaSummary | null = null;
+  clusterLoading = false;
+  clusterReport: ClusterReport | null = null;
+  lastPolygon: Array<[number, number]> = [];
 
   private map: L.Map | null = null;
   private markers: L.LayerGroup | null = null;
@@ -179,6 +205,9 @@ export class IssuesMapPageComponent implements OnInit, AfterViewInit, OnDestroy 
   get summaryLoadingLabel() { return this.i18n.t('issuesMap.summaryLoading'); }
   get summaryIssuesFoundLabel() { return this.i18n.t('issuesMap.summaryIssuesFound'); }
   get summarySampleLabel()  { return this.i18n.t('issuesMap.summarySample'); }
+  get clusterButtonLabel()  { return this.i18n.t('issuesMap.clusterButton'); }
+  get clusterLoadingLabel() { return this.i18n.t('issuesMap.clusterLoading'); }
+  get clusterTitleLabel()   { return this.i18n.t('issuesMap.clusterTitle'); }
   get moreLabel()           { return this.i18n.t('issuesMap.more'); }
 
   ngOnInit() { this.loadIssues(); }
@@ -296,7 +325,9 @@ export class IssuesMapPageComponent implements OnInit, AfterViewInit, OnDestroy 
 
     this.summarizing = true;
     this.areaSummary = null;
+    this.clusterReport = null;
     const polygon = [...this.vertices];
+    this.lastPolygon = polygon;
     this.api.summarizeArea(polygon).subscribe({
       next: (res: any) => {
         this.summarizing = false;
@@ -319,8 +350,26 @@ export class IssuesMapPageComponent implements OnInit, AfterViewInit, OnDestroy 
     this.drawMode = false;
   }
 
+  generateClusterReport() {
+    if (!this.lastPolygon.length) return;
+    this.clusterLoading = true;
+    this.clusterReport = null;
+    this.api.clusterReport(this.lastPolygon).subscribe({
+      next: (res: any) => {
+        this.clusterLoading = false;
+        if (res.success) this.clusterReport = res.data;
+      },
+      error: (err) => {
+        this.clusterLoading = false;
+        this.error = err.error?.error || this.i18n.t('issuesMap.loadFailed');
+      },
+    });
+  }
+
   clearSummary() {
     this.areaSummary = null;
+    this.clusterReport = null;
+    this.lastPolygon = [];
     if (this.closedPolygon && this.map) {
       this.map.removeLayer(this.closedPolygon);
       this.closedPolygon = null;

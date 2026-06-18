@@ -41,6 +41,24 @@ import { Forum, ForumPost, UserRole } from '@dd/shared-types';
         </div>
       }
 
+      @if (canModerate && flaggedPosts.length) {
+        <div class="card" style="margin-bottom:24px;border-left:4px solid var(--danger);" data-testid="flagged-posts">
+          <div class="card-header"><h3>{{ i18n.t('forums.flaggedTitle') }}</h3></div>
+          <div class="card-body">
+            @for (post of flaggedPosts; track post.id) {
+              <div style="padding:12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                  <strong style="font-size:13px;">{{ post.forum?.title }}</strong>
+                  <span class="badge badge-red">{{ post.moderationSeverity || 'flagged' }}</span>
+                </div>
+                <p style="font-size:13px;margin:0 0 6px;">{{ post.content }}</p>
+                <p style="font-size:12px;color:var(--text-muted);">{{ post.moderationReason }}</p>
+              </div>
+            }
+          </div>
+        </div>
+      }
+
       @if (loading) {
         <div class="card"><div class="card-body" style="text-align:center;padding:48px;color:var(--text-muted);">{{ i18n.t('forums.loading') }}</div></div>
       } @else if (selectedForum) {
@@ -109,6 +127,8 @@ export class ForumsPageComponent implements OnInit {
   creating = false;
   posting = false;
   canCreateForum = false;
+  canModerate = false;
+  flaggedPosts: any[] = [];
   navItems: NavItem[] = [];
 
   i18n = inject(TranslationService);
@@ -116,9 +136,19 @@ export class ForumsPageComponent implements OnInit {
   constructor(public auth: AuthService, private api: ApiService) {
     this.navItems = [{ icon: 'dashboard', label: 'nav.dashboard', route: auth.getDashboardRoute() }];
     this.canCreateForum = auth.hasRole(UserRole.SUPER_ADMIN, UserRole.MAYOR, UserRole.COUNCIL_MEMBER, UserRole.WARD_REP);
+    this.canModerate = auth.hasRole(UserRole.SUPER_ADMIN, UserRole.MAYOR, UserRole.COUNCIL_MEMBER);
   }
 
-  ngOnInit() { this.loadForums(); }
+  ngOnInit() {
+    this.loadForums();
+    if (this.canModerate) this.loadFlaggedPosts();
+  }
+
+  loadFlaggedPosts() {
+    this.api.getFlaggedForumPosts().subscribe({
+      next: (res) => { this.flaggedPosts = res.data || []; },
+    });
+  }
 
   loadForums() {
     this.loading = true;

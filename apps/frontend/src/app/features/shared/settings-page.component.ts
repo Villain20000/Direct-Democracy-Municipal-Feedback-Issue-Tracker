@@ -85,6 +85,75 @@ import { User } from '@dd/shared-types';
           </div>
         </div>
 
+        <div class="card" style="margin-top:24px;">
+          <div class="card-header">
+            <h3>{{ i18n.t('settings.notifPrefsHeader') }}</h3>
+          </div>
+          <div class="card-body">
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">{{ i18n.t('settings.notifPrefsDesc') }}</p>
+            @if (notifPrefsLoading) {
+              <div style="color:var(--text-muted);">{{ i18n.t('settings.loading') }}</div>
+            } @else if (notifPrefsError) {
+              <div style="color:var(--danger);">{{ notifPrefsError }}</div>
+            } @else {
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>{{ i18n.t('settings.notifPrefsHeader') }}</th>
+                    <th>{{ i18n.t('settings.notifChannelInApp') }}</th>
+                    <th>{{ i18n.t('settings.notifChannelEmail') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (type of notifTypes; track type) {
+                    <tr>
+                      <td>{{ formatNotifType(type) }}</td>
+                      <td>
+                        <input type="checkbox" [checked]="isPrefEnabled('inApp', type)" (change)="setPref('inApp', type, $any($event.target).checked)" />
+                      </td>
+                      <td>
+                        <input type="checkbox" [checked]="isPrefEnabled('email', type)" (change)="setPref('email', type, $any($event.target).checked)" />
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+              <button class="btn btn-primary" style="margin-top:16px;" [disabled]="notifPrefsSaving" (click)="saveNotificationPrefs()">
+                @if (notifPrefsSaving) { {{ i18n.t('settings.notifSaving') }} } @else { {{ i18n.t('settings.notifSave') }} }
+              </button>
+            }
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:24px;" data-testid="ai-health-card">
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+            <h3>{{ i18n.t('settings.aiHealthHeader') }}</h3>
+            <button type="button" class="btn btn-secondary btn-sm" (click)="loadAiHealth()" [disabled]="aiHealthLoading">
+              {{ i18n.t('settings.aiHealthRefresh') }}
+            </button>
+          </div>
+          <div class="card-body" style="font-size:13px;">
+            @if (aiHealthLoading) {
+              <p style="color:var(--text-muted);">{{ i18n.t('settings.aiHealthLoading') }}</p>
+            } @else if (aiHealth) {
+              <p><strong>{{ i18n.t('settings.aiHealthStatus') }}:</strong> {{ aiHealth.status }} · {{ i18n.t('settings.aiHealthTier') }}: {{ aiHealth.tier }}</p>
+              @if (aiHealth.chatLatencyMs != null) {
+                <p><strong>{{ i18n.t('settings.aiHealthLatency') }}:</strong> {{ aiHealth.chatLatencyMs }} ms</p>
+              }
+              <p style="margin-top:8px;"><strong>{{ i18n.t('settings.aiHealthCapabilities') }}:</strong>
+                chat {{ aiHealth.capabilities.chat ? '✓' : '✗' }},
+                embeddings {{ aiHealth.capabilities.embeddings ? '✓' : '✗' }},
+                vision {{ aiHealth.capabilities.vision ? '✓' : '✗' }},
+                voice {{ aiHealth.capabilities.voice ? '✓' : '✗' }},
+                bilingual {{ aiHealth.capabilities.bilingual ? '✓' : '✗' }}
+              </p>
+              @if (aiHealth.pulledModels?.length) {
+                <p style="margin-top:8px;"><strong>{{ i18n.t('settings.aiHealthModels') }}:</strong> {{ aiHealth.pulledModels.join(', ') }}</p>
+              }
+            }
+          </div>
+        </div>
+
         <div class="card" style="margin-top:24px;border-color:var(--danger);">
           <div class="card-header"><h3 style="color:var(--danger);">{{ i18n.t('settings.dangerZone') }}</h3></div>
           <div class="card-body" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
@@ -128,6 +197,13 @@ export class SettingsPageComponent implements OnInit {
    * Forms can read a single field's error via `getFieldError(name)`.
    */
   fieldErrors: Record<string, string> = {};
+  notifPrefs: Array<{ channel: string; type: string; enabled: boolean }> = [];
+  notifPrefsLoading = false;
+  notifPrefsSaving = false;
+  notifPrefsError = '';
+  aiHealth: any = null;
+  aiHealthLoading = false;
+  readonly notifTypes = ['ISSUE_UPDATE', 'COMMENT', 'ANNOUNCEMENT', 'EVENT', 'MENTION', 'ASSIGNMENT', 'VOTE', 'SYSTEM'];
   navItems: NavItem[] = [];
 
   auth = inject(AuthService);
@@ -139,7 +215,82 @@ export class SettingsPageComponent implements OnInit {
     this.navItems = [{ icon: 'dashboard', label: 'nav.dashboard', route: this.auth.getDashboardRoute() }];
   }
 
-  ngOnInit() { this.loadProfile(); }
+  ngOnInit() {
+    this.loadProfile();
+    this.loadNotificationPrefs();
+    this.loadAiHealth();
+  }
+
+  loadAiHealth() {
+    this.aiHealthLoading = true;
+    this.api.aiHealth().subscribe({
+      next: (res) => {
+        this.aiHealth = res.data;
+        this.aiHealthLoading = false;
+      },
+      error: () => {
+        this.aiHealthLoading = false;
+      },
+    });
+  }
+
+  formatNotifType(type: string): string {
+    return type.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+  }
+
+  isPrefEnabled(channel: string, type: string): boolean {
+    const row = this.notifPrefs.find((p) => p.channel === channel && p.type === type);
+    if (!row) return channel === 'inApp';
+    return row.enabled;
+  }
+
+  setPref(channel: string, type: string, enabled: boolean) {
+    const idx = this.notifPrefs.findIndex((p) => p.channel === channel && p.type === type);
+    if (idx >= 0) {
+      this.notifPrefs[idx] = { ...this.notifPrefs[idx], enabled };
+    } else {
+      this.notifPrefs.push({ channel, type, enabled });
+    }
+  }
+
+  loadNotificationPrefs() {
+    this.notifPrefsLoading = true;
+    this.notifPrefsError = '';
+    this.api.getNotificationPrefs().subscribe({
+      next: (res) => {
+        this.notifPrefsLoading = false;
+        if (res.success) this.notifPrefs = res.data;
+      },
+      error: () => {
+        this.notifPrefsLoading = false;
+        this.notifPrefsError = this.i18n.t('settings.notifLoadFailed');
+      },
+    });
+  }
+
+  saveNotificationPrefs() {
+    this.notifPrefsSaving = true;
+    const preferences = this.notifTypes.flatMap((type) =>
+      (['inApp', 'email'] as const).map((channel) => ({
+        channel,
+        type,
+        enabled: this.isPrefEnabled(channel, type),
+      })),
+    );
+    this.api.updateNotificationPrefs(preferences).subscribe({
+      next: (res) => {
+        this.notifPrefsSaving = false;
+        if (res.success) {
+          this.notifPrefs = res.data;
+          this.toast.success(this.i18n.t('settings.notifSaved'));
+        }
+      },
+      error: () => {
+        this.notifPrefsSaving = false;
+        this.toast.error(this.i18n.t('settings.notifSaveFailed'));
+      },
+    });
+  }
 
   isPasswordValid(): boolean {
     return this.passwords.current.length > 0

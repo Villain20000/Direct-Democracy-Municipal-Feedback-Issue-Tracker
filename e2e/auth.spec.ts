@@ -22,10 +22,10 @@ test.describe('Authentication', () => {
     await expect(page).toHaveURL(/\/login/);
 
     // Login with a real seed account. The seed creates a citizen
-    // at citizen@example.com / password123. We assert on the
+    // at citizen1@email.com / password123. We assert on the
     // generic "dashboard" route (the role-specific sub-route is
     // exercised in a role-based test below).
-    await page.getByLabel(/email/i).fill('citizen@example.com');
+    await page.getByLabel(/email/i).fill('citizen1@email.com');
     await page.getByLabel(/password/i).fill('password123');
     await page.getByRole('button', { name: /sign in/i }).click();
 
@@ -37,7 +37,7 @@ test.describe('Authentication', () => {
 
   test('wrong password shows an inline error', async ({ page }) => {
     await page.goto('/login');
-    await page.getByLabel(/email/i).fill('citizen@example.com');
+    await page.getByLabel(/email/i).fill('citizen1@email.com');
     await page.getByLabel(/password/i).fill('wrong-password');
     await page.getByRole('button', { name: /sign in/i }).click();
 
@@ -51,7 +51,7 @@ test.describe('Authentication', () => {
   test('authenticated user can log out', async ({ page }) => {
     // First, log in.
     await page.goto('/login');
-    await page.getByLabel(/email/i).fill('citizen@example.com');
+    await page.getByLabel(/email/i).fill('citizen1@email.com');
     await page.getByLabel(/password/i).fill('password123');
     await page.getByRole('button', { name: /sign in/i }).click();
     await page.waitForURL((u) => !u.pathname.includes('/login'), { timeout: 10_000 });

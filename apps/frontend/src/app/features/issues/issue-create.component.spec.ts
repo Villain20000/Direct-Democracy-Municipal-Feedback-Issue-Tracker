@@ -1,13 +1,14 @@
 import { ComponentFixture, TestBed, fakeAsync, tick, flush } from '@angular/core/testing';
 import { FormsModule } from '@angular/forms';
 import { RouterTestingModule } from '@angular/router/testing';
-import { NO_ERRORS_SCHEMA } from '@angular/core';
+import { NO_ERRORS_SCHEMA, computed } from '@angular/core';
 import { of, Subject, throwError } from 'rxjs';
 import { IssueCreateComponent } from './issue-create.component';
 import { ApiService } from '../../core/services/api.service';
 import { AuthService } from '../../core/services/auth.service';
 import { ToastService } from '../../core/services/toast.service';
 import { TranslationService } from '../../core/i18n/translation.service';
+import { OfflineQueueService } from '../../core/services/offline-queue.service';
 import { IssueCategory } from '@dd/shared-types';
 
 /**
@@ -62,23 +63,24 @@ describe('IssueCreateComponent — real-time AI assist', () => {
     toastSpy = jasmine.createSpyObj<ToastService>('ToastService', [
       'success', 'error', 'warning', 'info',
     ]);
-    authStub = { isAuthenticated: () => true, logout: () => {}, hasRole: () => false };
+    authStub = { isAuthenticated: computed(() => true), logout: () => {}, hasRole: () => false };
 
     TestBed.configureTestingModule({
-      imports: [FormsModule, RouterTestingModule],
-      declarations: [IssueCreateComponent],
+      imports: [FormsModule, RouterTestingModule, IssueCreateComponent],
       providers: [
         { provide: ApiService, useValue: apiSpy },
         { provide: ToastService, useValue: toastSpy },
         { provide: AuthService, useValue: authStub },
         { provide: TranslationService, useValue: new TranslationService() },
+        { provide: OfflineQueueService, useValue: { enqueue: jasmine.createSpy('enqueue').and.returnValue(Promise.resolve(1)) } },
       ],
       schemas: [NO_ERRORS_SCHEMA], // ignore LayoutComponent, RouterLink, etc.
     });
 
     fixture = TestBed.createComponent(IssueCreateComponent);
     component = fixture.componentInstance;
-    // Don't call detectChanges() — we don't need the template to render.
+    // Wire the debounce pipeline without rendering the full template.
+    component.ngOnInit();
   });
 
   afterEach(() => {
@@ -97,7 +99,7 @@ describe('IssueCreateComponent — real-time AI assist', () => {
       tick(200);
       component.onDescriptionChange('short tex');
       tick(200);
-      component.onDescriptionChange('short text now');
+      component.onDescriptionChange('short text now!');
       // Still inside the 800ms debounce window.
       tick(799);
       expect(apiSpy.aiCategorize).not.toHaveBeenCalled();
@@ -196,10 +198,13 @@ describe('IssueCreateComponent — real-time AI assist', () => {
   // -----------------------------------------------------------------
   describe('race-condition guard via lastAutoChecked', () => {
     it('ignores a stale categorization response that arrives after a newer typing cycle', fakeAsync(() => {
+      const firstCycle$ = new Subject<any>();
+      const secondCycle$ = new Subject<any>();
+      apiSpy.aiCategorize.and.returnValues(firstCycle$, secondCycle$);
+
       // First typing cycle
       component.onDescriptionChange('first long enough text for the auto assist to kick in');
       tick(800);
-      // Do NOT resolve categorizer$ yet — keep the response pending.
 
       // Second typing cycle while the first response is still in flight
       component.onDescriptionChange('first long enough text for the auto assist to kick in v2');
@@ -207,13 +212,12 @@ describe('IssueCreateComponent — real-time AI assist', () => {
 
       // The OLD response now arrives. Because lastAutoChecked has moved on,
       // the result must be discarded.
-      categorizer$.next({ success: true, data: { category: 'PUBLIC_SAFETY', confidence: 0.99 } });
+      firstCycle$.next({ success: true, data: { category: 'PUBLIC_SAFETY', confidence: 0.99 } });
       tick();
-      // No auto-apply happened because the response was stale.
       expect((component as any).aiSuggestion).toBeNull();
 
       // The NEW response arrives and IS applied.
-      categorizer$.next({ success: true, data: { category: 'SANITATION', confidence: 0.99 } });
+      secondCycle$.next({ success: true, data: { category: 'SANITATION', confidence: 0.99 } });
       tick();
       expect((component as any).aiSuggestion?.category).toBe('SANITATION');
       expect(component.category).toBe(IssueCategory.SANITATION);

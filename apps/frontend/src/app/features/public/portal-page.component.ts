@@ -43,7 +43,7 @@ interface PortalStats {
   standalone: true,
   imports: [CommonModule, RouterLink, TranslatePipe],
   template: `
-    <div class="portal-page">
+    <div class="portal-page" data-testid="portal-page">
       <header class="portal-header">
         <div class="portal-header-inner">
           <div>
@@ -259,6 +259,29 @@ interface PortalStats {
               }
             </section>
 
+            <!-- Citizen FAQ -->
+            <section class="card span-2" data-testid="portal-faq">
+              <h2>{{ 'portal.faq' | t }}</h2>
+              <p class="faq-subtitle">{{ 'portal.faqSubtitle' | t }}</p>
+              @if (faqEntries().length === 0) {
+                <p class="empty">{{ 'portal.empty' | t }}</p>
+              } @else {
+                <div class="faq-list">
+                  @for (entry of faqEntries(); track entry.id) {
+                    <details class="faq-item">
+                      <summary>
+                        @if (entry.category) {
+                          <span class="badge">{{ entry.category }}</span>
+                        }
+                        {{ entry.question }}
+                      </summary>
+                      <p>{{ entry.answer }}</p>
+                    </details>
+                  }
+                </div>
+              }
+            </section>
+
             <!-- Past meetings -->
             <section class="card span-2">
               <h2>{{ 'portal.pastMeetings' | t }}</h2>
@@ -365,6 +388,11 @@ interface PortalStats {
     .meetings-table { width: 100%; border-collapse: collapse; font-size: 13px; }
     .meetings-table th, .meetings-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #f1f5f9; }
     .meetings-table th { color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 11px; }
+    .faq-subtitle { font-size: 13px; color: var(--text-muted); margin: -8px 0 16px; }
+    .faq-list { display: flex; flex-direction: column; gap: 8px; }
+    .faq-item { background: #f8fafc; border-radius: 8px; padding: 12px 14px; }
+    .faq-item summary { cursor: pointer; font-weight: 600; font-size: 14px; list-style: none; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .faq-item p { margin: 10px 0 0; font-size: 13px; color: #475569; line-height: 1.6; }
   `],
 })
 export class PortalPageComponent implements OnInit {
@@ -382,10 +410,11 @@ export class PortalPageComponent implements OnInit {
   announcements = signal<any[]>([]);
   upcomingEvents = signal<any[]>([]);
   meetings = signal<any[]>([]);
+  faqEntries = signal<any[]>([]);
 
   async ngOnInit() {
     try {
-      const [stats, recent, top, depts, refs, anns, evts, meetings] = await Promise.all([
+      const [stats, recent, top, depts, refs, anns, evts, meetings, faq] = await Promise.all([
         firstValueFrom(this.api.getPortalStats()).then((r: any) => r.data),
         firstValueFrom(this.api.getPortalRecentIssues(10)).then((r: any) => r.data),
         firstValueFrom(this.api.getPortalTopIssues(10)).then((r: any) => r.data),
@@ -394,6 +423,7 @@ export class PortalPageComponent implements OnInit {
         firstValueFrom(this.api.getPortalAnnouncements(10)).then((r: any) => r.data),
         firstValueFrom(this.api.getPortalUpcomingEvents(10)).then((r: any) => r.data),
         firstValueFrom(this.api.getPortalMeetings(20)).then((r: any) => r.data),
+        firstValueFrom(this.api.getPortalFaq(15)).then((r: any) => r.data),
       ]);
       this.stats.set(stats);
       this.recentIssues.set(recent);
@@ -403,6 +433,7 @@ export class PortalPageComponent implements OnInit {
       this.announcements.set(anns);
       this.upcomingEvents.set(evts);
       this.meetings.set(meetings);
+      this.faqEntries.set(faq);
     } catch (err) {
       console.error('[portal] load failed', err);
     } finally {

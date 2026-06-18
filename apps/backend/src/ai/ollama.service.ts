@@ -3,6 +3,29 @@ import { config } from '../config';
 
 const MODEL = config.ollama.model;
 
+type ContentLocale = 'en' | 'el';
+
+function localeLabel(locale?: string): string {
+  return locale === 'el' ? 'Greek' : 'English';
+}
+
+function detectLanguageHeuristic(text: string): ContentLocale {
+  const greek = text.match(/[\u0370-\u03FF\u1F00-\u1FFF]/g);
+  if (greek && greek.length >= Math.max(3, text.length * 0.12)) return 'el';
+  return 'en';
+}
+
+function withLocaleInstruction(messages: Array<{ role: string; content: string }>, locale?: string) {
+  if (!locale || (locale !== 'en' && locale !== 'el')) return messages;
+  const lang = localeLabel(locale);
+  const prefix = {
+    role: 'system',
+    content: `Respond in ${lang}. If citing municipal terms, keep them accurate for Greek municipalities when locale is Greek.`,
+  };
+  const hasSystem = messages.some((m) => m.role === 'system');
+  return hasSystem ? messages : [prefix, ...messages];
+}
+
 const CATEGORY_KEYWORDS: Record<string, string[]> = {
   INFRASTRUCTURE: ['pothole', 'road', 'bridge', 'sidewalk', 'streetlight', 'manhole', 'pavement'],
   PUBLIC_SAFETY: ['crime', 'police', 'safety', 'graffiti', 'vandalism', 'theft', 'assault'],
@@ -128,11 +151,15 @@ function keywordDepartment(category: string, text: string) {
   return { department: map[category] || 'General Services', confidence: 0.6, fallback: true };
 }
 
-async function chatCompletion(messages: Array<{ role: string; content: string }>, format?: string) {
+async function chatCompletion(
+  messages: Array<{ role: string; content: string }>,
+  format?: string,
+  locale?: string,
+) {
   try {
     const response = await ollama.chat({
       model: MODEL,
-      messages,
+      messages: withLocaleInstruction(messages, locale),
       stream: false,
       ...(format ? { format: format as any } : {}),
     });
@@ -144,7 +171,137 @@ async function chatCompletion(messages: Array<{ role: string; content: string }>
 }
 
 export const aiService = {
-  async categorize(text: string) {
+  detectLanguageHeuristic,
+
+  async detectLanguage(text: string): Promise<ContentLocale> {
+    const heuristic = detectLanguageHeuristic(text);
+    if (heuristic === 'el') return 'el';
+    try {
+      const response = await chatCompletion([
+        {
+          role: 'system',
+          content: 'Detect whether the text is primarily English or Greek. Output ONLY valid JSON: {"language":"en"|"el"}',
+        },
+        { role: 'user', content: text.slice(0, 500) },
+      ], 'json');
+      const parsed = JSON.parse(response);
+      return parsed.language === 'el' ? 'el' : 'en';
+    } catch {
+      return heuristic;
+    }
+  },
+
+  /**
+   * Populate bilingual title/description fields for dual storage.
+   */
+  async buildBilingualContent(title: string, description: string) {
+    const contentLocale = await this.detectLanguage(`${title} ${description}`);
+    const fallback = {
+      contentLocale,
+      titleEn: title,
+      titleEl: title,
+      descriptionEn: description,
+      descriptionEl: description,
+      fallback: true,
+    };
+    try {
+      if (contentLocale === 'el') {
+        const [tEn, dEn] = await Promise.all([
+          this.translate(title, 'English'),
+          this.translate(description, 'English'),
+        ]);
+        return {
+          contentLocale: 'el' as const,
+          titleEl: title,
+          descriptionEl: description,
+          titleEn: tEn.translation,
+          descriptionEn: dEn.translation,
+          fallback: !!(tEn.fallback || dEn.fallback),
+        };
+      }
+      const [tEl, dEl] = await Promise.all([
+        this.translate(title, 'Greek'),
+        this.translate(description, 'Greek'),
+      ]);
+      return {
+        contentLocale: 'en' as const,
+        titleEn: title,
+        descriptionEn: description,
+        titleEl: tEl.translation,
+        descriptionEl: dEl.translation,
+        fallback: !!(tEl.fallback || dEl.fallback),
+      };
+    } catch {
+      return fallback;
+    }
+  },
+
+  async describeImage(imageBase64: string, locale?: string) {
+    const lang = localeLabel(locale);
+    const fallback = {
+      title: 'Municipal infrastructure issue',
+      description: 'A citizen-submitted photo shows a visible problem requiring municipal attention.',
+      fallback: true,
+    };
+    try {
+      const response = await ollama.chat({
+        model: config.ollama.visionModel,
+        messages: [{
+          role: 'user',
+          content: `You help citizens report municipal issues from photos. In ${lang}, suggest a concise issue title (max 12 words) and a 2-3 sentence description for staff.
+Output ONLY valid JSON: {"title":"...","description":"..."}`,
+          images: [imageBase64],
+        }],
+        stream: false,
+        format: 'json',
+      });
+      try {
+        const parsed = JSON.parse(response.message.content);
+        return {
+          title: parsed.title || fallback.title,
+          description: parsed.description || fallback.description,
+          fallback: false,
+        };
+      } catch {
+        return fallback;
+      }
+    } catch (err: any) {
+      console.warn('[AI] describeImage failed:', err.message);
+      return fallback;
+    }
+  },
+
+  async transcribeAudio(audioBase64: string, locale?: string) {
+    const fallback = {
+      transcript: '',
+      fallback: true,
+      error: 'Voice transcription unavailable',
+    };
+    try {
+      const res = await fetch(`${config.ollama.baseUrl}/api/transcribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: config.ollama.whisperModel,
+          file: audioBase64,
+        }),
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(`Transcribe failed (${res.status}): ${detail.slice(0, 200)}`);
+      }
+      const json = await res.json() as { text?: string };
+      const transcript = (json.text || '').trim();
+      if (!transcript) return { ...fallback, error: 'Empty transcript' };
+      return { transcript, locale: locale || 'en', fallback: false };
+    } catch (err: any) {
+      console.warn('[AI] transcribe failed:', err.message);
+      return { ...fallback, error: err.message };
+    }
+  },
+
+  async categorize(text: string, locale?: string) {
     try {
       const response = await chatCompletion([
         {
@@ -155,7 +312,7 @@ TRANSPORTATION, EDUCATION, HEALTH, or OTHER.
 Output ONLY valid JSON: {"category": "...", "confidence": 0.0-1.0}`,
         },
         { role: 'user', content: text },
-      ], 'json');
+      ], 'json', locale);
       try {
         return JSON.parse(response);
       } catch {
@@ -462,6 +619,44 @@ Preserve tone and meaning. Return only the translated text, no extra commentary.
   },
 
   /**
+   * Draft a citizen-friendly status update notification message.
+   */
+  async draftStatusUpdate(params: {
+    title: string;
+    oldStatus: string;
+    newStatus: string;
+    note?: string;
+    locale?: string;
+  }) {
+    const { title, oldStatus, newStatus, note, locale = 'en' } = params;
+    const lang = locale === 'el' ? 'Greek' : 'English';
+    const fallback = {
+      draft: `"${title}" has been updated from ${oldStatus.replace(/_/g, ' ').toLowerCase()} to ${newStatus.replace(/_/g, ' ').toLowerCase()}.${note ? ` ${note}` : ''}`,
+      fallback: true,
+    };
+    try {
+      const response = await chatCompletion([
+        {
+          role: 'system',
+          content: `You are a municipal communications assistant. Write a short, friendly status update
+for a citizen who reported an issue. Use ${lang}. Keep it under 60 words. Be professional and reassuring.
+Do not use markdown. Return only the message text.`,
+        },
+        {
+          role: 'user',
+          content: `Issue: "${title}"
+Previous status: ${oldStatus}
+New status: ${newStatus}
+${note ? `Staff note: ${note}` : ''}`,
+        },
+      ]);
+      return { draft: response.trim(), fallback: false };
+    } catch {
+      return fallback;
+    }
+  },
+
+  /**
    * Semantic / intent-based search over a list of issues.
    */
   async smartSearch(query: string, issues: Array<{ id: string; title: string; description: string; category: string }>) {
@@ -506,6 +701,286 @@ Output ONLY valid JSON: {"results": [{"id": "...", "score": 0.0-1.0, "reason": "
       }
     } catch {
       return keywordRank(query, issues);
+    }
+  },
+
+  async predictSlaRisk(params: {
+    title: string;
+    status: string;
+    priority: number;
+    hoursUntilDue: number;
+    breached: boolean;
+    hasFirstResponse: boolean;
+    category?: string;
+  }) {
+    const { title, status, priority, hoursUntilDue, breached, hasFirstResponse, category } = params;
+    let risk: 'low' | 'medium' | 'high' = 'low';
+    let daysToBreach = Math.max(0, hoursUntilDue / 24);
+    if (breached || hoursUntilDue <= 0) risk = 'high';
+    else if (hoursUntilDue <= 8 || (priority >= 4 && !hasFirstResponse)) risk = 'high';
+    else if (hoursUntilDue <= 24 || priority >= 3) risk = 'medium';
+
+    const fallback = {
+      risk,
+      daysToBreach: Math.round(daysToBreach * 10) / 10,
+      justification: breached
+        ? 'SLA deadline has already passed.'
+        : `Approximately ${Math.round(hoursUntilDue)} hours remain before SLA breach.`,
+      fallback: true,
+    };
+
+    try {
+      const response = await chatCompletion([
+        {
+          role: 'system',
+          content: `You are a municipal SLA risk analyst. Assess breach likelihood for an open issue.
+Output ONLY valid JSON: {"risk": "low|medium|high", "daysToBreach": N, "justification": "..."}`,
+        },
+        {
+          role: 'user',
+          content: `Issue: "${title}"
+Category: ${category || 'OTHER'}
+Status: ${status}
+Priority: ${priority}/5
+Hours until SLA due: ${hoursUntilDue.toFixed(1)}
+Already breached: ${breached}
+First response recorded: ${hasFirstResponse}`,
+        },
+      ], 'json');
+      try {
+        return JSON.parse(response);
+      } catch {
+        return fallback;
+      }
+    } catch {
+      return fallback;
+    }
+  },
+
+  async narrateAnomalies(anomalies: Array<{ title: string; severity: string; desc: string }>) {
+    if (!anomalies.length) return { summary: 'No anomalies detected.', items: [], fallback: true };
+    const fallback = {
+      summary: `${anomalies.length} anomal${anomalies.length === 1 ? 'y' : 'ies'} detected in the past 7 days.`,
+      items: anomalies.map((a) => ({
+        ...a,
+        narrative: a.desc,
+        recommendedAction: a.severity === 'HIGH' ? 'Review immediately with department head.' : 'Monitor and document.',
+      })),
+      fallback: true,
+    };
+    try {
+      const list = anomalies.map((a, i) => `${i + 1}. [${a.severity}] ${a.title}: ${a.desc}`).join('\n');
+      const response = await chatCompletion([
+        {
+          role: 'system',
+          content: `You are a municipal compliance auditor. Turn rule-based anomaly alerts into clear narratives
+with recommended actions for auditors. Output ONLY valid JSON:
+{"summary": "...", "items": [{"title": "...", "severity": "...", "narrative": "...", "recommendedAction": "..."}]}`,
+        },
+        { role: 'user', content: `Anomalies:\n${list}` },
+      ], 'json');
+      try {
+        return JSON.parse(response);
+      } catch {
+        return fallback;
+      }
+    } catch {
+      return fallback;
+    }
+  },
+
+  async scoreResolution(params: { title: string; description: string; resolutionNote: string; category?: string }) {
+    const { title, description, resolutionNote, category } = params;
+    const wordCount = resolutionNote.trim().split(/\s+/).filter(Boolean).length;
+    const fallbackScore = wordCount >= 20 ? 75 : wordCount >= 8 ? 55 : 35;
+    const fallback = {
+      score: fallbackScore,
+      gaps: wordCount < 20 ? ['Add more detail about actions taken.'] : [],
+      suggestions: ['Confirm the citizen can verify the fix on-site.'],
+      fallback: true,
+    };
+    try {
+      const response = await chatCompletion([
+        {
+          role: 'system',
+          content: `You are a municipal quality reviewer. Score a staff resolution note (0-100) for completeness,
+citizen-facing tone, and evidence. Output ONLY valid JSON:
+{"score": N, "gaps": ["..."], "suggestions": ["..."]}`,
+        },
+        {
+          role: 'user',
+          content: `Issue: "${title}" (${category || 'OTHER'})
+Description: ${description.slice(0, 300)}
+Resolution note: ${resolutionNote}`,
+        },
+      ], 'json');
+      try {
+        return JSON.parse(response);
+      } catch {
+        return fallback;
+      }
+    } catch {
+      return fallback;
+    }
+  },
+
+  async explainBallot(params: { title: string; description: string; body: string; type: 'poll' | 'referendum'; locale?: string }) {
+    const lang = params.locale === 'el' ? 'Greek' : 'English';
+    const text = params.body || params.description || params.title;
+    const fallback = {
+      explanation: `This ${params.type} asks citizens to decide on: ${params.title}. ${text.slice(0, 200)}`,
+      fallback: true,
+    };
+    try {
+      const response = await chatCompletion([
+        {
+          role: 'system',
+          content: `You are a civic educator. Explain a municipal ${params.type} in plain ${lang} for everyday citizens.
+Use short paragraphs, no legal jargon, under 120 words.`,
+        },
+        { role: 'user', content: `Title: ${params.title}\nDescription: ${params.description}\nFull text: ${text}` },
+      ]);
+      return { explanation: response.trim(), fallback: false };
+    } catch {
+      return fallback;
+    }
+  },
+
+  async generateAgenda(params: {
+    date: string;
+    issues: Array<{ title: string; category: string; priority: number; status: string }>;
+    resolutions: Array<{ title: string; status: string }>;
+    maxItems?: number;
+  }) {
+    const max = params.maxItems ?? 10;
+    const fallback = {
+      title: `City Council Agenda — ${params.date}`,
+      items: [
+        ...params.issues.slice(0, max).map((i, idx) => ({
+          order: idx + 1,
+          title: i.title,
+          type: 'issue',
+          notes: `${i.category} · priority ${i.priority}/5 · ${i.status}`,
+        })),
+        ...params.resolutions.slice(0, 3).map((r, idx) => ({
+          order: params.issues.length + idx + 1,
+          title: r.title,
+          type: 'resolution',
+          notes: r.status,
+        })),
+      ],
+      fallback: true,
+    };
+    try {
+      const issueList = params.issues.map((i, idx) =>
+        `${idx + 1}. [${i.category}] ${i.title} (P${i.priority}, ${i.status})`,
+      ).join('\n');
+      const resList = params.resolutions.map((r, idx) => `${idx + 1}. ${r.title} (${r.status})`).join('\n');
+      const response = await chatCompletion([
+        {
+          role: 'system',
+          content: `You are a municipal clerk. Build a concise meeting agenda JSON with at most ${max} items.
+Output ONLY valid JSON: {"title": "...", "items": [{"order": N, "title": "...", "type": "issue|resolution", "notes": "..."}]}`,
+        },
+        { role: 'user', content: `Meeting date: ${params.date}\n\nPriority issues:\n${issueList || 'None'}\n\nPending resolutions:\n${resList || 'None'}` },
+      ], 'json');
+      try {
+        return JSON.parse(response);
+      } catch {
+        return fallback;
+      }
+    } catch {
+      return fallback;
+    }
+  },
+
+  async moderateText(content: string) {
+    const lower = content.toLowerCase();
+    const toxic = ['idiot', 'stupid', 'hate', 'kill', 'threat'];
+    const pii = /\b\d{3}-\d{2}-\d{4}\b|\b\d{16}\b/;
+    const flagged = toxic.some((w) => lower.includes(w)) || pii.test(content);
+    const fallback = {
+      flag: flagged,
+      severity: flagged ? 'medium' : 'none',
+      reason: flagged ? 'Keyword or PII pattern detected' : 'No issues detected',
+      fallback: true,
+    };
+    try {
+      const response = await chatCompletion([
+        {
+          role: 'system',
+          content: `You are a forum moderator for a municipal platform. Flag toxic language, threats, spam, or PII.
+Output ONLY valid JSON: {"flag": true|false, "severity": "none|low|medium|high", "reason": "..."}`,
+        },
+        { role: 'user', content },
+      ], 'json');
+      try {
+        return JSON.parse(response);
+      } catch {
+        return fallback;
+      }
+    } catch {
+      return fallback;
+    }
+  },
+
+  async analyzeRelatedImpact(params: {
+    title: string;
+    category: string;
+    department?: string;
+    ward?: string;
+    context: string;
+  }) {
+    const fallback = {
+      rootCause: `Multiple ${params.category.toLowerCase().replace(/_/g, ' ')} reports in the same area may share infrastructure or service gaps.`,
+      impact: 'Nearby residents may experience similar problems until the underlying cause is addressed.',
+      recommendations: ['Inspect shared infrastructure in the cluster area.', 'Coordinate a single work order if issues are linked.'],
+      fallback: true,
+    };
+    try {
+      const response = await chatCompletion([
+        {
+          role: 'system',
+          content: `You are a municipal operations analyst. Given a primary issue and related neighbors,
+identify possible root causes, community impact, and 2-3 staff recommendations.
+Output ONLY valid JSON:
+{"rootCause": "...", "impact": "...", "recommendations": ["..."]}`,
+        },
+        {
+          role: 'user',
+          content: `Issue: "${params.title}" (${params.category})
+Department: ${params.department || 'N/A'} | Ward: ${params.ward || 'N/A'}
+
+${params.context}`,
+        },
+      ], 'json');
+      try {
+        return JSON.parse(response);
+      } catch {
+        return fallback;
+      }
+    } catch {
+      return fallback;
+    }
+  },
+
+  async generateSeasonalForecast(statsSummary: string) {
+    const fallback = {
+      narrative: 'Historical issue patterns suggest monitoring infrastructure and sanitation categories during seasonal transitions.',
+      fallback: true,
+    };
+    try {
+      const response = await chatCompletion([
+        {
+          role: 'system',
+          content: `You are a municipal operations forecaster. Given monthly issue statistics, write a 3-4 sentence
+forecast narrative for the mayor about expected demand spikes. Be specific about categories and timing.`,
+        },
+        { role: 'user', content: statsSummary },
+      ]);
+      return { narrative: response.trim(), fallback: false };
+    } catch {
+      return fallback;
     }
   },
 };

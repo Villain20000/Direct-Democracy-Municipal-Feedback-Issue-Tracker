@@ -174,8 +174,17 @@ flowchart LR
 - **Node.js** ≥ 18.x
 - **npm** ≥ 9.x
 - **Docker** ≥ 20.x
-- **6+ GB RAM** (Gemma 2B ~1.6 GB + `nomic-embed-text` ~274 MB + dev services)
 - **Ollama** (for AI / RAG features — optional, app falls back gracefully when offline)
+
+### AI hardware tiers
+
+| Tier | RAM | Chat model | Multimodal | Use case |
+|------|-----|------------|------------|----------|
+| Pilot | 8 GB | `gemma2:2b` | — | Dev / demos; weak on Greek legal text |
+| Production | 16 GB | `gemma2:9b-instruct-q4_K_M` | — | Bilingual EN/EL, better RAG citations |
+| Multimodal | 24 GB+ | `gemma2:9b-instruct-q4_K_M` | `llava:7b` + `whisper-small` | Photo-assisted reporting + voice input |
+
+Embeddings: always `nomic-embed-text` (~274 MB, 768-dim). Check status via `GET /api/v1/ai/health` or Settings → Local AI health.
 
 ---
 
@@ -254,13 +263,23 @@ ollama pull gemma2:2b
 
 # Embedding model (~274 MB) — required for semantic search and RAG
 ollama pull nomic-embed-text
+
+# Optional Phase 4 — photo + voice (24 GB+ RAM recommended)
+ollama pull llava:7b
+ollama pull whisper-small
+
+# Production bilingual upgrade (16 GB+ RAM)
+ollama pull gemma2:9b-instruct-q4_K_M
 ```
 
 Verify:
 
 ```bash
 curl http://localhost:11434/api/tags
-# Should list both gemma2:2b and nomic-embed-text
+# Should list gemma2:2b and nomic-embed-text at minimum
+
+curl http://localhost:3001/api/v1/ai/health
+# Reports tier, latency, and which capabilities are available
 ```
 
 ### 6. Start the embed worker (if not using Docker)
@@ -481,9 +500,10 @@ curl -s -X POST http://localhost:3001/api/v1/ai/chat \
 | Department Head | `pw.head@city.gov` | `/department` |
 | Council Member | `council1@city.gov` | `/council` |
 | Staff | `staff1@city.gov` | `/staff` |
-| Ward Rep | `wardrep1@email.com` | `/ward` |
+| Ward Rep | `wardrep1@city.gov` | `/ward` |
 | Citizen | `citizen1@email.com` | `/citizen` |
 | Volunteer | `volunteer1@email.com` | `/volunteer` |
+| Auditor | `auditor@city.gov` | `/auditor` |
 | Media | `press@herald.com` | `/media` |
 
 ---
@@ -852,7 +872,7 @@ JWT_EXPIRES_IN=15m
 REFRESH_TOKEN_SECRET=your-refresh-secret-key
 REFRESH_TOKEN_EXPIRES_IN=7d
 
-# Ollama — chat model
+# Ollama — chat model (see hardware tiers above)
 OLLAMA_BASE_URL=http://localhost:11434
 GEMMA_MODEL=gemma2:2b
 
@@ -860,6 +880,10 @@ GEMMA_MODEL=gemma2:2b
 # Must be 768-dim unless you also update the `vector(768)` columns in
 # the Prisma schema and re-run migrations.
 EMBED_MODEL=nomic-embed-text
+
+# Ollama — Phase 4 multimodal (optional)
+VISION_MODEL=llava:7b
+WHISPER_MODEL=whisper-small
 
 # Redis (optional — falls back to in-memory cache)
 REDIS_URL=redis://localhost:6379

@@ -69,7 +69,7 @@ describe('getFieldErrors', () => {
       const apiErr = apiErrWithDetails({
         issues: [{ path: ['title'], message: 'Title is required' }],
       });
-      expect(getFieldErrors(apiErr)).toEqual<FieldError[]>([
+      expect(getFieldErrors(apiErr)).toEqual([
         { field: 'title', message: 'Title is required', meta: {} },
       ]);
     });
@@ -82,7 +82,7 @@ describe('getFieldErrors', () => {
           { path: ['location'], message: 'Location is required' },
         ],
       });
-      expect(getFieldErrors(apiErr)).toEqual<FieldError[]>([
+      expect(getFieldErrors(apiErr)).toEqual([
         { field: 'title', message: 'Title is required', meta: {} },
         { field: 'description', message: 'Description is too short', meta: {} },
         { field: 'location', message: 'Location is required', meta: {} },
@@ -96,7 +96,7 @@ describe('getFieldErrors', () => {
           { path: ['description'], message: 'Required' },
         ],
       });
-      expect(getFieldErrors(apiErr)).toEqual<FieldError[]>([
+      expect(getFieldErrors(apiErr)).toEqual([
         { field: 'description', message: 'Required', meta: {} },
       ]);
     });
@@ -109,7 +109,7 @@ describe('getFieldErrors', () => {
           { path: ['location'], message: 'OK' },
         ],
       });
-      expect(getFieldErrors(apiErr)).toEqual<FieldError[]>([
+      expect(getFieldErrors(apiErr)).toEqual([
         { field: 'location', message: 'OK', meta: {} },
       ]);
     });
@@ -121,7 +121,7 @@ describe('getFieldErrors', () => {
           { path: ['description'], message: 'Required' },
         ],
       });
-      expect(getFieldErrors(apiErr)).toEqual<FieldError[]>([
+      expect(getFieldErrors(apiErr)).toEqual([
         { field: 'description', message: 'Required', meta: {} },
       ]);
     });
@@ -130,7 +130,7 @@ describe('getFieldErrors', () => {
       const apiErr = apiErrWithDetails({
         issues: [{ path: 'title', message: 'Bad' }],
       });
-      expect(getFieldErrors(apiErr)).toEqual<FieldError[]>([
+      expect(getFieldErrors(apiErr)).toEqual([
         { field: 'title', message: 'Bad', meta: {} },
       ]);
     });
@@ -139,7 +139,7 @@ describe('getFieldErrors', () => {
       const apiErr = apiErrWithDetails({
         issues: [{ path: [], message: 'Form-level error' }],
       });
-      expect(getFieldErrors(apiErr)).toEqual<FieldError[]>([
+      expect(getFieldErrors(apiErr)).toEqual([
         { field: '', message: 'Form-level error', meta: {} },
       ]);
     });
@@ -157,7 +157,7 @@ describe('getFieldErrors', () => {
           },
         ],
       });
-      expect(getFieldErrors(apiErr)).toEqual<FieldError[]>([
+      expect(getFieldErrors(apiErr)).toEqual([
         {
           field: 'password',
           message: 'Too short',
@@ -188,10 +188,10 @@ describe('getFieldErrors', () => {
       });
       const result = getFieldErrors(apiErr);
       expect(result).toHaveSize(2);
-      expect(result[0]).toEqual<FieldError>({
+      expect(result[0]).toEqual({
         field: 'password', message: 'Too short', meta: { code: 'too_small' },
       });
-      expect(result[1]).toEqual<FieldError>({
+      expect(result[1]).toEqual({
         field: 'password', message: 'Must contain a number', meta: { code: 'invalid_string' },
       });
     });
@@ -207,7 +207,7 @@ describe('getFieldErrors', () => {
         'New password must be at least 8 characters',
         'BAD_REQUEST',
       );
-      expect(getFieldErrors(apiErr)).toEqual<FieldError[]>([
+      expect(getFieldErrors(apiErr)).toEqual([
         { field: 'newPassword', message: 'New password must be at least 8 characters' },
       ]);
     });
@@ -218,7 +218,7 @@ describe('getFieldErrors', () => {
         'New password must be at least 8 characters',
         'BAD_REQUEST',
       );
-      expect(getFieldErrors(apiErr)).toEqual<FieldError[]>([
+      expect(getFieldErrors(apiErr)).toEqual([
         {
           field: 'newPassword',
           message: 'New password must be at least 8 characters',
@@ -291,7 +291,7 @@ describe('getFieldErrors', () => {
           { field: 'description', message: 'Too short' },
         ],
       });
-      expect(getFieldErrors(apiErr)).toEqual<FieldError[]>([
+      expect(getFieldErrors(apiErr)).toEqual([
         { field: 'title', message: 'Required' },
         { field: 'description', message: 'Too short' },
       ]);
@@ -306,7 +306,7 @@ describe('getFieldErrors', () => {
           { field: 'password', message: 'Weak' },
         ],
       });
-      expect(getFieldErrors(apiErr)).toEqual<FieldError[]>([
+      expect(getFieldErrors(apiErr)).toEqual([
         { field: 'title', message: 'Required' },
         { field: 'password', message: 'Weak' },
       ]);
@@ -321,7 +321,7 @@ describe('getFieldErrors', () => {
           { field: 'description', message: 'OK' },
         ],
       });
-      expect(getFieldErrors(apiErr)).toEqual<FieldError[]>([
+      expect(getFieldErrors(apiErr)).toEqual([
         { field: 'description', message: 'OK' },
       ]);
     });
@@ -470,7 +470,7 @@ describe('getFieldErrors', () => {
         'From field',
         'BAD_REQUEST',
       );
-      expect(getFieldErrors(apiErr)).toEqual<FieldError[]>([
+      expect(getFieldErrors(apiErr)).toEqual([
         { field: 'a', message: 'From issues', meta: {} },
       ]);
     });
@@ -484,7 +484,7 @@ describe('getFieldErrors', () => {
         'From field',
         'BAD_REQUEST',
       );
-      expect(getFieldErrors(apiErr)).toEqual<FieldError[]>([
+      expect(getFieldErrors(apiErr)).toEqual([
         { field: 'a', message: 'From field' },
       ]);
     });

@@ -8,6 +8,16 @@ import { parsePagination } from '../utils/pagination';
 
 const router = Router();
 
+router.get('/flagged-posts', authenticate, authorize('SUPER_ADMIN', 'COUNCIL_MEMBER', 'MAYOR'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+    const data = await forumService.listFlaggedPosts(limit);
+    res.json({ success: true, data, total: data.length });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.get('/', async (req, res) => {
   try {
     const result = await forumService.getAll({

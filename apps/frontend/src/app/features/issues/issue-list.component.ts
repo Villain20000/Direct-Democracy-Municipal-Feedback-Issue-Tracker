@@ -1,5 +1,5 @@
 import { Component, OnInit, inject } from '@angular/core';
-import { CommonModule, DatePipe } from '@angular/common';
+import { CommonModule, DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
@@ -10,10 +10,12 @@ import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { Issue, IssueStatus, IssueCategory, UserRole } from '@dd/shared-types';
 import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../core/utils/issue-ui';
 
+type IssueWithScore = Issue & { score?: number; rankReason?: string };
+
 @Component({
   selector: 'app-issue-list',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, LayoutComponent, DatePipe, TranslatePipe],
+  imports: [CommonModule, FormsModule, RouterLink, LayoutComponent, DatePipe, DecimalPipe, TranslatePipe],
   template: `
     <app-layout
       [pageTitle]="i18n.t('issues.allIssues')"
@@ -65,7 +67,51 @@ import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../c
         @if (canExport) {
           <button class="btn btn-secondary btn-sm" (click)="exportCsv()" [disabled]="exporting">{{ 'issues.export' | t }}</button>
         }
+        @if (canManageDuplicates) {
+          <button class="btn btn-secondary btn-sm" (click)="toggleDuplicateQueue()">
+            <i class="material-icons-outlined" style="font-size:16px;">content_copy</i>
+            {{ showDuplicateQueue ? ('issues.hideDuplicates' | t) : ('issues.showDuplicates' | t) }}
+          </button>
+        }
       </div>
+
+      @if (showDuplicateQueue) {
+        <div class="card" style="margin-bottom:16px;border-left:4px solid #D97706;" data-testid="duplicate-queue">
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+            <h3>{{ 'issues.duplicateQueueTitle' | t }}</h3>
+            <button class="btn btn-secondary btn-sm" (click)="loadDuplicateCandidates()" [disabled]="duplicateLoading">
+              {{ duplicateLoading ? ('issues.loadingDuplicates' | t) : ('issues.refreshDuplicates' | t) }}
+            </button>
+          </div>
+          <div class="card-body">
+            @for (pair of duplicatePairs; track pair.issueA.id + pair.issueB.id) {
+              <div style="padding:12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+                  <div style="flex:1;min-width:200px;">
+                    <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">{{ 'issues.duplicateCandidateA' | t }}</div>
+                    <a [routerLink]="['/issues', pair.issueA.id]" style="font-weight:600;font-size:13px;">{{ pair.issueA.title }}</a>
+                  </div>
+                  <div style="flex:1;min-width:200px;">
+                    <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">{{ 'issues.duplicateCandidateB' | t }}</div>
+                    <a [routerLink]="['/issues', pair.issueB.id]" style="font-weight:600;font-size:13px;">{{ pair.issueB.title }}</a>
+                  </div>
+                  <div style="text-align:right;">
+                    <span class="badge badge-amber">{{ i18n.t('issues.matchPct', { pct: ((pair.score * 100) | number:'1.0-0') }) }}</span>
+                    <button class="btn btn-primary btn-sm" style="display:block;margin-top:8px;" (click)="linkDuplicate(pair.issueA.id, pair.issueB.id)" [disabled]="linkingId === pair.issueA.id">
+                      {{ 'issues.linkAsDuplicate' | t }}
+                    </button>
+                  </div>
+                </div>
+                @if (pair.reason) {
+                  <p style="font-size:12px;color:var(--text-secondary);margin-top:8px;">{{ pair.reason }}</p>
+                }
+              </div>
+            } @empty {
+              <p style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px;">{{ 'issues.noDuplicateCandidates' | t }}</p>
+            }
+          </div>
+        </div>
+      }
 
       <div class="card">
         <div class="card-body" style="padding:0;">
@@ -139,7 +185,7 @@ import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../c
   `],
 })
 export class IssueListComponent implements OnInit {
-  issues: Issue[] = [];
+  issues: IssueWithScore[] = [];
   total = 0;
   page = 1;
   totalPages = 1;
@@ -157,6 +203,11 @@ export class IssueListComponent implements OnInit {
   exporting = false;
   canBulkUpdate = false;
   canExport = false;
+  canManageDuplicates = false;
+  showDuplicateQueue = false;
+  duplicatePairs: any[] = [];
+  duplicateLoading = false;
+  linkingId = '';
   // Smart search state.
   searching = false;
   searchMode: 'semantic' | 'text-fallback' | 'text-empty' | null = null;
@@ -180,6 +231,7 @@ export class IssueListComponent implements OnInit {
   constructor() {
     this.canBulkUpdate = this.auth.hasRole(UserRole.SUPER_ADMIN, UserRole.MAYOR, UserRole.DEPARTMENT_HEAD, UserRole.STAFF);
     this.canExport = this.auth.hasRole(UserRole.SUPER_ADMIN, UserRole.MAYOR, UserRole.AUDITOR, UserRole.DEPARTMENT_HEAD);
+    this.canManageDuplicates = this.auth.hasRole(UserRole.SUPER_ADMIN, UserRole.MAYOR, UserRole.DEPARTMENT_HEAD);
   }
 
   ngOnInit() {
@@ -224,33 +276,38 @@ export class IssueListComponent implements OnInit {
     const seq = ++this.searchSeq;
     this.api.searchSimilarIssues(q, 20, 0.2).subscribe({
       next: (res) => {
-        if (seq !== this.searchSeq) return; // stale response
-        this.searching = false;
-        this.searchMode = res.mode;
+        if (seq !== this.searchSeq) return;
         const raw = res.data || [];
-        const rawCount = raw.length;
-        this.issues = raw;
-        this.total = res.total || 0;
-        this.page = 1;
-        this.totalPages = 1;
-        // Filters (status/category) can't be applied server-side on the
-        // semantic result, so filter the client-side result if both
-        // filters and a query are active.
-        if (this.filterStatus || this.filterCategory) {
-          this.issues = this.issues.filter((i) => {
-            if (this.filterStatus && i.status !== this.filterStatus) return false;
-            if (this.filterCategory && i.category !== this.filterCategory) return false;
-            return true;
-          });
-          this.total = this.issues.length;
+        if (raw.length === 0 || res.mode !== 'semantic') {
+          this.finishSmartSearch(seq, res.mode, raw, res.total || 0);
+          return;
         }
-        // UX guard: if the semantic search found rows but the filters
-        // excluded all of them, surface that to the user with a
-        // dedicated hint so the "Smart" badge doesn't sit on an empty
-        // list looking broken.
-        this.filteredOutCount = (this.filterStatus || this.filterCategory) && this.issues.length === 0 && rawCount > 0
-          ? rawCount
-          : 0;
+        const candidates = raw.map((i: Issue) => ({
+          id: i.id,
+          title: i.title,
+          description: i.description,
+          category: i.category,
+        }));
+        this.api.aiSmartSearch(q, candidates).subscribe({
+          next: (rankRes) => {
+            if (seq !== this.searchSeq) return;
+            const ranked = rankRes?.data?.results || rankRes?.results || [];
+            const byId = new Map(raw.map((i: Issue) => [i.id, i]));
+            const merged: IssueWithScore[] = ranked
+              .map((r: any) => {
+                const issue = byId.get(r.id);
+                if (!issue) return null;
+                return { ...issue, score: r.score ?? (issue as IssueWithScore).score, rankReason: r.reason };
+              })
+              .filter(Boolean) as IssueWithScore[];
+            const rankedIds = new Set(merged.map((i) => i.id));
+            for (const issue of raw) {
+              if (!rankedIds.has(issue.id)) merged.push(issue);
+            }
+            this.finishSmartSearch(seq, 'semantic', merged, merged.length);
+          },
+          error: () => this.finishSmartSearch(seq, res.mode, raw, res.total || 0),
+        });
       },
       error: () => {
         if (seq !== this.searchSeq) return;
@@ -258,6 +315,59 @@ export class IssueListComponent implements OnInit {
         this.searchMode = 'text-fallback';
         this.loadIssues();
       },
+    });
+  }
+
+  private finishSmartSearch(seq: number, mode: typeof this.searchMode, raw: IssueWithScore[], total: number) {
+    if (seq !== this.searchSeq) return;
+    this.searching = false;
+    this.searchMode = mode;
+    const rawCount = raw.length;
+    this.issues = raw;
+    this.total = total;
+    this.page = 1;
+    this.totalPages = 1;
+    if (this.filterStatus || this.filterCategory) {
+      this.issues = this.issues.filter((i) => {
+        if (this.filterStatus && i.status !== this.filterStatus) return false;
+        if (this.filterCategory && i.category !== this.filterCategory) return false;
+        return true;
+      });
+      this.total = this.issues.length;
+    }
+    this.filteredOutCount = (this.filterStatus || this.filterCategory) && this.issues.length === 0 && rawCount > 0
+      ? rawCount
+      : 0;
+  }
+
+  toggleDuplicateQueue() {
+    this.showDuplicateQueue = !this.showDuplicateQueue;
+    if (this.showDuplicateQueue && !this.duplicatePairs.length) {
+      this.loadDuplicateCandidates();
+    }
+  }
+
+  loadDuplicateCandidates() {
+    this.duplicateLoading = true;
+    this.api.getDuplicateCandidates(15).subscribe({
+      next: (res) => {
+        this.duplicatePairs = res.data || [];
+        this.duplicateLoading = false;
+      },
+      error: () => { this.duplicatePairs = []; this.duplicateLoading = false; },
+    });
+  }
+
+  linkDuplicate(duplicateId: string, canonicalId: string) {
+    this.linkingId = duplicateId;
+    this.api.linkIssueDuplicate(duplicateId, canonicalId).subscribe({
+      next: () => {
+        this.duplicatePairs = this.duplicatePairs.filter(
+          (p) => p.issueA.id !== duplicateId && p.issueB.id !== duplicateId,
+        );
+        this.linkingId = '';
+      },
+      error: () => { this.linkingId = ''; },
     });
   }
 

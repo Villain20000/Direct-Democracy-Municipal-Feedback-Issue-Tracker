@@ -31,7 +31,8 @@ interface AdminDocument {
     <app-layout
       [pageTitle]="i18n.t('adminDocs.pageTitle')"
       [navItems]="navItems"
-      (logout)="auth.logout()">
+      (logout)="auth.logout()"
+      data-testid="admin-documents-page">
 
       <div class="content-grid" style="grid-template-columns: 1fr 380px; align-items: start;">
 

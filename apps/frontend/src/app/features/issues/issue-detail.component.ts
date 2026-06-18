@@ -1,5 +1,6 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule, DatePipe, DecimalPipe } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
@@ -8,13 +9,13 @@ import { ToastService } from '../../core/services/toast.service';
 import { TranslationService } from '../../core/i18n/translation.service';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { getFieldErrors, groupFieldErrorsByField, toApiError } from '../../core/errors/api-error';
-import { Issue, UserRole } from '@dd/shared-types';
+import { Issue, User, UserRole } from '@dd/shared-types';
 import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../core/utils/issue-ui';
 
 @Component({
   selector: 'app-issue-detail',
   standalone: true,
-  imports: [CommonModule, RouterLink, LayoutComponent, DatePipe, DecimalPipe, TranslatePipe],
+  imports: [CommonModule, FormsModule, RouterLink, LayoutComponent, DatePipe, DecimalPipe, TranslatePipe],
   styles: [`
     /* === Status stepper — GSAP-style satisfying transitions === */
 
@@ -178,8 +179,18 @@ import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../c
                       </div>
                     }
                   </div>
-                  <div style="display:flex;gap:8px;">
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;">
                     <button class="btn btn-primary btn-sm" (click)="upvote()">{{ 'issues.voteUp' | t }} ({{ issue.upvotes }})</button>
+                    @if (auth.isAuthenticated()) {
+                      <button
+                        class="btn btn-secondary btn-sm"
+                        data-testid="issue-subscribe-btn"
+                        [disabled]="subscribeLoading"
+                        (click)="toggleSubscribe()">
+                        <i class="material-icons-outlined" style="font-size:16px;">{{ isSubscribed ? 'notifications_off' : 'notifications' }}</i>
+                        {{ isSubscribed ? ('issues.unsubscribe' | t) : ('issues.subscribe' | t) }}
+                      </button>
+                    }
                     <button class="btn btn-secondary btn-sm" (click)="share()"><i class="material-icons-outlined" style="font-size:16px;">share</i> {{ 'issues.share' | t }}</button>
                     <button class="btn btn-secondary btn-sm" (click)="print()" [title]="'issues.print' | t"><i class="material-icons-outlined" style="font-size:16px;">print</i></button>
                   </div>
@@ -246,6 +257,32 @@ import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../c
           </div>
 
           <div style="flex:1;min-width:280px;">
+            @if (canAssign) {
+              <div class="card" style="margin-bottom:24px;">
+                <div class="card-header"><h3>{{ 'detail.assignIssue' | t }}</h3></div>
+                <div class="card-body">
+                  <select
+                    data-testid="issue-assign-select"
+                    [(ngModel)]="selectedAssigneeId"
+                    style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;margin-bottom:10px;">
+                    <option value="">{{ 'detail.selectAssignee' | t }}</option>
+                    @for (member of staffMembers; track member.id) {
+                      <option [value]="member.id">{{ member.firstName }} {{ member.lastName }}</option>
+                    }
+                  </select>
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-sm"
+                    data-testid="issue-assign-btn"
+                    style="width:100%;"
+                    [disabled]="!selectedAssigneeId || assignLoading"
+                    (click)="assignIssue()">
+                    @if (assignLoading) { {{ 'detail.assigning' | t }} } @else { {{ 'detail.assignBtn' | t }} }
+                  </button>
+                </div>
+              </div>
+            }
+
             @if (canUpdateStatus) {
               <div class="card" style="margin-bottom:24px;">
                 <div class="card-header"><h3>{{ 'detail.updateStatus' | t }}</h3></div>
@@ -253,11 +290,56 @@ import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../c
                   @if (statusError) {
                     <div style="color:var(--danger);font-size:13px;margin-bottom:12px;">{{ statusError }}</div>
                   }
-                  <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                    <button type="button" class="btn btn-primary btn-sm" [disabled]="statusUpdating || issue.status === 'IN_PROGRESS'" (click)="updateStatus('IN_PROGRESS')">{{ 'status.start' | t }}</button>
-                    <button type="button" class="btn btn-secondary btn-sm" [disabled]="statusUpdating" (click)="updateStatus('PENDING_REVIEW')">{{ 'status.review' | t }}</button>
-                    <button type="button" class="btn btn-success btn-sm" [disabled]="statusUpdating || issue.status === 'RESOLVED'" (click)="updateStatus('RESOLVED')">{{ 'status.resolve' | t }}</button>
-                  </div>
+                  @if (!pendingStatus) {
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                      <button type="button" class="btn btn-primary btn-sm" [disabled]="statusUpdating || issue.status === 'IN_PROGRESS'" (click)="prepareStatusUpdate('IN_PROGRESS')">{{ 'status.start' | t }}</button>
+                      <button type="button" class="btn btn-secondary btn-sm" [disabled]="statusUpdating" (click)="prepareStatusUpdate('PENDING_REVIEW')">{{ 'status.review' | t }}</button>
+                      <button type="button" class="btn btn-success btn-sm" [disabled]="statusUpdating || issue.status === 'RESOLVED'" (click)="prepareStatusUpdate('RESOLVED')">{{ 'status.resolve' | t }}</button>
+                    </div>
+                  } @else {
+                    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">{{ 'detail.statusDraftHint' | t }}</p>
+                    @if (draftLoading) {
+                      <p style="font-size:13px;color:var(--text-muted);">{{ 'detail.draftingMessage' | t }}</p>
+                    }
+                    @if (pendingStatus === 'RESOLVED') {
+                      <textarea
+                        [(ngModel)]="resolutionNote"
+                        rows="3"
+                        style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;margin-bottom:8px;"
+                        [placeholder]="'detail.resolutionNotePlaceholder' | t"
+                      ></textarea>
+                      @if (resolutionScore !== null) {
+                        <div style="font-size:12px;margin-bottom:8px;padding:8px;background:var(--bg-primary);border-radius:var(--radius);"
+                             [style.color]="resolutionScore < 60 ? 'var(--danger)' : 'var(--text-secondary)'">
+                          {{ 'detail.resolutionScore' | t }}: {{ resolutionScore }}/100
+                          @if (resolutionGaps.length) {
+                            <ul style="margin:6px 0 0 16px;padding:0;">
+                              @for (gap of resolutionGaps; track gap) { <li>{{ gap }}</li> }
+                            </ul>
+                          }
+                        </div>
+                      }
+                      <button type="button" class="btn btn-secondary btn-sm" style="margin-bottom:12px;" (click)="scoreResolution()" [disabled]="scoringResolution || !resolutionNote.trim()">
+                        {{ scoringResolution ? ('detail.scoringResolution' | t) : ('detail.scoreResolution' | t) }}
+                      </button>
+                    }
+                    <textarea
+                      [(ngModel)]="statusDraft"
+                      rows="4"
+                      style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;margin-bottom:12px;"
+                      [placeholder]="'detail.statusDraftPlaceholder' | t"
+                    ></textarea>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                      <button type="button" class="btn btn-primary btn-sm" [disabled]="statusUpdating || !statusDraft.trim()" (click)="confirmStatusUpdate()">
+                        {{ 'detail.sendStatusUpdate' | t }}
+                      </button>
+                      <button type="button" class="btn btn-secondary btn-sm" [disabled]="statusUpdating" (click)="cancelStatusUpdate()">{{ 'common.cancel' | t }}</button>
+                      <button type="button" class="btn btn-secondary btn-sm" [disabled]="draftLoading" (click)="regenerateStatusDraft()">
+                        <i class="material-icons-outlined" style="font-size:16px;vertical-align:middle;">auto_awesome</i>
+                        {{ 'detail.regenerateDraft' | t }}
+                      </button>
+                    </div>
+                  }
                 </div>
               </div>
             }
@@ -294,8 +376,76 @@ import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../c
               <div class="card-body">
                 <div style="font-size:13px;margin-bottom:12px;"><span style="color:var(--text-muted);">{{ 'detail.department' | t }}</span> <strong>{{ issue.department?.name || i18n.t('common.none') }}</strong></div>                  <div style="font-size:13px;margin-bottom:12px;"><span style="color:var(--text-muted);">{{ 'detail.ward' | t }}</span> <strong>{{ issue.ward?.name || i18n.t('detail.na') }}</strong></div>
                 <div style="font-size:13px;margin-bottom:12px;"><span style="color:var(--text-muted);">{{ 'detail.assignedTo' | t }}</span> <strong>{{ issue.assignee?.firstName || i18n.t('common.none') }}</strong></div>
+                @if (sla) {
+                  <div style="font-size:13px;margin-bottom:12px;">
+                    <span style="color:var(--text-muted);">{{ 'detail.slaDue' | t }}</span>
+                    <strong [style.color]="sla.breached ? 'var(--danger)' : 'var(--success)'">
+                      {{ sla.breached ? ('detail.slaBreached' | t) : ('detail.slaOnTrack' | t) }}
+                      — {{ sla.dueAt | date:'medium' }}
+                    </strong>
+                  </div>
+                }
                 @if (issue.resolvedAt) {
                   <div style="font-size:13px;"><span style="color:var(--text-muted);">{{ 'detail.resolved' | t }}</span> <strong>{{ issue.resolvedAt | date:'medium' }}</strong></div>
+                }
+              </div>
+            </div>
+
+            @if (canUpdateStatus) {
+              <div class="card" style="margin-bottom:24px;">
+                <div class="card-header"><h3>{{ 'detail.internalNotes' | t }}</h3></div>
+                <div class="card-body">
+                  @if (internalNotes.length === 0) {
+                    <p style="font-size:13px;color:var(--text-muted);">{{ 'detail.noInternalNotes' | t }}</p>
+                  }
+                  @for (note of internalNotes; track note.id) {
+                    <div style="padding:10px 0;border-bottom:1px solid var(--border-light);">
+                      <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">
+                        {{ note.author?.firstName }} {{ note.author?.lastName }} · {{ note.createdAt | date:'short' }}
+                      </div>
+                      <p style="font-size:13px;margin:0;">{{ note.content }}</p>
+                    </div>
+                  }
+                  <div style="margin-top:12px;display:flex;gap:8px;">
+                    <input #noteInput type="text" [placeholder]="i18n.t('detail.internalNotesPlaceholder')" style="flex:1;padding:10px 16px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" />
+                    <button class="btn btn-primary btn-sm" [disabled]="noteLoading" (click)="addInternalNote(noteInput)">{{ 'detail.addNote' | t }}</button>
+                  </div>
+                </div>
+              </div>
+            }
+
+            <div class="card" style="margin-bottom:24px;" data-testid="related-impact-panel">
+              <div class="card-header"><h3>{{ 'detail.relatedImpact' | t }}</h3></div>
+              <div class="card-body">
+                @if (!relatedImpact) {
+                  <button type="button" class="btn btn-secondary btn-sm" (click)="loadRelatedImpact()" [disabled]="relatedImpactLoading">
+                    {{ relatedImpactLoading ? ('detail.relatedImpactLoading' | t) : ('detail.relatedImpactBtn' | t) }}
+                  </button>
+                } @else {
+                  <div style="font-size:12px;margin-bottom:10px;">
+                    <div style="font-weight:700;color:var(--text-muted);text-transform:uppercase;font-size:11px;">{{ 'detail.rootCause' | t }}</div>
+                    <p style="margin:4px 0 0;">{{ relatedImpact.analysis.rootCause }}</p>
+                  </div>
+                  <div style="font-size:12px;margin-bottom:10px;">
+                    <div style="font-weight:700;color:var(--text-muted);text-transform:uppercase;font-size:11px;">{{ 'detail.communityImpact' | t }}</div>
+                    <p style="margin:4px 0 0;">{{ relatedImpact.analysis.impact }}</p>
+                  </div>
+                  @if (relatedImpact.analysis.recommendations?.length) {
+                    <div style="font-size:12px;margin-bottom:10px;">
+                      <div style="font-weight:700;color:var(--text-muted);text-transform:uppercase;font-size:11px;">{{ 'detail.recommendations' | t }}</div>
+                      <ul style="margin:4px 0 0 16px;padding:0;">
+                        @for (rec of relatedImpact.analysis.recommendations; track rec) {
+                          <li>{{ rec }}</li>
+                        }
+                      </ul>
+                    </div>
+                  }
+                  @if (relatedImpact.semanticNeighbors?.length) {
+                    <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">{{ 'detail.semanticNeighbors' | t }}</div>
+                    @for (n of relatedImpact.semanticNeighbors; track n.id) {
+                      <a [routerLink]="['/issues', n.id]" style="display:block;font-size:12px;padding:4px 0;">{{ n.title }}</a>
+                    }
+                  }
                 }
               </div>
             </div>
@@ -351,6 +501,19 @@ export class IssueDetailComponent implements OnInit {
   predictionLoading = false;
   statusUpdating = false;
   statusError = '';
+  pendingStatus = '';
+  statusDraft = '';
+  draftLoading = false;
+  resolutionNote = '';
+  resolutionScore: number | null = null;
+  resolutionGaps: string[] = [];
+  scoringResolution = false;
+  relatedImpactLoading = false;
+  relatedImpact: {
+    semanticNeighbors: Array<{ id: string; title: string }>;
+    spatialNeighbors: Array<{ id: string; title: string }>;
+    analysis: { rootCause: string; impact: string; recommendations: string[] };
+  } | null = null;
   /**
    * Inline field-level errors. Currently used only for the
    * `comment.content` field (the comment post is the one input on
@@ -358,6 +521,14 @@ export class IssueDetailComponent implements OnInit {
    * button-driven and gets the top-of-card `statusError` treatment).
    */
   fieldErrors: Record<string, string> = {};
+  isSubscribed = false;
+  subscribeLoading = false;
+  internalNotes: Array<{ id: string; content: string; createdAt: string; author?: { firstName: string; lastName: string } }> = [];
+  noteLoading = false;
+  sla: { priority: string; dueAt: string; breached: boolean } | null = null;
+  staffMembers: User[] = [];
+  selectedAssigneeId = '';
+  assignLoading = false;
   statusFlow = ['SUBMITTED', 'ACKNOWLEDGED', 'IN_PROGRESS', 'PENDING_REVIEW', 'RESOLVED', 'VERIFIED'];
   navItems = [{ icon: 'arrow_back', label: 'nav.backToIssues', route: '/issues' }] as any;
 
@@ -376,7 +547,22 @@ export class IssueDetailComponent implements OnInit {
     );
   }
 
-  ngOnInit() { this.reloadIssue(); }
+  get canAssign(): boolean {
+    return this.canUpdateStatus;
+  }
+
+  ngOnInit() {
+    if (this.canAssign) this.loadStaffMembers();
+    this.reloadIssue();
+  }
+
+  loadStaffMembers() {
+    this.api.getUsers({ role: 'STAFF', pageSize: '50' }).subscribe({
+      next: (res: any) => {
+        if (res.data) this.staffMembers = res.data;
+      },
+    });
+  }
 
   reloadIssue() {
     const id = this.route.snapshot.paramMap.get('id');
@@ -387,9 +573,85 @@ export class IssueDetailComponent implements OnInit {
         if (res.success) {
           this.issue = res.data;
           this.attachments = (res.data as any).attachments || [];
+          this.loadSubscriptionState();
+          this.selectedAssigneeId = res.data.assigneeId || res.data.assignee?.id || '';
+          if (this.canUpdateStatus) {
+            this.loadInternalNotes();
+            this.loadSla();
+          }
         }
       },
       error: (err) => { this.loadError = err.error?.error || this.i18n.t('issues.issueNotLoaded'); },
+    });
+  }
+
+  loadSubscriptionState() {
+    if (!this.issue || !this.auth.isAuthenticated()) return;
+    this.api.getMySubscriptions().subscribe({
+      next: (res) => {
+        if (res.success) {
+          this.isSubscribed = res.data.some((s) => s.issueId === this.issue!.id);
+        }
+      },
+    });
+  }
+
+  toggleSubscribe() {
+    if (!this.issue || this.subscribeLoading) return;
+    this.subscribeLoading = true;
+    const onDone = () => {
+      this.subscribeLoading = false;
+      this.toast.success(this.isSubscribed ? this.i18n.t('issues.subscribed') : this.i18n.t('issues.unsubscribed'));
+    };
+    const onError = () => {
+      this.subscribeLoading = false;
+      this.toast.error(this.i18n.t('issues.subscribeFailed'));
+    };
+    if (this.isSubscribed) {
+      this.api.unsubscribeFromIssue(this.issue.id).subscribe({
+        next: (res) => { if (res.success) { this.isSubscribed = false; onDone(); } },
+        error: onError,
+      });
+    } else {
+      this.api.subscribeToIssue(this.issue.id).subscribe({
+        next: (res) => { if (res.success) { this.isSubscribed = true; onDone(); } },
+        error: onError,
+      });
+    }
+  }
+
+  loadInternalNotes() {
+    if (!this.issue) return;
+    this.api.getInternalNotes(this.issue.id).subscribe({
+      next: (res) => { if (res.success) this.internalNotes = res.data; },
+    });
+  }
+
+  addInternalNote(input: HTMLInputElement) {
+    if (!this.issue || this.noteLoading) return;
+    const content = input.value.trim();
+    if (!content) return;
+    this.noteLoading = true;
+    this.api.addInternalNote(this.issue.id, content).subscribe({
+      next: (res) => {
+        this.noteLoading = false;
+        if (res.success) {
+          input.value = '';
+          this.loadInternalNotes();
+          this.toast.success(this.i18n.t('detail.addNote'));
+        }
+      },
+      error: () => {
+        this.noteLoading = false;
+        this.toast.error(this.i18n.t('issues.createFailed'));
+      },
+    });
+  }
+
+  loadSla() {
+    if (!this.issue) return;
+    this.api.getIssueSla(this.issue.id).subscribe({
+      next: (res) => { if (res.success) this.sla = res.data; },
     });
   }
 
@@ -477,15 +739,48 @@ export class IssueDetailComponent implements OnInit {
 
   share() {
     if (!this.issue) return;
-    const url = window.location.href;
-    if (navigator.share) {
-      navigator.share({ title: this.issue.title, text: this.issue.description?.slice(0, 120), url })
-        .then(() => this.toast.success(this.i18n.t('issues.shared')))
-        .catch(() => {});
-    } else {
-      navigator.clipboard.writeText(url).then(() => this.toast.success(this.i18n.t('issues.linkCopied')))
-        .catch(() => this.toast.error(this.i18n.t('issues.shareFailed')));
+    const copyUrl = (url: string) => {
+      if (navigator.share) {
+        navigator.share({ title: this.issue!.title, text: this.issue!.description?.slice(0, 120), url })
+          .then(() => this.toast.success(this.i18n.t('issues.shared')))
+          .catch(() => {});
+      } else {
+        navigator.clipboard.writeText(url).then(() => this.toast.success(this.i18n.t('issues.linkCopied')))
+          .catch(() => this.toast.error(this.i18n.t('issues.shareFailed')));
+      }
+    };
+    if (this.canUpdateStatus) {
+      this.api.createShareLink(this.issue.id, 30).subscribe({
+        next: (res) => {
+          if (res.success && res.data?.token) {
+            copyUrl(`${window.location.origin}/share/${res.data.token}`);
+          } else {
+            copyUrl(window.location.href);
+          }
+        },
+        error: () => copyUrl(window.location.href),
+      });
+      return;
     }
+    copyUrl(window.location.href);
+  }
+
+  assignIssue() {
+    if (!this.issue || !this.selectedAssigneeId || this.assignLoading) return;
+    this.assignLoading = true;
+    this.api.assignIssue(this.issue.id, this.selectedAssigneeId, this.issue.departmentId).subscribe({
+      next: (res) => {
+        this.assignLoading = false;
+        if (res.success) {
+          this.issue = { ...this.issue!, ...res.data };
+          this.toast.success(this.i18n.t('detail.assignSuccess'));
+        }
+      },
+      error: () => {
+        this.assignLoading = false;
+        this.toast.error(this.i18n.t('detail.assignFailed'));
+      },
+    });
   }
 
   print() {
@@ -499,15 +794,85 @@ export class IssueDetailComponent implements OnInit {
     return idx < currentIdx;
   }
 
-  updateStatus(status: string) {
+  prepareStatusUpdate(status: string) {
     if (!this.issue || this.statusUpdating) return;
+    this.pendingStatus = status;
+    this.statusError = '';
+    this.regenerateStatusDraft();
+  }
+
+  regenerateStatusDraft() {
+    if (!this.issue || !this.pendingStatus) return;
+    this.draftLoading = true;
+    this.api.aiDraftStatusUpdate({
+      title: this.issue.title,
+      oldStatus: this.issue.status,
+      newStatus: this.pendingStatus,
+      locale: this.i18n.currentLanguage().code,
+    }).subscribe({
+      next: (res) => {
+        this.statusDraft = res.data?.draft || '';
+        this.draftLoading = false;
+      },
+      error: () => {
+        this.statusDraft = `"${this.issue!.title}" is now ${this.pendingStatus.replace(/_/g, ' ').toLowerCase()}.`;
+        this.draftLoading = false;
+      },
+    });
+  }
+
+  cancelStatusUpdate() {
+    this.pendingStatus = '';
+    this.statusDraft = '';
+    this.statusError = '';
+    this.resolutionNote = '';
+    this.resolutionScore = null;
+    this.resolutionGaps = [];
+  }
+
+  loadRelatedImpact() {
+    if (!this.issue) return;
+    this.relatedImpactLoading = true;
+    this.api.aiRelatedImpact(this.issue.id).subscribe({
+      next: (res) => {
+        this.relatedImpact = res.data;
+        this.relatedImpactLoading = false;
+      },
+      error: () => { this.relatedImpactLoading = false; },
+    });
+  }
+
+  scoreResolution() {
+    if (!this.issue || !this.resolutionNote.trim()) return;
+    this.scoringResolution = true;
+    this.api.aiScoreResolution({
+      title: this.issue.title,
+      description: this.issue.description,
+      resolutionNote: this.resolutionNote.trim(),
+      category: this.issue.category,
+    }).subscribe({
+      next: (res) => {
+        this.resolutionScore = res.data?.score ?? null;
+        this.resolutionGaps = res.data?.gaps || [];
+        this.scoringResolution = false;
+      },
+      error: () => { this.scoringResolution = false; },
+    });
+  }
+
+  confirmStatusUpdate() {
+    if (!this.issue || !this.pendingStatus || this.statusUpdating) return;
     this.statusUpdating = true;
     this.statusError = '';
-    this.api.updateIssueStatus(this.issue.id, status).subscribe({
+    const note = this.pendingStatus === 'RESOLVED' && this.resolutionNote.trim()
+      ? this.resolutionNote.trim()
+      : undefined;
+    this.api.updateIssueStatus(this.issue.id, this.pendingStatus, note, this.statusDraft.trim()).subscribe({
       next: (res) => {
         if (res.success) {
           this.issue = { ...this.issue!, ...res.data };
-          this.toast.success(this.i18n.t('issues.statusUpdateSuccess', { status: this.formatIssueStatus(status) }));
+          this.toast.success(this.i18n.t('issues.statusUpdateSuccess', { status: this.formatIssueStatus(this.pendingStatus) }));
+          this.cancelStatusUpdate();
         }
         this.statusUpdating = false;
       },

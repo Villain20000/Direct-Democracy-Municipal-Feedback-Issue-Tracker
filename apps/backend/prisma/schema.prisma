@@ -123,6 +123,7 @@ model Ward {
   users       User[]           @relation("WardResident")
   issues      Issue[]
   departments DepartmentWard[]
+  digests     WardDigest[]
 }
 
 model Department {
@@ -186,8 +187,18 @@ model Issue {
   department            Department?   @relation(fields: [departmentId], references: [id])
   wardId                String?
   ward                  Ward?         @relation(fields: [wardId], references: [id])
+  /// When set, this issue is marked as a duplicate of another report.
+  duplicateOfId         String?
+  duplicateOf           Issue?        @relation("IssueDuplicates", fields: [duplicateOfId], references: [id], onDelete: SetNull)
+  duplicates            Issue[]       @relation("IssueDuplicates")
   aiCategory            String?
   aiSentiment           String?
+  /// Detected primary language of the citizen report ('en' | 'el').
+  contentLocale         String?
+  titleEn               String?
+  titleEl               String?
+  descriptionEn         String?
+  descriptionEl         String?
   resolvedAt            DateTime?
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
@@ -290,6 +301,10 @@ model ForumPost {
   authorId  String
   author    User     @relation(fields: [authorId], references: [id])
   content   String
+  /// AI moderation flag (set asynchronously after post create).
+  moderationFlag       Boolean  @default(false)
+  moderationSeverity   String?
+  moderationReason     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -603,14 +618,42 @@ model IssueShareLink {
 
 // --- 3. Saved searches (issue filter combos) ---
 model SavedSearch {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name      String
-  filters   Json
-  createdAt DateTime @default(now())
+  id            String                @id @default(uuid())
+  userId        String
+  user          User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  filters       Json
+  /// Semantic query text for AI alert matching (from filters.search).
+  queryText     String?
+  alertsEnabled Boolean               @default(true)
+  createdAt     DateTime              @default(now())
+  embedding     SavedSearchEmbedding?
+  alerts        SavedSearchAlert[]
 
   @@index([userId])
+}
+
+/// Embedding for saved-search semantic alert matching.
+model SavedSearchEmbedding {
+  id            String      @id @default(uuid())
+  savedSearchId String      @unique
+  savedSearch   SavedSearch @relation(fields: [savedSearchId], references: [id], onDelete: Cascade)
+  embedding     Unsupported("vector(768)")?
+  contentHash   String
+  generatedAt   DateTime    @default(now())
+}
+
+/// Dedupes saved-search alert notifications per issue.
+model SavedSearchAlert {
+  id            String      @id @default(uuid())
+  savedSearchId String
+  savedSearch   SavedSearch @relation(fields: [savedSearchId], references: [id], onDelete: Cascade)
+  issueId       String
+  score         Float
+  createdAt     DateTime    @default(now())
+
+  @@unique([savedSearchId, issueId])
+  @@index([savedSearchId])
 }
 
 // --- 4. Notification preferences (per-channel opt-in) ---
@@ -792,4 +835,69 @@ model WeeklySummary {
   createdAt   DateTime @default(now())
 
   @@index([weekStart])
+}
+
+/// Daily AI digest for ward representatives — one row per ward per day.
+model WardDigest {
+  id          String   @id @default(uuid())
+  wardId      String
+  ward        Ward     @relation(fields: [wardId], references: [id], onDelete: Cascade)
+  /// ISO date key "YYYY-MM-DD" for idempotency.
+  dateKey     String
+  body        String
+  issueCount  Int      @default(0)
+  issueIds    String[]
+  generatedAt DateTime @default(now())
+  source      String   @default("AUTO")
+
+  @@unique([wardId, dateKey])
+  @@index([dateKey])
+}
+
+/// Monthly AI demand forecast narrative for the mayor dashboard.
+model SeasonalForecast {
+  id          String   @id @default(uuid())
+  /// Month key "YYYY-MM" for idempotency.
+  monthKey    String   @unique
+  stats       Json
+  narrative   String
+  generatedAt DateTime @default(now())
+  source      String   @default("AUTO")
+}
+
+// =====================================================
+// === Citizen FAQ knowledge base (Phase 3 AI)
+// =====================================================
+
+/// Auto-generated Q&A from resolved issues. Included in hybrid RAG.
+model FaqEntry {
+  id             String     @id @default(uuid())
+  question       String
+  answer         String
+  category       String?
+  sourceIssueIds String[]
+  contentHash    String     @unique
+  published      Boolean    @default(true)
+  /// ISO week key for idempotent weekly generation.
+  weekKey        String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  chunks         FaqChunk[]
+
+  @@index([published])
+  @@index([category])
+  @@index([weekKey])
+}
+
+model FaqChunk {
+  id         String                       @id @default(uuid())
+  faqEntryId String
+  faqEntry   FaqEntry                     @relation(fields: [faqEntryId], references: [id], onDelete: Cascade)
+  chunkIndex Int
+  content    String
+  embedding  Unsupported("vector(768)")?
+  createdAt  DateTime                     @default(now())
+
+  @@unique([faqEntryId, chunkIndex])
+  @@index([faqEntryId])
 }

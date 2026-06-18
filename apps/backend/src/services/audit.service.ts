@@ -1,4 +1,5 @@
 import { prisma } from '../db/client';
+import { aiService } from '../ai/ollama.service';
 
 export const auditService = {
   async log(data: { userId: string; action: string; entity: string; entityId: string; oldValues?: any; newValues?: any; ipAddress?: string }) {
@@ -76,6 +77,22 @@ export const auditService = {
       });
     }
 
-    return anomalies.slice(0, 5);
+    const base = anomalies.slice(0, 5);
+    try {
+      const narrated = await aiService.narrateAnomalies(base);
+      return {
+        anomalies: base,
+        summary: narrated.summary,
+        items: narrated.items || base.map((a) => ({ ...a, narrative: a.desc, recommendedAction: '' })),
+        fallback: narrated.fallback,
+      };
+    } catch {
+      return {
+        anomalies: base,
+        summary: `${base.length} anomal${base.length === 1 ? 'y' : 'ies'} detected.`,
+        items: base.map((a) => ({ ...a, narrative: a.desc, recommendedAction: '' })),
+        fallback: true,
+      };
+    }
   },
 };

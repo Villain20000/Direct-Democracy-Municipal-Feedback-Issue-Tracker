@@ -271,9 +271,15 @@ export function getFieldErrors(apiErr: ApiError | null | undefined): FieldError[
 
   // Shape 2: BadRequestError with details.field
   if (typeof details['field'] === 'string' && apiErr.message) {
-    const { field, ...rest } = details as { field: string } & Record<string, unknown>;
-    const meta = Object.keys(rest).length > 0 ? rest : undefined;
-    return [{ field, message: apiErr.message, meta }];
+    const field = details['field'] as string;
+    const metaBag = { ...details };
+    delete metaBag['field'];
+    delete metaBag['fieldErrors'];
+    delete metaBag['issues'];
+    const meta = Object.keys(metaBag).length > 0 ? metaBag : undefined;
+    const entry: FieldError = { field, message: apiErr.message };
+    if (meta) entry.meta = meta;
+    return [entry];
   }
 
   // Shape 3: explicit fieldErrors array

@@ -1,5 +1,6 @@
 import { prisma } from '../db/client';
 import { AlreadyClosedError, NotFoundError } from '../errors/domain-errors';
+import { aiService } from '../ai/ollama.service';
 
 export const forumService = {
   async create(data: { title: string; description?: string; creatorId: string }) {
@@ -66,7 +67,38 @@ export const forumService = {
       }),
       prisma.forum.update({ where: { id: forumId }, data: { updatedAt: new Date() } }),
     ]);
+
+    void this.moderatePost(post.id, content).catch((err) => {
+      console.warn(`[forum] moderation failed for post ${post.id}: ${err.message}`);
+    });
+
     return post;
+  },
+
+  async moderatePost(postId: string, content: string) {
+    const result = await aiService.moderateText(content);
+    if (!result.flag) return result;
+    await prisma.forumPost.update({
+      where: { id: postId },
+      data: {
+        moderationFlag: true,
+        moderationSeverity: result.severity || 'medium',
+        moderationReason: result.reason || 'Flagged by AI moderator',
+      },
+    });
+    return result;
+  },
+
+  async listFlaggedPosts(limit = 20) {
+    return prisma.forumPost.findMany({
+      where: { moderationFlag: true },
+      take: limit,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        author: { select: { id: true, firstName: true, lastName: true } },
+        forum: { select: { id: true, title: true } },
+      },
+    });
   },
 
   async close(id: string) {

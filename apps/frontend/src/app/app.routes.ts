@@ -29,6 +29,8 @@ export const routes: Routes = [
 
   // Phase D2 — public transparency portal (no auth)
   { path: 'portal', loadComponent: () => import('./features/public/portal-page.component').then(m => m.PortalPageComponent) },
+  // Phase B — public share link (no auth)
+  { path: 'share/:token', loadComponent: () => import('./features/public/share-issue-page.component').then(m => m.ShareIssuePageComponent) },
 
   // Super Admin
   { path: 'admin', loadComponent: () => import('./features/admin/admin-dashboard.component').then(m => m.AdminDashboardComponent), canActivate: [authGuard, admin] },

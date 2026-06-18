@@ -10,15 +10,11 @@ describe('TranslatePipe', () => {
     // Clear any persisted language so each test starts on a deterministic state.
     try { localStorage.removeItem('dd.lang'); } catch {}
 
-    TestBed.configureTestingModule({});
+    TestBed.configureTestingModule({
+      providers: [TranslationService],
+    });
     service = TestBed.inject(TranslationService);
-    // The pipe is a real Angular @Pipe class — instantiate it via `new` so we
-    // can call `transform()` directly without needing a component host.
-    // Its constructor uses `inject(TranslationService)` from the active injector,
-    // which is populated by TestBed.
-    pipe = new TranslatePipe();
-    // Re-bind the injected service in case TestBed's injector wasn't used.
-    (pipe as unknown as { i18n: TranslationService }).i18n = service;
+    pipe = TestBed.runInInjectionContext(() => new TranslatePipe());
   });
 
   // -------------------------------------------------------------------
@@ -47,9 +43,9 @@ describe('TranslatePipe', () => {
 
     it('handles a deeply-nested key', () => {
       service.setLanguage('en');
-      expect(pipe.transform('auditLogs.exportCsv')).toBe('Export CSV');
+      expect(pipe.transform('auditLogs.exportCsv')).toBe('⬇ Export CSV');
       service.setLanguage('el');
-      expect(pipe.transform('auditLogs.exportCsv')).toBe('Εξαγωγή CSV');
+      expect(pipe.transform('auditLogs.exportCsv')).toBe('⬇ Εξαγωγή CSV');
     });
   });
 
@@ -69,7 +65,7 @@ describe('TranslatePipe', () => {
 
     it('interpolates multiple params', () => {
       service.setLanguage('en');
-      expect(pipe.transform('forums.startedBy', { name: 'Test User' })).toBe(' · Started by Test User');
+      expect(pipe.transform('forums.startedBy', { name: 'Test User' })).toBe('Started by Test User');
     });
 
     it('leaves unknown placeholders intact', () => {

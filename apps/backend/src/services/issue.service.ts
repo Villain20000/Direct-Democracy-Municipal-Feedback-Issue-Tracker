@@ -10,6 +10,7 @@ import { slaTrackingService } from './sla-tracking.service';
 import { issueAssignmentService, recordAssignChange } from './issue-assignment.service';
 import { createHash } from 'crypto';
 import { NotFoundError, BadRequestError } from '../errors/domain-errors';
+import { aiService } from '../ai/ollama.service';
 
 const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'priority', 'upvotes', 'status', 'title'] as const;
 
@@ -35,12 +36,26 @@ export const issueService = {
     reporterId: string; wardId?: string; isPublic?: boolean;
   }) {
     const departmentId = await routingService.resolveDepartmentId(data.category);
+    let bilingual: Awaited<ReturnType<typeof aiService.buildBilingualContent>> | null = null;
+    try {
+      bilingual = await aiService.buildBilingualContent(data.title, data.description);
+    } catch (err: any) {
+      console.warn('[issue.create] bilingual enrichment failed:', err.message);
+    }
+
     const issue = await prisma.issue.create({
       data: {
         ...data,
         category: data.category as any,
         departmentId,
         isPublic: data.isPublic ?? true,
+        ...(bilingual ? {
+          contentLocale: bilingual.contentLocale,
+          titleEn: bilingual.titleEn,
+          titleEl: bilingual.titleEl,
+          descriptionEn: bilingual.descriptionEn,
+          descriptionEl: bilingual.descriptionEl,
+        } : {}),
       },
       include: {
         reporter: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } },
@@ -155,7 +170,13 @@ export const issueService = {
     return issue;
   },
 
-  async updateStatus(id: string, newStatus: string, changedBy: string, note?: string) {
+  async updateStatus(
+    id: string,
+    newStatus: string,
+    changedBy: string,
+    note?: string,
+    notificationMessage?: string,
+  ) {
     const issue = await prisma.issue.findUnique({ where: { id } });
     if (!issue) throw new NotFoundError('Issue not found');
 
@@ -176,12 +197,14 @@ export const issueService = {
       newValues: { status: newStatus, note },
     });
     if (issue.reporterId !== changedBy) {
+      const defaultMessage = `"${issue.title}" is now ${newStatus.replace(/_/g, ' ').toLowerCase()}.`;
+      const message = (notificationMessage || defaultMessage).trim();
       await notificationService.create(
         issue.reporterId,
         'ISSUE_STATUS_CHANGED',
         `Issue status: ${newStatus}`,
-        `"${issue.title}" is now ${newStatus.replace(/_/g, ' ').toLowerCase()}.`,
-        { issueId: id, status: newStatus },
+        message,
+        { issueId: id, status: newStatus, aiDrafted: !!notificationMessage },
         { sendEmail: true },
       );
     }
@@ -591,5 +614,97 @@ export const issueService = {
       });
       return { ...fallback, mode: 'text-fallback', query };
     }
+  },
+
+  /**
+   * Find likely duplicate issue pairs using pgvector similarity + LLM scoring.
+   */
+  async getDuplicateCandidates(limit = 20) {
+    const openStatuses = ['SUBMITTED', 'ACKNOWLEDGED', 'IN_PROGRESS', 'PENDING_REVIEW', 'REOPENED'];
+    const seeds = await prisma.issue.findMany({
+      where: {
+        status: { in: openStatuses as any },
+        duplicateOfId: null,
+        embedding: { isNot: null },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 30,
+      select: { id: true, title: true, description: true, category: true, status: true, createdAt: true },
+    });
+
+    const seen = new Set<string>();
+    const pairs: Array<{
+      issueA: typeof seeds[0];
+      issueB: { id: string; title: string; description: string; category: string; status: string; score: number };
+      score: number;
+      reason?: string;
+      fallback?: boolean;
+    }> = [];
+
+    for (const seed of seeds) {
+      if (pairs.length >= limit) break;
+      const text = `${seed.title} ${seed.description}`;
+      const similar = await this.searchSimilar(text, 5, 0.55);
+      for (const match of similar.data) {
+        if (match.id === seed.id) continue;
+        const pairKey = [seed.id, match.id].sort().join(':');
+        if (seen.has(pairKey)) continue;
+        if (!openStatuses.includes(match.status)) continue;
+        seen.add(pairKey);
+
+        const llm = await aiService.detectDuplicates(text, [{
+          id: match.id,
+          title: match.title,
+          description: match.description,
+          category: match.category,
+        }]);
+        const top = llm.matches?.[0];
+        const score = top?.score ?? match.score ?? 0;
+        if (score < 0.4) continue;
+
+        pairs.push({
+          issueA: seed,
+          issueB: {
+            id: match.id,
+            title: match.title,
+            description: match.description,
+            category: match.category,
+            status: match.status,
+            score,
+          },
+          score,
+          reason: top?.reason,
+          fallback: llm.fallback,
+        });
+        if (pairs.length >= limit) break;
+      }
+    }
+
+    return pairs.sort((a, b) => b.score - a.score);
+  },
+
+  async linkDuplicate(duplicateId: string, canonicalId: string, changedBy: string) {
+    if (duplicateId === canonicalId) throw new BadRequestError('Cannot link an issue to itself');
+    const [dup, canonical] = await Promise.all([
+      prisma.issue.findUnique({ where: { id: duplicateId } }),
+      prisma.issue.findUnique({ where: { id: canonicalId } }),
+    ]);
+    if (!dup || !canonical) throw new NotFoundError('Issue not found');
+
+    const updated = await prisma.issue.update({
+      where: { id: duplicateId },
+      data: { duplicateOfId: canonicalId },
+    });
+    await this.recordHistory(duplicateId, dup.status, dup.status, changedBy, `Marked as duplicate of ${canonical.title}`);
+    await auditService.log({
+      userId: changedBy,
+      action: 'LINK_DUPLICATE',
+      entity: 'Issue',
+      entityId: duplicateId,
+      oldValues: { duplicateOfId: dup.duplicateOfId },
+      newValues: { duplicateOfId: canonicalId },
+    });
+    await cache.del(`issues:detail:${duplicateId}`);
+    return updated;
   },
 };

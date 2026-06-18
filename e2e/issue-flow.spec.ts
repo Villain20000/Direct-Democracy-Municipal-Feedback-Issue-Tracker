@@ -18,7 +18,7 @@ test.describe('Issue create flow', () => {
   test.beforeEach(async ({ page }) => {
     // Login as the seed citizen.
     await page.goto('/login');
-    await page.getByLabel(/email/i).fill('citizen@example.com');
+    await page.getByLabel(/email/i).fill('citizen1@email.com');
     await page.getByLabel(/password/i).fill('password123');
     await page.getByRole('button', { name: /sign in/i }).click();
     await page.waitForURL((u) => !u.pathname.includes('/login'), { timeout: 10_000 });

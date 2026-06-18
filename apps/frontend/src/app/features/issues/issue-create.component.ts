@@ -7,6 +7,7 @@ import { debounceTime, distinctUntilChanged, takeUntil } from 'rxjs/operators';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
+import { OfflineQueueService } from '../../core/services/offline-queue.service';
 import { ToastService } from '../../core/services/toast.service';
 import { TranslationService } from '../../core/i18n/translation.service';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
@@ -161,6 +162,20 @@ interface DuplicateMatch {
             <div class="form-group">
               <label>{{ 'issues.photo' | t }}</label>
               <input type="file" accept="image/*,.pdf" (change)="onFileSelect($event)" />
+              @if (photoAnalyzing) {
+                <p style="font-size:12px;color:var(--text-muted);margin-top:6px;">{{ 'issues.photoAnalyzing' | t }}</p>
+              }
+            </div>
+            <div class="form-group">
+              <label>{{ 'issues.voiceInput' | t }}</label>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <button type="button" class="btn btn-secondary btn-sm" (click)="toggleVoiceRecording()" [disabled]="transcribing">
+                  @if (recording) { ⏹ {{ 'issues.stopRecording' | t }} } @else { 🎤 {{ 'issues.startRecording' | t }} }
+                </button>
+                @if (transcribing) {
+                  <span style="font-size:12px;color:var(--text-muted);">{{ 'issues.transcribing' | t }}</span>
+                }
+              </div>
             </div>
             <div class="form-group" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <label style="margin:0;">{{ 'issues.translateTo' | t }}</label>
@@ -172,6 +187,8 @@ interface DuplicateMatch {
                 <option value="Vietnamese">Vietnamese</option>
                 <option value="Arabic">Arabic</option>
                 <option value="Korean">Korean</option>
+                <option value="Greek">Greek</option>
+                <option value="English">English</option>
               </select>
               @if (translatedDescription) {
                 <button type="button" class="btn btn-ghost btn-sm" (click)="clearTranslation()">{{ 'issues.restoreOriginal' | t }}</button>
@@ -258,6 +275,11 @@ export class IssueCreateComponent implements OnInit, OnDestroy {
   translateLanguage = '';
   translatedDescription = '';
   private originalDescription = '';
+  photoAnalyzing = false;
+  recording = false;
+  transcribing = false;
+  private mediaRecorder: MediaRecorder | null = null;
+  private audioChunks: Blob[] = [];
 
   /** RxJS subjects for real-time AI assist (debounced as user types). */
   private readonly descInput$ = new Subject<string>();
@@ -280,6 +302,7 @@ export class IssueCreateComponent implements OnInit, OnDestroy {
 
   auth = inject(AuthService);
   api = inject(ApiService);
+  offlineQueue = inject(OfflineQueueService);
   toast = inject(ToastService);
   router = inject(Router);
   i18n = inject(TranslationService);
@@ -304,8 +327,13 @@ export class IssueCreateComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy() {
+    this.stopRecording();
     this.destroy$.next();
     this.destroy$.complete();
+  }
+
+  private aiLocale(): string {
+    return this.i18n.current();
   }
 
   /**
@@ -369,8 +397,9 @@ export class IssueCreateComponent implements OnInit, OnDestroy {
     this.lastAutoChecked = combined;
 
     // Kick off categorization & department in parallel (no candidates needed).
-    this.api.aiCategorize(combined).subscribe({
+    this.api.aiCategorize(combined, this.aiLocale()).subscribe({
       next: (res: any) => {
+        if (this.lastAutoChecked !== combined) return;
         if (res.success && res.data?.category) {
           this.aiSuggestion = res.data;
           // Auto-apply only if the user hasn't picked one yet (don't fight
@@ -387,6 +416,7 @@ export class IssueCreateComponent implements OnInit, OnDestroy {
 
     this.api.aiSuggestDepartment(combined, this.category).subscribe({
       next: (res: any) => {
+        if (this.lastAutoChecked !== combined) return;
         if (res.success && res.data?.department) {
           this.aiDepartment = res.data;
         }
@@ -466,13 +496,95 @@ export class IssueCreateComponent implements OnInit, OnDestroy {
 
   onFileSelect(event: Event) {
     const input = event.target as HTMLInputElement;
-    this.selectedFile = input.files?.[0] || null;
+    const file = input.files?.[0] || null;
+    this.selectedFile = file;
+    if (file?.type.startsWith('image/')) {
+      this.analyzePhoto(file);
+    }
+  }
+
+  analyzePhoto(file: File) {
+    this.photoAnalyzing = true;
+    this.api.aiDescribeImage(file, this.aiLocale()).subscribe({
+      next: (res) => {
+        this.photoAnalyzing = false;
+        if (res.success && res.data) {
+          if (!this.title.trim() && res.data.title) this.title = res.data.title;
+          if (!this.description.trim() && res.data.description) {
+            this.description = res.data.description;
+            this.onDescriptionChange(this.description);
+          } else if (res.data.description) {
+            this.description = `${this.description.trim()}\n\n${res.data.description}`.trim();
+            this.onDescriptionChange(this.description);
+          }
+          this.toast.success(this.i18n.t('issues.photoAnalyzed'));
+        }
+      },
+      error: () => {
+        this.photoAnalyzing = false;
+        this.toast.warning(this.i18n.t('issues.photoAnalyzeFailed'));
+      },
+    });
+  }
+
+  async toggleVoiceRecording() {
+    if (this.recording) {
+      this.stopRecording();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      this.toast.error(this.i18n.t('issues.voiceUnavailable'));
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.audioChunks = [];
+      this.mediaRecorder = new MediaRecorder(stream);
+      this.mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) this.audioChunks.push(e.data);
+      };
+      this.mediaRecorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(this.audioChunks, { type: this.mediaRecorder?.mimeType || 'audio/webm' });
+        if (blob.size > 0) this.transcribeAudio(blob);
+      };
+      this.mediaRecorder.start();
+      this.recording = true;
+    } catch {
+      this.toast.error(this.i18n.t('issues.voiceUnavailable'));
+    }
+  }
+
+  stopRecording() {
+    if (this.mediaRecorder && this.recording) {
+      this.mediaRecorder.stop();
+      this.recording = false;
+    }
+  }
+
+  transcribeAudio(blob: Blob) {
+    this.transcribing = true;
+    this.api.aiTranscribe(blob, this.aiLocale()).subscribe({
+      next: (res) => {
+        this.transcribing = false;
+        if (res.success && res.data?.transcript) {
+          const text = res.data.transcript.trim();
+          this.description = this.description.trim() ? `${this.description.trim()}\n${text}` : text;
+          this.onDescriptionChange(this.description);
+          this.toast.success(this.i18n.t('issues.voiceTranscribed'));
+        }
+      },
+      error: () => {
+        this.transcribing = false;
+        this.toast.error(this.i18n.t('issues.voiceTranscribeFailed'));
+      },
+    });
   }
 
   suggestCategory() {
     if (!this.description.trim()) return;
     this.aiLoading = true;
-    this.api.aiCategorize(this.description).subscribe({
+    this.api.aiCategorize(this.description, this.aiLocale()).subscribe({
       next: (res: any) => {
         this.aiLoading = false;
         if (res.success && res.data) {
@@ -653,16 +765,35 @@ export class IssueCreateComponent implements OnInit, OnDestroy {
         }
       },
       error: (err) => {
+        const status = err?.status ?? 0;
+        const isOffline = status === 0 || status === 503 || !navigator.onLine;
+        if (isOffline) {
+          const queuePayload = {
+            title: this.title.trim(),
+            description: this.description.trim(),
+            category: this.category,
+            location: this.location.trim(),
+            ...(this.latitude != null ? { latitude: this.latitude } : {}),
+            ...(this.longitude != null ? { longitude: this.longitude } : {}),
+            ...(this.aiTags.length ? { tags: this.aiTags } : {}),
+          };
+          this.offlineQueue.enqueue(queuePayload, this.selectedFile || undefined)
+            .then(() => {
+              this.loading = false;
+              this.toast.info(this.i18n.t('issues.savedOffline'));
+              this.router.navigate(['/issues']);
+            })
+            .catch(() => {
+              this.loading = false;
+              this.error = this.i18n.t('issues.issueCreatedFailed');
+              this.toast.error(this.error);
+            });
+          return;
+        }
         this.loading = false;
         const apiErr = toApiError(err);
-        // Surface field-level issues (Zod / BadRequestError) inline
-        // next to the matching inputs; fall back to a top-level error
-        // message + toast for everything else.
         const fieldErrs = getFieldErrors(apiErr);
         this.fieldErrors = groupFieldErrorsByField(fieldErrs);
-        // Form-level errors (e.g. someone hit the endpoint with a
-        // 502, or the response had no parseable body) get the toast +
-        // top-of-card banner treatment.
         if (fieldErrs.length === 0) {
           this.error = this.i18n.t('issues.issueCreatedFailed');
           this.toast.error(this.error);

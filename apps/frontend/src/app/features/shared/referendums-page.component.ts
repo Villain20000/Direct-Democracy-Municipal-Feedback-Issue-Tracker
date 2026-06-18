@@ -132,6 +132,14 @@ interface Referendum {
                     </div>
                     <h3 style="margin:0 0 4px;font-size:16px;">{{ ref.title }}</h3>
                     <p style="margin:0 0 12px;color:var(--text-muted);font-size:13px;">{{ ref.description }}</p>
+                    @if (ballotExplanations()[ref.id]) {
+                      <div style="padding:10px;background:var(--bg-primary);border-radius:var(--radius);font-size:13px;margin-bottom:12px;border-left:3px solid var(--primary);">
+                        {{ ballotExplanations()[ref.id] }}
+                      </div>
+                    }
+                    <button type="button" class="btn btn-secondary btn-sm" style="margin-bottom:12px;" (click)="explainReferendum(ref)" [disabled]="explainingId() === ref.id">
+                      {{ explainingId() === ref.id ? ('referendums.explaining' | t) : ('referendums.explainSimple' | t) }}
+                    </button>
                     <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;">
                       <span><strong style="color:#16a34a;">{{ ref.yesCount }}</strong> {{ 'referendums.yes' | t }}</span>
                       <span><strong style="color:#dc2626;">{{ ref.noCount }}</strong> {{ 'referendums.no' | t }}</span>
@@ -191,6 +199,8 @@ export class ReferendumsPageComponent implements OnInit {
   creating = signal(false);
   statusFilter = '';
   myVote = signal<Record<string, { choice: string } | null>>({});
+  ballotExplanations = signal<Record<string, string>>({});
+  explainingId = signal('');
 
   newRef = {
     title: '',
@@ -222,6 +232,23 @@ export class ReferendumsPageComponent implements OnInit {
 
   toggleCreateForm() {
     this.showCreateForm.set(!this.showCreateForm());
+  }
+
+  explainReferendum(ref: Referendum) {
+    this.explainingId.set(ref.id);
+    this.api.aiExplainBallot({
+      title: ref.title,
+      description: ref.description,
+      body: ref.body,
+      type: 'referendum',
+      locale: this.i18n.currentLanguage().code,
+    }).subscribe({
+      next: (res) => {
+        this.ballotExplanations.update((m) => ({ ...m, [ref.id]: res.data?.explanation || '' }));
+        this.explainingId.set('');
+      },
+      error: () => this.explainingId.set(''),
+    });
   }
 
   async loadReferendums() {

@@ -20,6 +20,7 @@
  */
 import { Router } from 'express';
 import { portalService } from '../services/portal.service';
+import { faqService } from '../services/faq.service';
 
 const router = Router();
 
@@ -129,6 +130,17 @@ router.get('/referendums', async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);
     const data = await portalService.getActiveReferendums(limit);
     res.json({ success: true, data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Citizen FAQ knowledge base (auto-generated from resolved issues)
+router.get('/faq', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+    const data = await faqService.listPublished(limit);
+    res.json({ success: true, data, total: data.length });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

@@ -2,6 +2,21 @@ import { prisma } from '../db/client';
 import type { Prisma } from '@prisma/client';
 import { emailService } from './email.service';
 import { NotFoundError } from '../errors/domain-errors';
+import { notificationPreferenceService } from './notification-preference.service';
+
+/** Map in-app notification types to preference-store keys. */
+function toPreferenceType(notificationType: string): string {
+  const map: Record<string, string> = {
+    ISSUE_STATUS_CHANGED: 'ISSUE_UPDATE',
+    ISSUE_ASSIGNED: 'ASSIGNMENT',
+    ISSUE_COMMENT: 'COMMENT',
+    ISSUE_MENTION: 'MENTION',
+    ANNOUNCEMENT: 'ANNOUNCEMENT',
+    EVENT: 'EVENT',
+    VOTE_RECEIVED: 'VOTE',
+  };
+  return map[notificationType] || notificationType;
+}
 
 export const notificationService = {
   async create(
@@ -12,14 +27,22 @@ export const notificationService = {
     data?: Record<string, unknown>,
     options?: { sendEmail?: boolean },
   ) {
-    const notification = await prisma.notification.create({
-      data: { userId, type, title, message, data: (data || undefined) as Prisma.InputJsonValue | undefined },
-    });
+    const prefType = toPreferenceType(type);
+    const inAppEnabled = await notificationPreferenceService.isEnabled(userId, 'inApp', prefType);
+    let notification = null;
+    if (inAppEnabled) {
+      notification = await prisma.notification.create({
+        data: { userId, type, title, message, data: (data || undefined) as Prisma.InputJsonValue | undefined },
+      });
+    }
 
     if (options?.sendEmail) {
-      const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
-      if (user?.email) {
-        emailService.sendIssueNotification(user.email, title, message).catch(() => {});
+      const emailEnabled = await notificationPreferenceService.isEnabled(userId, 'email', prefType);
+      if (emailEnabled) {
+        const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+        if (user?.email) {
+          emailService.sendIssueNotification(user.email, title, message).catch(() => {});
+        }
       }
     }
 

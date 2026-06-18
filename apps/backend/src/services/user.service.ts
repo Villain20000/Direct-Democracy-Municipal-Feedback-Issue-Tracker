@@ -8,10 +8,11 @@ import {
 } from '../errors/domain-errors';
 
 export const userService = {
-  async getAll(params: { page?: number; pageSize?: number; role?: string; search?: string }) {
-    const { page = 1, pageSize = 20, role, search } = params;
+  async getAll(params: { page?: number; pageSize?: number; role?: string; search?: string; departmentId?: string }) {
+    const { page = 1, pageSize = 20, role, search, departmentId } = params;
     const where: any = {};
     if (role) where.role = role;
+    if (departmentId) where.departmentId = departmentId;
     if (search) {
       where.OR = [
         { firstName: { contains: search, mode: 'insensitive' } },

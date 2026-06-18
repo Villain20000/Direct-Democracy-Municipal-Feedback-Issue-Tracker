@@ -1,5 +1,6 @@
 import { prisma } from '../db/client';
 import { ForbiddenError, NotFoundError } from '../errors/domain-errors';
+import { savedSearchAlertService } from './saved-search-alert.service';
 
 /**
  * B3 — Saved searches.
@@ -9,9 +10,12 @@ import { ForbiddenError, NotFoundError } from '../errors/domain-errors';
  */
 export const savedSearchService = {
   async create(userId: string, data: { name: string; filters: Record<string, unknown> }) {
-    return prisma.savedSearch.create({
-      data: { userId, name: data.name, filters: data.filters as any },
+    const queryText = savedSearchAlertService.extractQueryText(data.filters);
+    const row = await prisma.savedSearch.create({
+      data: { userId, name: data.name, filters: data.filters as any, queryText },
     });
+    savedSearchAlertService.syncEmbedding(row.id, queryText).catch(() => {});
+    return row;
   },
 
   async listMine(userId: string) {
@@ -40,13 +44,18 @@ export const savedSearchService = {
     if (saved.userId !== userId) {
       throw new ForbiddenError('Not authorized to update this saved search');
     }
-    return prisma.savedSearch.update({
+    const filters = (data.filters ?? saved.filters) as Record<string, unknown>;
+    const queryText = savedSearchAlertService.extractQueryText(filters);
+    const row = await prisma.savedSearch.update({
       where: { id },
       data: {
         name: data.name,
         filters: data.filters as any,
+        queryText,
       },
     });
+    savedSearchAlertService.syncEmbedding(id, queryText).catch(() => {});
+    return row;
   },
 
   async delete(id: string, userId: string) {

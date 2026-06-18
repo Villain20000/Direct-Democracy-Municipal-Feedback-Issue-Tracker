@@ -4,13 +4,21 @@ import { RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
-import { ApiService } from '../../core/services/api.service';
+import { ApiService, WeeklySummaryRow, SeasonalForecastRow } from '../../core/services/api.service';
 import { TranslationService } from '../../core/i18n/translation.service';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { DashboardStats, Department, Issue } from '@dd/shared-types';
 
 interface DeptWithCount extends Department {
   issueCount: number;
+}
+
+interface AiTrend {
+  topic: string;
+  frequency: number;
+  ward: string;
+  urgency: string;
+  fallback?: boolean;
 }
 
 @Component({
@@ -52,24 +60,69 @@ interface DeptWithCount extends Department {
         </div>
       </div>
 
-      <div class="content-grid">
-        <div class="card">
-          <div class="card-header"><h3>{{ 'mayor.aiTitle' | t }}</h3></div>
-          <div class="card-body">
-            <p style="font-size: 14px; color: var(--text-secondary); line-height: 1.8;">
-              {{ i18n.t('mayor.aiBody', { n: stats?.openIssues || 0 }) }}
-              @if (topDepartment) {
-                {{ i18n.t('mayor.aiTopDept', { dept: topDepartment.name, n: topDepartment.issueCount }) }}
+      <div class="card" style="margin-bottom:24px;" data-testid="mayor-ai-trends">
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+          <h3>{{ 'mayor.aiTrendsTitle' | t }}</h3>
+          <button type="button" class="btn btn-secondary btn-sm" (click)="loadTrends()" [disabled]="trendsLoading">
+            <i class="material-icons-outlined" style="font-size:16px;">refresh</i>
+            {{ trendsLoading ? ('mayor.generating' | t) : ('mayor.refreshTrends' | t) }}
+          </button>
+        </div>
+        <div class="card-body">
+          @if (trendsLoading && !trends.length) {
+            <p style="font-size:13px;color:var(--text-muted);">{{ 'mayor.loadingTrends' | t }}</p>
+          } @else if (trends.length) {
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">
+              @for (trend of trends; track trend.topic) {
+                <div style="padding:14px;background:var(--bg-primary);border-radius:var(--radius);border-left:4px solid var(--primary);">
+                  <div style="font-size:14px;font-weight:700;margin-bottom:6px;">{{ trend.topic }}</div>
+                  <div style="font-size:12px;color:var(--text-secondary);">
+                    {{ i18n.t('mayor.trendFrequency', { n: trend.frequency }) }}
+                    · {{ trend.ward }}
+                  </div>
+                  <span class="badge" [class]="urgencyBadge(trend.urgency)" style="margin-top:8px;">{{ trend.urgency }}</span>
+                </div>
               }
-              {{ i18n.t('mayor.aiStats', { n: stats?.resolvedIssues || 0 }) }}
-              {{ i18n.t('mayor.aiTopConcerns') }}
-            </p>
-            @if (aiReport) {
-              <div style="margin-top:12px;padding:12px;background:var(--bg-primary);border-radius:var(--radius);font-size:13px;line-height:1.6;">{{ aiReport }}</div>
+            </div>
+          } @else {
+            <p style="font-size:13px;color:var(--text-muted);">{{ 'mayor.noTrends' | t }}</p>
+          }
+        </div>
+      </div>
+
+      <div class="content-grid">
+        <div class="card" data-testid="mayor-weekly-briefing">
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+            <h3>{{ 'mayor.weeklyBriefing' | t }}</h3>
+            @if (weeklySummary) {
+              <span style="font-size:12px;color:var(--text-muted);">{{ weeklySummary.weekKey }}</span>
             }
-            <button type="button" class="btn btn-primary btn-sm" style="margin-top: 12px;" (click)="generateAiReport()" [disabled]="aiLoading || !stats">
+          </div>
+          <div class="card-body">
+            @if (briefingLoading && !weeklySummary) {
+              <p style="font-size:13px;color:var(--text-muted);">{{ 'mayor.loadingBriefing' | t }}</p>
+            } @else if (weeklySummary) {
+              <p style="font-size:14px;color:var(--text-secondary);line-height:1.8;margin-bottom:12px;">{{ weeklySummary.body }}</p>
+              @if (weeklySummary.highlights?.length) {
+                <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
+                  @for (item of weeklySummary.highlights; track item.title) {
+                    <div style="padding:10px 12px;background:var(--bg-primary);border-radius:var(--radius);font-size:13px;">
+                      <strong>{{ item.title }}</strong>
+                      <div style="color:var(--text-secondary);margin-top:4px;">{{ item.body }}</div>
+                    </div>
+                  }
+                </div>
+              }
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px;">
+                {{ 'mayor.generatedAt' | t }} {{ weeklySummary.generatedAt | date:'medium' }}
+                · {{ weeklySummary.source }}
+              </div>
+            } @else {
+              <p style="font-size:13px;color:var(--text-muted);">{{ 'mayor.noBriefing' | t }}</p>
+            }
+            <button type="button" class="btn btn-primary btn-sm" (click)="regenerateBriefing()" [disabled]="briefingLoading">
               <i class="material-icons-outlined" style="font-size: 16px;">auto_awesome</i>
-              @if (aiLoading) { {{ 'mayor.generating' | t }} } @else { {{ 'mayor.generateReport' | t }} }
+              @if (briefingLoading) { {{ 'mayor.generating' | t }} } @else { {{ 'mayor.regenerateBriefing' | t }} }
             </button>
           </div>
         </div>
@@ -91,6 +144,50 @@ interface DeptWithCount extends Department {
             } @empty {
               <div style="text-align:center;padding:32px;color:var(--text-muted);">{{ 'mayor.noDepts' | t }}</div>
             }
+          </div>
+        </div>
+      </div>
+
+      <div class="content-grid" style="margin-bottom:24px;">
+        <div class="card" data-testid="mayor-agenda">
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+            <h3>{{ 'mayor.agendaTitle' | t }}</h3>
+            <button type="button" class="btn btn-primary btn-sm" (click)="generateAgenda()" [disabled]="agendaLoading">
+              {{ agendaLoading ? ('mayor.generating' | t) : ('mayor.generateAgenda' | t) }}
+            </button>
+          </div>
+          <div class="card-body">
+            @if (agenda) {
+              <p style="font-size:14px;font-weight:700;margin-bottom:10px;">{{ agenda.title }}</p>
+              @for (item of agenda.items; track item.order) {
+                <div style="padding:8px 0;border-bottom:1px solid var(--border-light);font-size:13px;">
+                  <strong>{{ item.order }}. {{ item.title }}</strong>
+                  <div style="font-size:11px;color:var(--text-muted);">{{ item.type }} · {{ item.notes }}</div>
+                </div>
+              }
+            } @else {
+              <p style="font-size:13px;color:var(--text-muted);">{{ 'mayor.noAgenda' | t }}</p>
+            }
+          </div>
+        </div>
+        <div class="card" data-testid="mayor-forecast">
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+            <h3>{{ 'mayor.forecastTitle' | t }}</h3>
+            @if (seasonalForecast) {
+              <span style="font-size:12px;color:var(--text-muted);">{{ seasonalForecast.monthKey }}</span>
+            }
+          </div>
+          <div class="card-body">
+            @if (forecastLoading && !seasonalForecast) {
+              <p style="font-size:13px;color:var(--text-muted);">{{ 'mayor.loadingForecast' | t }}</p>
+            } @else if (seasonalForecast) {
+              <p style="font-size:14px;color:var(--text-secondary);line-height:1.7;">{{ seasonalForecast.narrative }}</p>
+            } @else {
+              <p style="font-size:13px;color:var(--text-muted);">{{ 'mayor.noForecast' | t }}</p>
+            }
+            <button type="button" class="btn btn-secondary btn-sm" style="margin-top:12px;" (click)="regenerateForecast()" [disabled]="forecastLoading">
+              {{ forecastLoading ? ('mayor.generating' | t) : ('mayor.regenerateForecast' | t) }}
+            </button>
           </div>
         </div>
       </div>
@@ -127,8 +224,14 @@ export class MayorDashboardComponent implements OnInit {
   stats: DashboardStats | null = null;
   criticalIssues: Issue[] = [];
   departments: DeptWithCount[] = [];
-  aiReport = '';
-  aiLoading = false;
+  weeklySummary: WeeklySummaryRow | null = null;
+  briefingLoading = false;
+  trends: AiTrend[] = [];
+  trendsLoading = false;
+  agenda: { title: string; items: Array<{ order: number; title: string; type: string; notes: string }> } | null = null;
+  agendaLoading = false;
+  seasonalForecast: SeasonalForecastRow | null = null;
+  forecastLoading = false;
 
   navItems = [
     { icon: 'dashboard', label: 'nav.overview', route: '/mayor' },
@@ -155,6 +258,9 @@ export class MayorDashboardComponent implements OnInit {
   }
 
   ngOnInit() {
+    this.loadWeeklyBriefing();
+    this.loadTrends();
+    this.loadForecast();
     this.api.getIssueStats().subscribe(res => {
       if (res.success) {
         this.stats = res.data;
@@ -182,28 +288,92 @@ export class MayorDashboardComponent implements OnInit {
     return this.i18n.tEnum('status', status);
   }
 
-  generateAiReport() {
-    if (!this.stats || this.aiLoading) return;
-    const dept = this.topDepartment;
-    const briefing = [
-      `City of Springfield weekly briefing.`,
-      `Total issues: ${this.stats.totalIssues}. Open: ${this.stats.openIssues}. Resolved: ${this.stats.resolvedIssues}.`,
-      `Resolution rate: ${this.resolutionRate}%. Average resolution time: ${this.stats.avgResolutionTimeDays} days.`,
-      dept ? `Highest workload department: ${dept.name} (${dept.issueCount} issues).` : '',
-      `Registered citizens: ${this.stats.totalUsers}.`,
-    ].filter(Boolean).join(' ');
+  loadWeeklyBriefing() {
+    this.briefingLoading = true;
+    this.api.getLatestWeeklySummary().subscribe({
+      next: (res) => {
+        this.weeklySummary = res.success ? res.data : null;
+        this.briefingLoading = false;
+      },
+      error: () => { this.briefingLoading = false; },
+    });
+  }
 
-    this.aiLoading = true;
-    this.aiReport = '';
-    this.api.aiSummarize(briefing, 500).subscribe({
+  regenerateBriefing() {
+    if (this.briefingLoading) return;
+    this.briefingLoading = true;
+    this.api.generateWeeklySummary(true).subscribe({
+      next: (res) => {
+        if (res.success) this.weeklySummary = res.data;
+        this.briefingLoading = false;
+      },
+      error: () => { this.briefingLoading = false; },
+    });
+  }
+
+  loadTrends() {
+    this.trendsLoading = true;
+    this.api.getIssues({ pageSize: '30', sortBy: 'createdAt', sortOrder: 'desc' }).subscribe({
       next: (res: any) => {
-        this.aiReport = res.success ? (res.data?.summary || briefing) : briefing;
-        this.aiLoading = false;
+        const issues = (res.data || []).map((i: Issue) => ({
+          title: i.title,
+          description: i.description,
+          category: i.category,
+        }));
+        if (!issues.length) {
+          this.trends = [];
+          this.trendsLoading = false;
+          return;
+        }
+        this.api.aiTrends(issues).subscribe({
+          next: (trendRes) => {
+            this.trends = trendRes?.data?.trends || trendRes?.trends || [];
+            this.trendsLoading = false;
+          },
+          error: () => { this.trends = []; this.trendsLoading = false; },
+        });
       },
-      error: () => {
-        this.aiReport = briefing;
-        this.aiLoading = false;
+      error: () => { this.trendsLoading = false; },
+    });
+  }
+
+  urgencyBadge(urgency: string): string {
+    const u = (urgency || '').toLowerCase();
+    if (u === 'high') return 'badge-red';
+    if (u === 'medium') return 'badge-amber';
+    return 'badge-green';
+  }
+
+  generateAgenda() {
+    this.agendaLoading = true;
+    this.api.aiGenerateAgenda().subscribe({
+      next: (res) => {
+        if (res.success) this.agenda = res.data;
+        this.agendaLoading = false;
       },
+      error: () => { this.agendaLoading = false; },
+    });
+  }
+
+  loadForecast() {
+    this.forecastLoading = true;
+    this.api.getLatestSeasonalForecast().subscribe({
+      next: (res) => {
+        this.seasonalForecast = res.success ? res.data : null;
+        this.forecastLoading = false;
+      },
+      error: () => { this.forecastLoading = false; },
+    });
+  }
+
+  regenerateForecast() {
+    this.forecastLoading = true;
+    this.api.generateSeasonalForecast().subscribe({
+      next: (res) => {
+        if (res.success) this.seasonalForecast = res.data;
+        this.forecastLoading = false;
+      },
+      error: () => { this.forecastLoading = false; },
     });
   }
 }

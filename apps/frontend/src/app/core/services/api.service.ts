@@ -27,8 +27,16 @@ export class ApiService {
     return this.http.post<{ success: boolean; data: Issue }>(`${this.apiUrl}/issues`, data);
   }
 
-  updateIssueStatus(id: string, status: string, note?: string): Observable<{ success: boolean; data: Issue }> {
-    return this.http.patch<{ success: boolean; data: Issue }>(`${this.apiUrl}/issues/${id}/status`, { status, note });
+  updateIssueStatus(
+    id: string,
+    status: string,
+    note?: string,
+    notificationMessage?: string,
+  ): Observable<{ success: boolean; data: Issue }> {
+    return this.http.patch<{ success: boolean; data: Issue }>(
+      `${this.apiUrl}/issues/${id}/status`,
+      { status, note, notificationMessage },
+    );
   }
 
   assignIssue(id: string, assigneeId: string, departmentId?: string): Observable<{ success: boolean; data: Issue }> {
@@ -90,6 +98,20 @@ export class ApiService {
     return this.http.post<{ success: boolean; data: { count: number; issues: Array<{ id: string; title: string; category: string; status: string; department: string | null }>; summary: string; fallback?: boolean } }>(
       `${this.apiUrl}/issues/summarize-area`,
       { polygon },
+    );
+  }
+
+  clusterReport(polygon: Array<[number, number]>): Observable<{ success: boolean; data: { totalIssues: number; clusters: Array<{ label: string; category: string; count: number; issueIds: string[]; sampleTitles: string[] }>; narrative: string; fallback?: boolean } }> {
+    return this.http.post<{ success: boolean; data: { totalIssues: number; clusters: Array<{ label: string; category: string; count: number; issueIds: string[]; sampleTitles: string[] }>; narrative: string; fallback?: boolean } }>(
+      `${this.apiUrl}/issues/cluster-report`,
+      { polygon },
+    );
+  }
+
+  aiRelatedImpact(issueId: string): Observable<{ success: boolean; data: { semanticNeighbors: any[]; spatialNeighbors: any[]; analysis: { rootCause: string; impact: string; recommendations: string[]; fallback?: boolean } } }> {
+    return this.http.post<{ success: boolean; data: { semanticNeighbors: any[]; spatialNeighbors: any[]; analysis: { rootCause: string; impact: string; recommendations: string[]; fallback?: boolean } } }>(
+      `${this.apiUrl}/ai/related-impact`,
+      { issueId },
     );
   }
 
@@ -179,8 +201,54 @@ export class ApiService {
   }
 
   // AI
-  aiCategorize(text: string): Observable<any> {
-    return this.http.post(`${this.apiUrl}/ai/categorize`, { text });
+  aiCategorize(text: string, locale?: string): Observable<any> {
+    return this.http.post(`${this.apiUrl}/ai/categorize`, { text, locale });
+  }
+
+  aiHealth(): Observable<{ success: boolean; data: {
+    status: string;
+    tier: string;
+    ollamaReachable: boolean;
+    recommendedChatModel: string;
+    configured: { chatModel: string; embedModel: string; visionModel: string; whisperModel: string };
+    pulledModels: string[];
+    chatLatencyMs: number | null;
+    ram: { totalGb: number; freeGb: number };
+    capabilities: { chat: boolean; embeddings: boolean; vision: boolean; voice: boolean; bilingual: boolean };
+    warnings: string[];
+  } }> {
+    return this.http.get<{ success: boolean; data: {
+      status: string;
+      tier: string;
+      ollamaReachable: boolean;
+      recommendedChatModel: string;
+      configured: { chatModel: string; embedModel: string; visionModel: string; whisperModel: string };
+      pulledModels: string[];
+      chatLatencyMs: number | null;
+      ram: { totalGb: number; freeGb: number };
+      capabilities: { chat: boolean; embeddings: boolean; vision: boolean; voice: boolean; bilingual: boolean };
+      warnings: string[];
+    } }>(`${this.apiUrl}/ai/health`);
+  }
+
+  aiDescribeImage(file: File, locale?: string): Observable<{ success: boolean; data: { title: string; description: string; fallback?: boolean } }> {
+    const form = new FormData();
+    form.append('image', file);
+    if (locale) form.append('locale', locale);
+    return this.http.post<{ success: boolean; data: { title: string; description: string; fallback?: boolean } }>(
+      `${this.apiUrl}/ai/describe-image`,
+      form,
+    );
+  }
+
+  aiTranscribe(audio: Blob, locale?: string, filename = 'recording.webm'): Observable<{ success: boolean; data: { transcript: string; fallback?: boolean } }> {
+    const form = new FormData();
+    form.append('audio', audio, filename);
+    if (locale) form.append('locale', locale);
+    return this.http.post<{ success: boolean; data: { transcript: string; fallback?: boolean } }>(
+      `${this.apiUrl}/ai/transcribe`,
+      form,
+    );
   }
 
   aiPrioritize(text: string, category?: string): Observable<any> {
@@ -233,6 +301,97 @@ export class ApiService {
 
   aiSmartSearch(query: string, issues: Array<{ id: string; title: string; description: string; category: string }>): Observable<any> {
     return this.http.post(`${this.apiUrl}/ai/search`, { query, issues });
+  }
+
+  aiDraftStatusUpdate(params: {
+    title: string;
+    oldStatus: string;
+    newStatus: string;
+    note?: string;
+    locale?: string;
+  }): Observable<{ success: boolean; data: { draft: string; fallback?: boolean } }> {
+    return this.http.post<{ success: boolean; data: { draft: string; fallback?: boolean } }>(
+      `${this.apiUrl}/ai/draft-status-update`,
+      params,
+    );
+  }
+
+  getDuplicateCandidates(limit = 20): Observable<{ success: boolean; data: any[]; total: number }> {
+    return this.http.get<{ success: boolean; data: any[]; total: number }>(
+      `${this.apiUrl}/issues/duplicate-candidates`,
+      { params: new HttpParams().set('limit', String(limit)) },
+    );
+  }
+
+  linkIssueDuplicate(duplicateId: string, canonicalId: string): Observable<{ success: boolean; data: Issue }> {
+    return this.http.patch<{ success: boolean; data: Issue }>(
+      `${this.apiUrl}/issues/${duplicateId}/link-duplicate`,
+      { canonicalId },
+    );
+  }
+
+  getLatestWardDigest(wardId?: string): Observable<{ success: boolean; data: WardDigestRow | null }> {
+    let params = new HttpParams();
+    if (wardId) params = params.set('wardId', wardId);
+    return this.http.get<{ success: boolean; data: WardDigestRow | null }>(
+      `${this.apiUrl}/ward-digests/latest`,
+      { params },
+    );
+  }
+
+  generateWardDigest(wardId?: string): Observable<{ success: boolean; data: WardDigestRow; created: boolean }> {
+    return this.http.post<{ success: boolean; data: WardDigestRow; created: boolean }>(
+      `${this.apiUrl}/ward-digests/generate`,
+      wardId ? { wardId } : {},
+    );
+  }
+
+  aiSlaRisk(issueIds: string[]): Observable<{ success: boolean; data: Array<{ issueId: string; risk: string; daysToBreach: number; justification: string }> }> {
+    return this.http.post<{ success: boolean; data: Array<{ issueId: string; risk: string; daysToBreach: number; justification: string }> }>(
+      `${this.apiUrl}/ai/sla-risk`,
+      { issueIds },
+    );
+  }
+
+  aiScoreResolution(params: { title: string; description?: string; resolutionNote: string; category?: string }): Observable<{ success: boolean; data: { score: number; gaps: string[]; suggestions: string[] } }> {
+    return this.http.post<{ success: boolean; data: { score: number; gaps: string[]; suggestions: string[] } }>(
+      `${this.apiUrl}/ai/score-resolution`,
+      params,
+    );
+  }
+
+  aiExplainBallot(params: { title: string; description?: string; body?: string; type: 'poll' | 'referendum'; locale?: string }): Observable<{ success: boolean; data: { explanation: string } }> {
+    return this.http.post<{ success: boolean; data: { explanation: string } }>(
+      `${this.apiUrl}/ai/explain-ballot`,
+      params,
+    );
+  }
+
+  aiGenerateAgenda(params?: { date?: string; maxItems?: number; departmentId?: string }): Observable<{ success: boolean; data: { title: string; items: Array<{ order: number; title: string; type: string; notes: string }> } }> {
+    return this.http.post<{ success: boolean; data: { title: string; items: Array<{ order: number; title: string; type: string; notes: string }> } }>(
+      `${this.apiUrl}/ai/generate-agenda`,
+      params || {},
+    );
+  }
+
+  getFlaggedForumPosts(limit = 20): Observable<{ success: boolean; data: any[]; total: number }> {
+    return this.http.get<{ success: boolean; data: any[]; total: number }>(
+      `${this.apiUrl}/forums/flagged-posts`,
+      { params: new HttpParams().set('limit', String(limit)) },
+    );
+  }
+
+  getLatestSeasonalForecast(): Observable<{ success: boolean; data: SeasonalForecastRow | null }> {
+    return this.http.get<{ success: boolean; data: SeasonalForecastRow | null }>(
+      `${this.apiUrl}/seasonal-forecasts/latest`,
+    );
+  }
+
+  generateSeasonalForecast(): Observable<{ success: boolean; data: SeasonalForecastRow; created: boolean }> {
+    return this.http.post<{ success: boolean; data: SeasonalForecastRow; created: boolean }>(
+      `${this.apiUrl}/seasonal-forecasts/generate`,
+      {},
+    );
   }
 
   /**
@@ -567,6 +726,13 @@ export class ApiService {
     return this.http.get<{ success: boolean; data: any[] }>(`${this.apiUrl}/portal/resolutions?limit=${limit}`);
   }
 
+  getPortalFaq(limit: number = 20): Observable<{ success: boolean; data: Array<{ id: string; question: string; answer: string; category: string | null }>; total: number }> {
+    return this.http.get<{ success: boolean; data: Array<{ id: string; question: string; answer: string; category: string | null }>; total: number }>(
+      `${this.apiUrl}/portal/faq`,
+      { params: new HttpParams().set('limit', String(limit)) },
+    );
+  }
+
   // Messages
   getConversations(): Observable<any> {
     return this.http.get(`${this.apiUrl}/messages/conversations`);
@@ -581,8 +747,8 @@ export class ApiService {
   }
 
   // Audit Logs
-  getAuditAnomalies(): Observable<{ success: boolean; data: Array<{ title: string; severity: string; desc: string; date: string }> }> {
-    return this.http.get<{ success: boolean; data: Array<{ title: string; severity: string; desc: string; date: string }> }>(
+  getAuditAnomalies(): Observable<{ success: boolean; data: { anomalies: Array<{ title: string; severity: string; desc: string; date: string }>; summary: string; items: Array<{ title: string; severity: string; narrative: string; recommendedAction: string }> } }> {
+    return this.http.get<{ success: boolean; data: { anomalies: Array<{ title: string; severity: string; desc: string; date: string }>; summary: string; items: Array<{ title: string; severity: string; narrative: string; recommendedAction: string }> } }>(
       `${this.apiUrl}/audit/anomalies`
     );
   }
@@ -647,4 +813,114 @@ export class ApiService {
   resetPassword(token: string, password: string): Observable<{ success: boolean; message: string }> {
     return this.http.post<{ success: boolean; message: string }>(`${this.apiUrl}/auth/reset-password`, { token, password });
   }
+
+  // Phase B — feature sweep (subscriptions, notes, SLA, prefs)
+
+  subscribeToIssue(issueId: string): Observable<{ success: boolean; data: { issueId: string; userId: string } }> {
+    return this.http.post<{ success: boolean; data: { issueId: string; userId: string } }>(
+      `${this.apiUrl}/issues/${issueId}/subscribe`, {},
+    );
+  }
+
+  unsubscribeFromIssue(issueId: string): Observable<{ success: boolean; data: { removed: number } }> {
+    return this.http.delete<{ success: boolean; data: { removed: number } }>(
+      `${this.apiUrl}/issues/${issueId}/subscribe`,
+    );
+  }
+
+  getMySubscriptions(): Observable<{ success: boolean; data: Array<{ issueId: string; issue?: Issue }> }> {
+    return this.http.get<{ success: boolean; data: Array<{ issueId: string; issue?: Issue }> }>(
+      `${this.apiUrl}/users/me/subscriptions`,
+    );
+  }
+
+  getInternalNotes(issueId: string): Observable<{ success: boolean; data: Array<{ id: string; content: string; createdAt: string; author?: { firstName: string; lastName: string } }> }> {
+    return this.http.get<{ success: boolean; data: Array<{ id: string; content: string; createdAt: string; author?: { firstName: string; lastName: string } }> }>(
+      `${this.apiUrl}/issues/${issueId}/internal-notes`,
+    );
+  }
+
+  addInternalNote(issueId: string, content: string): Observable<{ success: boolean; data: { id: string; content: string } }> {
+    return this.http.post<{ success: boolean; data: { id: string; content: string } }>(
+      `${this.apiUrl}/issues/${issueId}/internal-notes`, { content },
+    );
+  }
+
+  getIssueSla(issueId: string): Observable<{ success: boolean; data: { priority: string; dueAt: string; breached: boolean; firstResponseAt?: string } | null }> {
+    return this.http.get<{ success: boolean; data: { priority: string; dueAt: string; breached: boolean; firstResponseAt?: string } | null }>(
+      `${this.apiUrl}/issues/${issueId}/sla`,
+    );
+  }
+
+  getNotificationPrefs(): Observable<{ success: boolean; data: Array<{ channel: string; type: string; enabled: boolean }> }> {
+    return this.http.get<{ success: boolean; data: Array<{ channel: string; type: string; enabled: boolean }> }>(
+      `${this.apiUrl}/users/me/notification-prefs`,
+    );
+  }
+
+  updateNotificationPrefs(
+    preferences: Array<{ channel: 'inApp' | 'email' | 'push'; type: string; enabled: boolean }>,
+  ): Observable<{ success: boolean; data: Array<{ channel: string; type: string; enabled: boolean }> }> {
+    return this.http.put<{ success: boolean; data: Array<{ channel: string; type: string; enabled: boolean }> }>(
+      `${this.apiUrl}/users/me/notification-prefs`, { preferences },
+    );
+  }
+
+  // Phase C — weekly executive briefings
+  getLatestWeeklySummary(): Observable<{ success: boolean; data: WeeklySummaryRow | null }> {
+    return this.http.get<{ success: boolean; data: WeeklySummaryRow | null }>(`${this.apiUrl}/weekly-summaries/latest`);
+  }
+
+  generateWeeklySummary(force = false): Observable<{ success: boolean; data: WeeklySummaryRow; created: boolean }> {
+    return this.http.post<{ success: boolean; data: WeeklySummaryRow; created: boolean }>(
+      `${this.apiUrl}/weekly-summaries`, { force },
+    );
+  }
+
+  // Phase B — share links
+  createShareLink(issueId: string, expiresInDays?: number): Observable<{ success: boolean; data: { id: string; token: string; expiresAt?: string } }> {
+    return this.http.post<{ success: boolean; data: { id: string; token: string; expiresAt?: string } }>(
+      `${this.apiUrl}/issues/${issueId}/share-link`,
+      expiresInDays != null ? { expiresInDays } : {},
+    );
+  }
+
+  resolveShareLink(token: string): Observable<{ success: boolean; data: { token: string; issue: Issue; expiresAt?: string } }> {
+    return this.http.get<{ success: boolean; data: { token: string; issue: Issue; expiresAt?: string } }>(
+      `${this.apiUrl}/share/${token}`,
+    );
+  }
+}
+
+export interface WeeklySummaryRow {
+  id: string;
+  weekKey: string;
+  weekStart: string;
+  weekEnd: string;
+  body: string;
+  highlights: Array<{ title: string; body: string }>;
+  stats: Record<string, unknown>;
+  generatedAt: string;
+  source: string;
+}
+
+export interface WardDigestRow {
+  id: string;
+  wardId: string;
+  dateKey: string;
+  body: string;
+  issueCount: number;
+  issueIds: string[];
+  generatedAt: string;
+  source: string;
+  ward?: { id: string; name: string; code: string };
+}
+
+export interface SeasonalForecastRow {
+  id: string;
+  monthKey: string;
+  stats: Record<string, unknown>;
+  narrative: string;
+  generatedAt: string;
+  source: string;
 }

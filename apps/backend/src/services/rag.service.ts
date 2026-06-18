@@ -58,6 +58,24 @@ export interface IngestResult {
   skipped: boolean;
 }
 
+export interface HybridCitation {
+  sourceType: 'legislation' | 'issue' | 'faq';
+  id: string;
+  title: string;
+  subtype: string;
+  chunkIndex: number;
+  score: number;
+  chunk: string;
+  documentDate?: string | null;
+}
+
+export interface HybridRetrieveOptions {
+  legislationK?: number;
+  issuesK?: number;
+  faqK?: number;
+  minScore?: number;
+}
+
 /**
  * Ingest a piece of legislation/regulation into the vector store.
  *
@@ -174,5 +192,180 @@ export const ragService = {
 
   async deleteDocument(id: string) {
     return prisma.document.delete({ where: { id } });
+  },
+
+  /**
+   * Retrieve similar issue reports (not legislation) for hybrid RAG.
+   */
+  async retrieveIssues(query: string, topK: number = 3, minScore: number = 0.3): Promise<HybridCitation[]> {
+    const k = Math.min(Math.max(1, topK), MAX_TOP_K);
+    const queryVec = await embedText(query);
+    const vecLiteral = toPgVectorLiteral(queryVec);
+
+    const rows = await prisma.$queryRaw<
+      Array<{
+        id: string;
+        title: string;
+        description: string;
+        category: string;
+        status: string;
+        score: number;
+      }>
+    >`
+      SELECT
+        i."id",
+        i."title",
+        i."description",
+        i."category"::text AS category,
+        i."status"::text AS status,
+        (1 - (e."embedding" <=> ${vecLiteral}::vector)) AS "score"
+      FROM "IssueEmbedding" e
+      JOIN "Issue" i ON i."id" = e."issueId"
+      WHERE e."embedding" IS NOT NULL
+        AND (1 - (e."embedding" <=> ${vecLiteral}::vector)) >= ${minScore}
+      ORDER BY e."embedding" <=> ${vecLiteral}::vector
+      LIMIT ${k}
+    `;
+
+    return rows.map((r) => ({
+      sourceType: 'issue' as const,
+      id: r.id,
+      title: r.title,
+      subtype: r.category,
+      chunkIndex: 0,
+      score: Number(r.score),
+      chunk: `${r.title}. ${r.description}`.slice(0, 280) + (r.description.length > 200 ? '…' : ''),
+      documentDate: null,
+    }));
+  },
+
+  /**
+   * Retrieve FAQ chunks for hybrid RAG.
+   */
+  async retrieveFaq(query: string, topK: number = 2, minScore: number = 0.3): Promise<HybridCitation[]> {
+    const k = Math.min(Math.max(1, topK), MAX_TOP_K);
+    const queryVec = await embedText(query);
+    const vecLiteral = toPgVectorLiteral(queryVec);
+
+    const rows = await prisma.$queryRaw<
+      Array<{
+        id: string;
+        faqEntryId: string;
+        chunkIndex: number;
+        content: string;
+        question: string;
+        category: string | null;
+        score: number;
+      }>
+    >`
+      SELECT
+        c."id",
+        c."faqEntryId",
+        c."chunkIndex",
+        c."content",
+        f."question",
+        f."category",
+        (1 - (c."embedding" <=> ${vecLiteral}::vector)) AS "score"
+      FROM "FaqChunk" c
+      JOIN "FaqEntry" f ON f."id" = c."faqEntryId"
+      WHERE c."embedding" IS NOT NULL
+        AND f."published" = true
+        AND (1 - (c."embedding" <=> ${vecLiteral}::vector)) >= ${minScore}
+      ORDER BY c."embedding" <=> ${vecLiteral}::vector
+      LIMIT ${k}
+    `;
+
+    return rows.map((r) => ({
+      sourceType: 'faq' as const,
+      id: r.faqEntryId,
+      title: r.question,
+      subtype: r.category || 'FAQ',
+      chunkIndex: r.chunkIndex,
+      score: Number(r.score),
+      chunk: r.content.slice(0, 280) + (r.content.length > 280 ? '…' : ''),
+      documentDate: null,
+    }));
+  },
+
+  /**
+   * Merge legislation, issue, and FAQ retrieval into one ranked list.
+   */
+  async retrieveHybrid(
+    query: string,
+    opts: HybridRetrieveOptions = {},
+  ): Promise<HybridCitation[]> {
+    const {
+      legislationK = 3,
+      issuesK = 2,
+      faqK = 2,
+      minScore = 0.25,
+    } = opts;
+
+    const results: HybridCitation[] = [];
+    const tasks: Array<Promise<void>> = [];
+
+    if (legislationK > 0) {
+      tasks.push(
+        this.retrieve(query, legislationK, minScore).then((chunks) => {
+          for (const c of chunks) {
+            results.push({
+              sourceType: 'legislation',
+              id: c.documentId,
+              title: c.documentTitle,
+              subtype: c.documentType,
+              chunkIndex: c.chunkIndex,
+              score: c.score,
+              chunk: c.content.slice(0, 280) + (c.content.length > 280 ? '…' : ''),
+              documentDate: c.documentDate,
+            });
+          }
+        }).catch(() => {}),
+      );
+    }
+
+    if (issuesK > 0) {
+      tasks.push(
+        this.retrieveIssues(query, issuesK, minScore).then((rows) => {
+          results.push(...rows);
+        }).catch(() => {}),
+      );
+    }
+
+    if (faqK > 0) {
+      tasks.push(
+        this.retrieveFaq(query, faqK, minScore).then((rows) => {
+          results.push(...rows);
+        }).catch(() => {}),
+      );
+    }
+
+    await Promise.all(tasks);
+    return results.sort((a, b) => b.score - a.score);
+  },
+
+  buildHybridSystemPrompt(citations: HybridCitation[]): string {
+    const contextBlock = citations
+      .map((c, i) => {
+        const label = c.sourceType === 'legislation'
+          ? `Ordinance/Law`
+          : c.sourceType === 'issue'
+            ? `Citizen Issue`
+            : `FAQ`;
+        const date = c.documentDate ? `, ${c.documentDate}` : '';
+        return `[${i + 1}] (${label}: ${c.title}, ${c.subtype}${date})\n${c.chunk}`;
+      })
+      .join('\n\n---\n\n');
+
+    return `You are CivicAssist, an AI assistant for the municipal government. The user may ask about
+municipal rules, citizen issues, or common questions. The following excerpts are provided as
+CONTEXT ONLY from three sources: official legislation, past citizen issue reports, and the FAQ
+knowledge base. Answer using this context when relevant, and CITE sources by number in brackets
+(e.g. [1]). Label whether each citation is an ordinance, issue report, or FAQ when referencing it.
+If the context does not contain the answer, say so honestly and suggest where to look instead.
+Keep answers concise and friendly.
+
+--- CONTEXT ---
+${contextBlock}
+--- END CONTEXT ---`;
   },
 };

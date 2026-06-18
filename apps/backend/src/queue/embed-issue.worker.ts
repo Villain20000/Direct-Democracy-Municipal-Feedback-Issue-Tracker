@@ -21,6 +21,7 @@ import {
   getRedisConnection,
   type EmbedIssueJobData,
 } from './embed-issue.queue';
+import { savedSearchAlertService } from '../services/saved-search-alert.service';
 
 async function processEmbedIssue(
   job: Job<EmbedIssueJobData>,
@@ -87,6 +88,10 @@ async function processEmbedIssue(
   cache
     .invalidatePattern('search:semantic:*')
     .catch((err) => console.warn(`[embed-issue] cache.invalidatePattern failed:`, err.message));
+
+  savedSearchAlertService.checkNewIssue(issueId).catch((err) =>
+    console.warn(`[embed-issue] saved-search alert check failed for ${issueId}:`, err.message),
+  );
 
   const ms = Date.now() - start;
   console.log(

@@ -46,6 +46,14 @@ import { Poll, UserRole } from '@dd/shared-types';
                 @if (poll.description) {
                   <p style="font-size:13px;color:var(--text-secondary);margin:8px 0;">{{ poll.description }}</p>
                 }
+                @if (ballotExplanations[poll.id]) {
+                  <div style="padding:10px;background:var(--bg-primary);border-radius:var(--radius);font-size:13px;margin:8px 0;border-left:3px solid var(--primary);">
+                    {{ ballotExplanations[poll.id] }}
+                  </div>
+                }
+                <button type="button" class="btn btn-secondary btn-sm" style="margin-bottom:8px;" (click)="explainPoll(poll)" [disabled]="explainingPollId === poll.id">
+                  {{ explainingPollId === poll.id ? i18n.t('polls.explaining') : i18n.t('polls.explainSimple') }}
+                </button>
                 @if (poll.closesAt) {
                   <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">{{ i18n.t('polls.closes', { date: poll.closesAt | date:'mediumDate' }) }}</p>
                 }
@@ -169,6 +177,8 @@ export class PollsPageComponent implements OnInit {
    * `details.issues` for validation failures (e.g. empty options).
    */
   fieldErrors: Record<string, string> = {};
+  ballotExplanations: Record<string, string> = {};
+  explainingPollId = '';
 
   navItems: NavItem[] = [];
 
@@ -232,6 +242,22 @@ export class PollsPageComponent implements OnInit {
 
   canManage(): boolean {
     return this.auth.hasRole(UserRole.SUPER_ADMIN, UserRole.MAYOR, UserRole.COUNCIL_MEMBER);
+  }
+
+  explainPoll(poll: Poll) {
+    this.explainingPollId = poll.id;
+    this.api.aiExplainBallot({
+      title: poll.title,
+      description: poll.description,
+      type: 'poll',
+      locale: this.i18n.currentLanguage().code,
+    }).subscribe({
+      next: (res) => {
+        this.ballotExplanations[poll.id] = res.data?.explanation || '';
+        this.explainingPollId = '';
+      },
+      error: () => { this.explainingPollId = ''; },
+    });
   }
 
   closePoll(poll: Poll) {

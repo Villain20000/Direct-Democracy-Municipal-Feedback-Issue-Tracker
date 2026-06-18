@@ -8,7 +8,7 @@ import { ApiService } from '../../core/services/api.service';
 import { ToastService } from '../../core/services/toast.service';
 import { TranslationService } from '../../core/i18n/translation.service';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
-import { DashboardStats, Issue } from '@dd/shared-types';
+import { DashboardStats, Issue, User } from '@dd/shared-types';
 
 @Component({
   selector: 'app-department-dashboard',
@@ -96,12 +96,30 @@ import { DashboardStats, Issue } from '@dd/shared-types';
             <thead><tr><th>{{ 'department.rankCol' | t }}</th><th>{{ 'department.titleCol' | t }}</th><th>{{ 'department.statusCol' | t }}</th><th>{{ 'department.priorityCol' | t }}</th><th>{{ 'department.assignedCol' | t }}</th><th>{{ 'department.upvotesCol' | t }}</th></tr></thead>
             <tbody>
               @for (issue of issues; track issue.id; let i = $index) {
-                <tr [routerLink]="['/issues', issue.id]" style="cursor: pointer;">
+                <tr>
                   <td style="font-weight: 700; color: var(--text-muted);">{{ i + 1 }}</td>
-                  <td><strong>{{ issue.title }}</strong></td>
+                  <td>
+                    <a [routerLink]="['/issues', issue.id]" style="font-weight:600;color:inherit;">{{ issue.title }}</a>
+                    @if (slaRiskMap[issue.id]) {
+                      <span class="badge" [class]="slaRiskBadge(slaRiskMap[issue.id].risk)" style="margin-left:6px;font-size:10px;" [title]="slaRiskMap[issue.id].justification">
+                        SLA {{ slaRiskMap[issue.id].risk }}
+                      </span>
+                    }
+                  </td>
                   <td><span class="status-badge" [ngClass]="statusClass(issue.status)">{{ formatStatus(issue.status) }}</span></td>
                   <td><span class="priority-dot" [ngClass]="'p' + (issue.priority || 3)"></span> {{ issue.priority || 'N/A' }}/5</td>
-                  <td>{{ issue.assignee?.firstName || i18n.t('common.none') }}</td>
+                  <td (click)="$event.stopPropagation()">
+                    <select
+                      [attr.data-testid]="'dept-assign-' + issue.id"
+                      [value]="issue.assigneeId || issue.assignee?.id || ''"
+                      (change)="quickAssign(issue, $event)"
+                      style="padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;max-width:140px;">
+                      <option value="">{{ i18n.t('common.none') }}</option>
+                      @for (member of staffMembers; track member.id) {
+                        <option [value]="member.id">{{ member.firstName }} {{ member.lastName }}</option>
+                      }
+                    </select>
+                  </td>
                   <td>▲ {{ issue.upvotes }}</td>
                 </tr>
               } @empty {
@@ -120,6 +138,8 @@ export class DepartmentDashboardComponent implements OnInit {
   reranking = false;
   rerankMessage = '';
   rerankError = '';
+  slaRiskMap: Record<string, { risk: string; justification: string }> = {};
+  staffMembers: User[] = [];
   staffWorkload = [
     { name: 'Tom Wilson', initials: 'TW', active: 8, capacity: 12 },
     { name: 'Sarah Adams', initials: 'SA', active: 6, capacity: 12 },
@@ -158,8 +178,14 @@ export class DepartmentDashboardComponent implements OnInit {
   ngOnInit() {
     const departmentId = this.auth.user()?.departmentId;
     if (!departmentId) return;
+    this.api.getUsers({ role: 'STAFF', pageSize: '50' }).subscribe({
+      next: (res: any) => { if (res.data) this.staffMembers = res.data; },
+    });
     this.api.getIssues({ departmentId, pageSize: '8' }).subscribe((res: any) => {
-      if (res.data) this.issues = res.data;
+      if (res.data) {
+        this.issues = res.data;
+        this.loadSlaRisks();
+      }
     });
     this.api.getIssueStats({ departmentId }).subscribe({
       next: res => {
@@ -180,6 +206,41 @@ export class DepartmentDashboardComponent implements OnInit {
 
   formatStatus(status: string): string {
     return this.i18n.tEnum('status', status);
+  }
+
+  quickAssign(issue: Issue, event: Event) {
+    const assigneeId = (event.target as HTMLSelectElement).value;
+    if (!assigneeId) return;
+    this.api.assignIssue(issue.id, assigneeId, issue.departmentId).subscribe({
+      next: (res) => {
+        if (res.success) {
+          const idx = this.issues.findIndex((i) => i.id === issue.id);
+          if (idx >= 0) this.issues[idx] = { ...this.issues[idx], ...res.data };
+          this.toast.success(this.i18n.t('detail.assignSuccess'));
+        }
+      },
+      error: () => this.toast.error(this.i18n.t('detail.assignFailed')),
+    });
+  }
+
+  loadSlaRisks() {
+    if (!this.issues.length) return;
+    this.api.aiSlaRisk(this.issues.map((i) => i.id)).subscribe({
+      next: (res) => {
+        const map: Record<string, { risk: string; justification: string }> = {};
+        for (const row of res.data || []) {
+          map[row.issueId] = { risk: row.risk, justification: row.justification };
+        }
+        this.slaRiskMap = map;
+      },
+    });
+  }
+
+  slaRiskBadge(risk: string): string {
+    const r = (risk || '').toLowerCase();
+    if (r === 'high') return 'badge-red';
+    if (r === 'medium') return 'badge-amber';
+    return 'badge-green';
   }
 
   rerankWithAi() {

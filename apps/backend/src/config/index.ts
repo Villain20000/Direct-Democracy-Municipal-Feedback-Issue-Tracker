@@ -41,6 +41,9 @@ export const config = {
   ollama: {
     baseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
     model: process.env.GEMMA_MODEL || 'gemma2:2b',
+    embedModel: process.env.EMBED_MODEL || 'nomic-embed-text',
+    visionModel: process.env.VISION_MODEL || 'llava:7b',
+    whisperModel: process.env.WHISPER_MODEL || 'whisper-small',
   },
 
   database: {

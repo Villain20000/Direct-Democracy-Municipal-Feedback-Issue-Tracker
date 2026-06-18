@@ -160,4 +160,152 @@ describe('AI Endpoints', () => {
       expect(res.status).toBe(400);
     });
   });
+
+  describe('POST /api/v1/ai/draft-status-update', () => {
+    it('should draft a citizen status notification', async () => {
+      const res = await request(app)
+        .post('/api/v1/ai/draft-status-update')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          title: 'Broken streetlight on Oak Ave',
+          oldStatus: 'SUBMITTED',
+          newStatus: 'IN_PROGRESS',
+        });
+
+      if (res.status === 200) {
+        expect(res.body.success).toBe(true);
+        expect(res.body.data.draft).toBeDefined();
+        expect(typeof res.body.data.draft).toBe('string');
+      } else {
+        expect(res.status).toBe(503);
+      }
+    });
+
+    it('should reject without required fields', async () => {
+      const res = await request(app)
+        .post('/api/v1/ai/draft-status-update')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ title: 'Test' });
+
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('POST /api/v1/ai/sla-risk', () => {
+    it('should reject without issue ids', async () => {
+      const res = await request(app)
+        .post('/api/v1/ai/sla-risk')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({});
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('POST /api/v1/ai/score-resolution', () => {
+    it('should score a resolution note', async () => {
+      const res = await request(app)
+        .post('/api/v1/ai/score-resolution')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          title: 'Pothole fixed',
+          resolutionNote: 'Crew patched the road and verified with the reporter.',
+        });
+      if (res.status === 200) {
+        expect(res.body.data.score).toBeDefined();
+      } else {
+        expect(res.status).toBe(503);
+      }
+    });
+  });
+
+  describe('POST /api/v1/ai/explain-ballot', () => {
+    it('should explain a poll', async () => {
+      const res = await request(app)
+        .post('/api/v1/ai/explain-ballot')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ title: 'Park hours', description: 'Extend park hours?', type: 'poll' });
+      if (res.status === 200) {
+        expect(res.body.data.explanation).toBeDefined();
+      } else {
+        expect(res.status).toBe(503);
+      }
+    });
+  });
+
+  describe('POST /api/v1/ai/moderate-text', () => {
+    it('should moderate forum text', async () => {
+      const res = await request(app)
+        .post('/api/v1/ai/moderate-text')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ content: 'Thank you for the quick fix on our street.' });
+      if (res.status === 200) {
+        expect(typeof res.body.data.flag).toBe('boolean');
+      } else {
+        expect(res.status).toBe(503);
+      }
+    });
+  });
+
+  describe('POST /api/v1/ai/related-impact', () => {
+    it('should reject without issueId', async () => {
+      const res = await request(app)
+        .post('/api/v1/ai/related-impact')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({});
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('GET /api/v1/portal/faq', () => {
+    it('should list FAQ entries publicly', async () => {
+      const res = await request(app).get('/api/v1/portal/faq');
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(Array.isArray(res.body.data)).toBe(true);
+    });
+  });
+
+  describe('GET /api/v1/ai/health', () => {
+    it('should return AI health status', async () => {
+      const res = await request(app).get('/api/v1/ai/health');
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.tier).toBeDefined();
+      expect(res.body.data.configured).toBeDefined();
+    });
+  });
+
+  describe('POST /api/v1/ai/describe-image', () => {
+    it('should reject without image file', async () => {
+      const res = await request(app)
+        .post('/api/v1/ai/describe-image')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({});
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('POST /api/v1/ai/transcribe', () => {
+    it('should reject without audio file', async () => {
+      const res = await request(app)
+        .post('/api/v1/ai/transcribe')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({});
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('POST /api/v1/ai/detect-language', () => {
+    it('should detect language from text', async () => {
+      const res = await request(app)
+        .post('/api/v1/ai/detect-language')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ text: 'Υπάρχει μεγάλη τρύπα στον δρόμο' });
+      if (res.status === 200) {
+        expect(['en', 'el']).toContain(res.body.data.language);
+      } else {
+        expect(res.status).toBe(503);
+      }
+    });
+  });
 });

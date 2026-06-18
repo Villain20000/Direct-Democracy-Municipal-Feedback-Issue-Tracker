@@ -23,6 +23,8 @@ interface Anomaly {
   severity: string;
   desc: string;
   date: string;
+  narrative?: string;
+  recommendedAction?: string;
 }
 
 interface DeptScore {
@@ -82,13 +84,19 @@ interface DeptScore {
         <div class="card">
           <div class="card-header"><h3>{{ 'auditor.anomalyTitle' | t }}</h3></div>
           <div class="card-body">
+            @if (anomalySummary) {
+              <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;padding:10px;background:var(--bg-primary);border-radius:var(--radius);">{{ anomalySummary }}</p>
+            }
             @for (anomaly of anomalies; track anomaly.title) {
               <div style="padding:14px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;border-left:4px solid var(--danger);">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
                   <strong style="font-size:13px;">{{ anomaly.title }}</strong>
                   <span class="badge badge-red">{{ anomaly.severity }}</span>
                 </div>
-                <p style="font-size:12px;color:var(--text-secondary);">{{ anomaly.desc }}</p>
+                <p style="font-size:12px;color:var(--text-secondary);">{{ anomaly.narrative || anomaly.desc }}</p>
+                @if (anomaly.recommendedAction) {
+                  <p style="font-size:12px;color:var(--primary);margin-top:6px;"><strong>{{ 'auditor.recommendedAction' | t }}:</strong> {{ anomaly.recommendedAction }}</p>
+                }
                 <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">{{ i18n.t('auditor.detected', { date: (anomaly.date | date:'mediumDate') || '' }) }}</div>
               </div>
             } @empty {
@@ -134,6 +142,7 @@ export class AuditorDashboardComponent implements OnInit {
   expandedLogId = '';
   auditTotal = 0;
   anomalies: Anomaly[] = [];
+  anomalySummary = '';
   qualityScores: DeptScore[] = [];
   complianceScore = 0;
   resolvedIssues = 0;
@@ -164,7 +173,18 @@ export class AuditorDashboardComponent implements OnInit {
     });
 
     this.api.getAuditAnomalies().subscribe({
-      next: (res) => { this.anomalies = res.data || []; },
+      next: (res) => {
+        const data = res.data;
+        this.anomalySummary = data?.summary || '';
+        this.anomalies = (data?.items || data?.anomalies || []).map((a: any) => ({
+          title: a.title,
+          severity: a.severity,
+          desc: a.desc || a.narrative || '',
+          date: a.date || new Date().toISOString(),
+          narrative: a.narrative,
+          recommendedAction: a.recommendedAction,
+        }));
+      },
     });
 
     this.api.getDepartmentResolutionRates().subscribe({

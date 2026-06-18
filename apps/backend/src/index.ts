@@ -27,6 +27,8 @@ import adminDocumentRoutes from './routes/admin-documents.routes';
 import spatialRoutes from './routes/spatial.routes';
 import featureSweepRoutes, { _issueShareLinkServiceForPublicResolve } from './routes/feature-sweep.routes';
 import weeklySummaryRoutes from './routes/weekly-summary.routes';
+import wardDigestRoutes from './routes/ward-digest.routes';
+import seasonalForecastRoutes from './routes/seasonal-forecast.routes';
 import portalRoutes from './routes/portal.routes';
 
 const app = express();
@@ -80,6 +82,8 @@ app.use('/api/v1', attachmentRoutes);
 app.use('/api/v1', featureSweepRoutes);
 // Phase C: weekly executive briefings
 app.use('/api/v1/weekly-summaries', weeklySummaryRoutes);
+app.use('/api/v1/ward-digests', wardDigestRoutes);
+app.use('/api/v1/seasonal-forecasts', seasonalForecastRoutes);
 // Phase D2: public transparency portal (no auth)
 app.use('/api/v1/portal', portalRoutes);
 

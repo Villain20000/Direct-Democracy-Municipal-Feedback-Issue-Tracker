@@ -4,6 +4,7 @@ import { authenticate, AuthenticatedRequest } from '../middleware/auth.middlewar
 import { authorize } from '../middleware/rbac.middleware';
 import { issueService } from '../services/issue.service';
 import { areaSummaryService } from '../services/area-summary.service';
+import { clusterReportService } from '../services/cluster-report.service';
 import { createIssueSchema, updateStatusSchema } from '../validators/issue.validators';
 import { getEmbedIssueQueue } from '../queue/embed-issue.queue';
 import { sendDomainError } from '../errors/domain-errors';
@@ -44,6 +45,22 @@ router.get('/templates', authenticate, async (_req: AuthenticatedRequest, res) =
 // Summarize issues inside a user-drawn polygon (any authenticated user).
 // Note: must be declared before /:id so /summarize-area isn't captured by
 // the param route.
+router.post('/cluster-report', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMENT_HEAD', 'STAFF', 'AUDITOR'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const polygon = req.body?.polygon;
+    if (!Array.isArray(polygon) || polygon.length < 3) {
+      res.status(400).json({ error: 'polygon must be an array of [lat, lng] pairs with at least 3 vertices' });
+      return;
+    }
+    const result = await clusterReportService.generate(polygon);
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[issues.cluster-report]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.post('/summarize-area', authenticate, async (req: AuthenticatedRequest, res) => {
   try {
     const polygon = req.body?.polygon;
@@ -137,6 +154,19 @@ router.get('/search-similar', authenticate, async (req, res) => {
   } catch (error: any) {
     if (sendDomainError(res, error, { logger: console })) return;
     console.error('[issues.searchSimilar]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// AI-assisted duplicate candidate queue (admin / department heads).
+router.get('/duplicate-candidates', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMENT_HEAD'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+    const data = await issueService.getDuplicateCandidates(limit);
+    res.json({ success: true, data, total: data.length });
+  } catch (error: any) {
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[issues.duplicate-candidates]', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -258,10 +288,32 @@ router.post('/', authenticate, async (req: AuthenticatedRequest, res) => {
 });
 
 // Update status (staff+ only)
+router.patch('/:id/link-duplicate', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMENT_HEAD'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const { canonicalId } = req.body;
+    if (!canonicalId || typeof canonicalId !== 'string') {
+      res.status(400).json({ error: 'canonicalId is required' });
+      return;
+    }
+    const issue = await issueService.linkDuplicate(req.params.id as string, canonicalId, req.user!.id);
+    res.json({ success: true, data: issue });
+  } catch (error: any) {
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[issues.link-duplicate]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.patch('/:id/status', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMENT_HEAD', 'STAFF'), async (req: AuthenticatedRequest, res) => {
   try {
-    const { status, note } = updateStatusSchema.parse(req.body);
-    const issue = await issueService.updateStatus(req.params.id as string, status, req.user!.id, note);
+    const { status, note, notificationMessage } = updateStatusSchema.parse(req.body);
+    const issue = await issueService.updateStatus(
+      req.params.id as string,
+      status,
+      req.user!.id,
+      note,
+      notificationMessage,
+    );
     res.json({ success: true, data: issue });
   } catch (error: any) {
     if (error instanceof z.ZodError) {

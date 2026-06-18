@@ -117,7 +117,11 @@ export async function cleanupDatabase() {
   await prisma.internalNote.deleteMany();
   await prisma.issueShareLink.deleteMany();
   await prisma.issueSubscription.deleteMany();
+  await prisma.savedSearchAlert.deleteMany();
+  await prisma.savedSearchEmbedding.deleteMany();
   await prisma.savedSearch.deleteMany();
+  await prisma.faqChunk.deleteMany();
+  await prisma.faqEntry.deleteMany();
   await prisma.notificationPreference.deleteMany();
   await prisma.documentChunk.deleteMany();
   await prisma.document.deleteMany();

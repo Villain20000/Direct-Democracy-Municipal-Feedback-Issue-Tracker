@@ -24,6 +24,8 @@ export const createIssueSchema = z.object({
 export const updateStatusSchema = z.object({
   status: issueStatusEnum,
   note: z.string().max(1000).optional(),
+  /** Optional custom notification message sent to the reporter (AI-drafted or edited). */
+  notificationMessage: z.string().max(2000).optional(),
 });
 
 export type CreateIssueInput = z.infer<typeof createIssueSchema>;

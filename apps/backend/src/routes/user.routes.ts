@@ -4,15 +4,27 @@ import { authorize } from '../middleware/rbac.middleware';
 import { userService } from '../services/user.service';
 import { sendDomainError } from '../errors/domain-errors';
 import { parsePagination } from '../utils/pagination';
+import { prisma } from '../db/client';
 
 const router = Router();
 
-router.get('/', authenticate, authorize('SUPER_ADMIN', 'AUDITOR'), async (req: AuthenticatedRequest, res) => {
+router.get('/', authenticate, authorize('SUPER_ADMIN', 'AUDITOR', 'MAYOR', 'DEPARTMENT_HEAD', 'STAFF'), async (req: AuthenticatedRequest, res) => {
   try {
+    const caller = req.user!;
+    const isAdminList = caller.role === 'SUPER_ADMIN' || caller.role === 'AUDITOR';
+    let departmentId = req.query.departmentId as string | undefined;
+    if (!isAdminList && caller.role !== 'MAYOR') {
+      const dbUser = await prisma.user.findUnique({
+        where: { id: caller.id },
+        select: { departmentId: true },
+      });
+      departmentId = dbUser?.departmentId ?? undefined;
+    }
     const result = await userService.getAll({
       ...parsePagination(req.query as Record<string, unknown>, { defaultPageSize: 20 }),
-      role: req.query.role as string,
+      role: isAdminList ? (req.query.role as string) : 'STAFF',
       search: req.query.search as string,
+      departmentId,
     });
     res.json({ success: true, ...result });
   } catch (error: any) {

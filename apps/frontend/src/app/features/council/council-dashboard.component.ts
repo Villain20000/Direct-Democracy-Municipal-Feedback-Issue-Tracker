@@ -196,6 +196,9 @@ interface ChatMessage {
                             {{ (cit.score * 100).toFixed(0) }}%
                           </span>
                           <span style="font-size:10px;background:#E0E7FF;color:#3730A3;padding:1px 6px;border-radius:3px;">
+                            {{ cit.sourceType || cit.source || 'legislation' }}
+                          </span>
+                          <span style="font-size:10px;background:#F1F5F9;color:#475569;padding:1px 6px;border-radius:3px;">
                             {{ cit.type }}
                           </span>
                         </summary>

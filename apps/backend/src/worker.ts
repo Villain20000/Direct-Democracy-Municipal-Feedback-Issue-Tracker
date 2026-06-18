@@ -12,6 +12,9 @@
 import cron from 'node-cron';
 import { startEmbedIssueWorker, stopEmbedIssueWorker } from './queue/embed-issue.worker';
 import { weeklySummaryService } from './services/weekly-summary.service';
+import { wardDigestService } from './services/ward-digest.service';
+import { seasonalForecastService } from './services/seasonal-forecast.service';
+import { faqService } from './services/faq.service';
 
 console.log('🚀 Starting background workers...');
 const worker = startEmbedIssueWorker();
@@ -52,6 +55,63 @@ const weeklySummaryTask = cron.schedule(
 );
 console.log(`📅 Weekly-summary cron scheduled (Fri 17:00 server time, source: AUTO).`);
 
+/** Daily 07:00 ward rep digest for every ward. */
+const wardDigestTask = cron.schedule(
+  '0 7 * * *',
+  async () => {
+    const dateKey = wardDigestService.getTodayKey();
+    console.log(`[cron] 07:00 — generating ward digests for ${dateKey}`);
+    try {
+      const results = await wardDigestService.generateAll('AUTO');
+      console.log(`[cron] ward digests: ${results.length} ward(s) processed`);
+    } catch (err: any) {
+      console.error(`[cron] ward digest generation failed: ${err.message}`);
+    }
+  },
+  {
+    timezone: process.env.WEEKLY_SUMMARY_TZ || Intl.DateTimeFormat().resolvedOptions().timeZone,
+  },
+);
+console.log(`📅 Ward-digest cron scheduled (daily 07:00 server time).`);
+
+/** First day of each month at 08:00 — seasonal demand forecast. */
+const seasonalForecastTask = cron.schedule(
+  '0 8 1 * *',
+  async () => {
+    const monthKey = seasonalForecastService.getCurrentMonthKey();
+    console.log(`[cron] Monthly 08:00 — generating seasonal forecast for ${monthKey}`);
+    try {
+      const { row, created } = await seasonalForecastService.generate(monthKey, 'AUTO');
+      console.log(`[cron] seasonal forecast ${created ? 'created' : 'fetched'} for ${monthKey} (id=${row.id})`);
+    } catch (err: any) {
+      console.error(`[cron] seasonal forecast failed for ${monthKey}: ${err.message}`);
+    }
+  },
+  {
+    timezone: process.env.WEEKLY_SUMMARY_TZ || Intl.DateTimeFormat().resolvedOptions().timeZone,
+  },
+);
+console.log(`📅 Seasonal-forecast cron scheduled (1st of month 08:00).`);
+
+/** Sunday 06:00 — regenerate citizen FAQ knowledge base from resolved issues. */
+const faqTask = cron.schedule(
+  '0 6 * * 0',
+  async () => {
+    const weekKey = faqService.getCurrentWeekKey();
+    console.log(`[cron] Sunday 06:00 — generating FAQ entries for ${weekKey}`);
+    try {
+      const result = await faqService.generateWeekly(weekKey, 'AUTO');
+      console.log(`[cron] FAQ generation: ${result.created} created (skipped=${result.skipped})`);
+    } catch (err: any) {
+      console.error(`[cron] FAQ generation failed: ${err.message}`);
+    }
+  },
+  {
+    timezone: process.env.WEEKLY_SUMMARY_TZ || Intl.DateTimeFormat().resolvedOptions().timeZone,
+  },
+);
+console.log(`📅 FAQ KB cron scheduled (Sunday 06:00).`);
+
 console.log('   (Press Ctrl+C to stop.)');
 
 let shuttingDown = false;
@@ -61,6 +121,9 @@ const shutdown = async (signal: string) => {
   console.log(`\n${signal} received — shutting down workers...`);
   try {
     weeklySummaryTask.stop();
+    wardDigestTask.stop();
+    seasonalForecastTask.stop();
+    faqTask.stop();
     await stopEmbedIssueWorker();
     console.log('👋 Workers stopped cleanly. Bye!');
     process.exit(0);

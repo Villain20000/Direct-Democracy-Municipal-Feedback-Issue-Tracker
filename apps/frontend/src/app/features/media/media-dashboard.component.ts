@@ -25,6 +25,13 @@ interface PublicStat {
   color: string;
 }
 
+interface AiTrend {
+  topic: string;
+  frequency: number;
+  ward: string;
+  urgency: string;
+}
+
 @Component({
   selector: 'app-media-dashboard',
   standalone: true,
@@ -42,6 +49,27 @@ interface PublicStat {
           <div><div style="font-size:28px;font-weight:800;">{{ totalIssues }}</div><div style="opacity:0.7;font-size:12px;">{{ 'media.totalIssues' | t }}</div></div>
           <div><div style="font-size:28px;font-weight:800;">{{ resolutionRate }}%</div><div style="opacity:0.7;font-size:12px;">{{ 'media.resolutionRate' | t }}</div></div>
           <div><div style="font-size:28px;font-weight:800;">{{ activeCitizens | number }}</div><div style="opacity:0.7;font-size:12px;">{{ 'media.activeCitizens' | t }}</div></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:24px;" data-testid="media-ai-trends">
+        <div class="card-header"><h3>{{ 'media.aiTrendsTitle' | t }}</h3></div>
+        <div class="card-body">
+          @if (aiTrendsLoading && !aiTrends.length) {
+            <p style="font-size:13px;color:var(--text-muted);">{{ 'media.loadingTrends' | t }}</p>
+          } @else if (aiTrends.length) {
+            @for (trend of aiTrends; track trend.topic) {
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-light);">
+                <div>
+                  <div style="font-size:13px;font-weight:600;">{{ trend.topic }}</div>
+                  <div style="font-size:11px;color:var(--text-muted);">{{ i18n.t('media.trendMeta', { n: trend.frequency, ward: trend.ward }) }}</div>
+                </div>
+                <span class="badge badge-amber">{{ trend.urgency }}</span>
+              </div>
+            }
+          } @else {
+            <p style="font-size:13px;color:var(--text-muted);">{{ 'media.noAiTrends' | t }}</p>
+          }
         </div>
       </div>
 
@@ -153,6 +181,8 @@ export class MediaDashboardComponent implements OnInit {
     { icon: 'groups', titleKey: 'media.community', descKey: 'media.communityDesc', type: 'issues' as const, filename: 'community-engagement-issues.csv' },
   ];
   pressReleases: Array<{ title: string; date: string; summary: string }> = [];
+  aiTrends: AiTrend[] = [];
+  aiTrendsLoading = false;
   exporting = false;
   navItems = [
     { icon: 'dashboard', label: 'nav.overview', route: '/media' },
@@ -173,6 +203,7 @@ export class MediaDashboardComponent implements OnInit {
   i18n = inject(TranslationService);
 
   ngOnInit() {
+    this.loadAiTrends();
     this.api.getIssueStats().subscribe(res => {
       if (res.success) {
         const stats = res.data;
@@ -221,6 +252,32 @@ export class MediaDashboardComponent implements OnInit {
         this.exporting = false;
       },
       error: () => { this.exporting = false; },
+    });
+  }
+
+  loadAiTrends() {
+    this.aiTrendsLoading = true;
+    this.api.getIssues({ pageSize: '30', sortBy: 'createdAt', sortOrder: 'desc' }).subscribe({
+      next: (res: any) => {
+        const issues = (res.data || []).map((i: Issue) => ({
+          title: i.title,
+          description: i.description,
+          category: i.category,
+        }));
+        if (!issues.length) {
+          this.aiTrends = [];
+          this.aiTrendsLoading = false;
+          return;
+        }
+        this.api.aiTrends(issues).subscribe({
+          next: (trendRes) => {
+            this.aiTrends = trendRes?.data?.trends || trendRes?.trends || [];
+            this.aiTrendsLoading = false;
+          },
+          error: () => { this.aiTrends = []; this.aiTrendsLoading = false; },
+        });
+      },
+      error: () => { this.aiTrendsLoading = false; },
     });
   }
 
