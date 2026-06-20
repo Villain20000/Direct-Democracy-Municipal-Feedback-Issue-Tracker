@@ -1,21 +1,21 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
-import { ApiService, CivicScoreData } from '../../core/services/api.service';
+import { ApiService } from '../../core/services/api.service';
 import { TranslationService } from '../../core/i18n/translation.service';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { Issue, Poll } from '@dd/shared-types';
-import { SkeletonComponent } from '../../shared/skeleton.component';
 import { CountUpDirective } from '../../shared/count-up.directive';
 import { ActivityFeedComponent } from '../../shared/activity-feed.component';
+import { CivicScoreComponent } from '../../shared/civic-score.component';
 
 @Component({
   selector: 'app-citizen-dashboard',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, LayoutComponent, DatePipe, TranslatePipe, SkeletonComponent, CountUpDirective, ActivityFeedComponent],
+  imports: [CommonModule, FormsModule, RouterLink, LayoutComponent, DatePipe, TranslatePipe, CountUpDirective, ActivityFeedComponent, CivicScoreComponent],
   template: `
     <app-layout
       [pageTitle]="i18n.t('citizen.pageTitle')"
@@ -40,47 +40,7 @@ import { ActivityFeedComponent } from '../../shared/activity-feed.component';
 
       <div class="content-grid">
         <app-activity-feed [limit]="6" />
-        @if (civicScore()) {
-          <div class="civic-score-card">
-            <div class="civic-tier-badge" [style.background]="civicScore()!.tier.color + '22'" [style.color]="civicScore()!.tier.color">
-              <i class="material-icons-outlined">{{ civicScore()!.tier.icon }}</i>
-              {{ civicScore()!.tier.name }}
-            </div>
-            <div class="civic-points" [countUp]="civicScore()!.points">0</div>
-            <div class="civic-points-label">{{ i18n.t('civicScore.points') }}</div>
-            @if (civicScore()!.nextTier) {
-              <div class="civic-progress">
-                <div class="civic-progress-fill" [style.width.%]="civicScore()!.progressToNext"></div>
-              </div>
-              <div class="civic-next-tier">{{ i18n.t('civicScore.progressToNext', { tier: civicScore()!.nextTier.name }) }}</div>
-            }
-            <div class="civic-breakdown">
-              <div class="civic-breakdown-item">
-                <div class="label">{{ i18n.t('civicScore.issuesReported') }}</div>
-                <div class="value">{{ civicScore()!.breakdown.issuesReported.count }}</div>
-              </div>
-              <div class="civic-breakdown-item">
-                <div class="label">{{ i18n.t('civicScore.upvotesReceived') }}</div>
-                <div class="value">{{ civicScore()!.breakdown.upvotesReceived.count }}</div>
-              </div>
-              <div class="civic-breakdown-item">
-                <div class="label">{{ i18n.t('civicScore.votesCast') }}</div>
-                <div class="value">{{ civicScore()!.breakdown.votesCast.count }}</div>
-              </div>
-              <div class="civic-breakdown-item">
-                <div class="label">{{ i18n.t('civicScore.issuesResolved') }}</div>
-                <div class="value">{{ civicScore()!.breakdown.issuesResolved.count }}</div>
-              </div>
-            </div>
-          </div>
-        } @else {
-          <div class="civic-score-card">
-            <div class="skeleton skeleton-circle" style="margin:0 auto 12px;"></div>
-            <div class="skeleton skeleton-title" style="margin:0 auto 12px;width:120px;height:36px;"></div>
-            <div class="skeleton skeleton-text" style="width:40%;margin:0 auto;"></div>
-            <div class="skeleton skeleton-block" style="margin-top:16px;height:6px;"></div>
-          </div>
-        }
+        <app-civic-score [userId]="auth.user()?.id" />
       </div>
 
       <div class="content-grid">
@@ -184,7 +144,6 @@ export class CitizenDashboardComponent implements OnInit {
   chatSending = false;
   upvotingId = '';
   chatMessages: { role: string; content: string }[] = [];
-  civicScore = signal<CivicScoreData | null>(null);
   navItems = [
     { icon: 'dashboard', label: 'nav.overview', route: '/citizen', i18nKey: 'nav.overview' },
     { icon: 'my_reports', label: 'nav.myReports', route: '/citizen/reports', i18nKey: 'nav.myReports' },
@@ -209,9 +168,6 @@ export class CitizenDashboardComponent implements OnInit {
     if (userId) {
       this.api.getIssues({ reporterId: userId, pageSize: '5' }).subscribe((res: any) => {
         if (res.data) this.myIssues = res.data;
-      });
-      this.api.getCivicScore(userId).subscribe((res: any) => {
-        if (res.success) this.civicScore.set(res.data);
       });
     }
     this.api.getIssues({ pageSize: '4', sortBy: 'upvotes' }).subscribe((res: any) => {

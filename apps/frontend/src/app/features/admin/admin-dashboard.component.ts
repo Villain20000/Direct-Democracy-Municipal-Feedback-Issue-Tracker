@@ -7,11 +7,13 @@ import { ApiService } from '../../core/services/api.service';
 import { TranslationService } from '../../core/i18n/translation.service';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { DashboardStats, User, Issue } from '@dd/shared-types';
+import { ActivityFeedComponent } from '../../shared/activity-feed.component';
+import { CivicScoreComponent } from '../../shared/civic-score.component';
 
 @Component({
   selector: 'app-admin-dashboard',
   standalone: true,
-  imports: [CommonModule, RouterLink, LayoutComponent, TitleCasePipe, DatePipe, TranslatePipe],
+  imports: [CommonModule, RouterLink, LayoutComponent, TitleCasePipe, DatePipe, TranslatePipe, ActivityFeedComponent, CivicScoreComponent],
   template: `
     <app-layout
       [pageTitle]="i18n.t('admin.pageTitle')"
@@ -48,6 +50,11 @@ import { DashboardStats, User, Issue } from '@dd/shared-types';
             <div class="stat-label">{{ 'admin.totalUsers' | t }}</div>
           </div>
         </div>
+      </div>
+
+      <div class="content-grid">
+        <app-activity-feed [limit]="6" />
+        <app-civic-score [userId]="auth.user()?.id" />
       </div>
 
       <div class="content-grid">

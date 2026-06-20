@@ -8,6 +8,8 @@ import { ApiService, WeeklySummaryRow, SeasonalForecastRow } from '../../core/se
 import { TranslationService } from '../../core/i18n/translation.service';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { DashboardStats, Department, Issue } from '@dd/shared-types';
+import { ActivityFeedComponent } from '../../shared/activity-feed.component';
+import { CivicScoreComponent } from '../../shared/civic-score.component';
 
 interface DeptWithCount extends Department {
   issueCount: number;
@@ -24,7 +26,7 @@ interface AiTrend {
 @Component({
   selector: 'app-mayor-dashboard',
   standalone: true,
-  imports: [CommonModule, RouterLink, LayoutComponent, DecimalPipe, CurrencyPipe, DatePipe, TranslatePipe],
+  imports: [CommonModule, RouterLink, LayoutComponent, DecimalPipe, CurrencyPipe, DatePipe, TranslatePipe, ActivityFeedComponent, CivicScoreComponent],
   template: `
     <app-layout
       [pageTitle]="i18n.t('mayor.pageTitle')"
@@ -58,6 +60,11 @@ interface AiTrend {
           <div class="stat-icon teal"><i class="material-icons-outlined">sentiment_satisfied</i></div>
           <div class="stat-info"><div class="stat-value">{{ resolutionRate }}%</div><div class="stat-label">{{ 'mayor.resolutionRate' | t }}</div></div>
         </div>
+      </div>
+
+      <div class="content-grid">
+        <app-activity-feed [limit]="6" />
+        <app-civic-score [userId]="auth.user()?.id" />
       </div>
 
       <div class="card" style="margin-bottom:24px;" data-testid="mayor-ai-trends">

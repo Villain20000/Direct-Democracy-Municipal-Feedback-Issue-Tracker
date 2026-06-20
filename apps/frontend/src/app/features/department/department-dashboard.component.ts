@@ -9,11 +9,13 @@ import { ToastService } from '../../core/services/toast.service';
 import { TranslationService } from '../../core/i18n/translation.service';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { DashboardStats, Issue, User } from '@dd/shared-types';
+import { ActivityFeedComponent } from '../../shared/activity-feed.component';
+import { CivicScoreComponent } from '../../shared/civic-score.component';
 
 @Component({
   selector: 'app-department-dashboard',
   standalone: true,
-  imports: [CommonModule, RouterLink, LayoutComponent, CurrencyPipe, TranslatePipe],
+  imports: [CommonModule, RouterLink, LayoutComponent, CurrencyPipe, TranslatePipe, ActivityFeedComponent, CivicScoreComponent],
   template: `
     <app-layout
       [pageTitle]="i18n.t('department.pageTitle')"
@@ -25,6 +27,11 @@ import { DashboardStats, Issue, User } from '@dd/shared-types';
         <div class="stat-card"><div class="stat-icon amber"><i class="material-icons-outlined">pending</i></div><div class="stat-info"><div class="stat-value">{{ inProgressCount }}</div><div class="stat-label">{{ 'department.inProgress' | t }}</div></div></div>
         <div class="stat-card"><div class="stat-icon green"><i class="material-icons-outlined">task_alt</i></div><div class="stat-info"><div class="stat-value">{{ stats?.resolvedIssues || 0 }}</div><div class="stat-label">{{ 'department.resolved' | t }}</div></div></div>
         <div class="stat-card"><div class="stat-icon red"><i class="material-icons-outlined">warning</i></div><div class="stat-info"><div class="stat-value">{{ escalatedCount }}</div><div class="stat-label">{{ 'department.escalated' | t }}</div></div></div>
+      </div>
+
+      <div class="content-grid">
+        <app-activity-feed [limit]="6" />
+        <app-civic-score [userId]="auth.user()?.id" />
       </div>
 
       <div class="content-grid">

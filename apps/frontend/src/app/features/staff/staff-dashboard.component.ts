@@ -8,11 +8,13 @@ import { ToastService } from '../../core/services/toast.service';
 import { TranslationService } from '../../core/i18n/translation.service';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { Issue, IssueStatus } from '@dd/shared-types';
+import { ActivityFeedComponent } from '../../shared/activity-feed.component';
+import { CivicScoreComponent } from '../../shared/civic-score.component';
 
 @Component({
   selector: 'app-staff-dashboard',
   standalone: true,
-  imports: [CommonModule, LayoutComponent, DatePipe, RouterLink, TranslatePipe],
+  imports: [CommonModule, LayoutComponent, DatePipe, RouterLink, TranslatePipe, ActivityFeedComponent, CivicScoreComponent],
   template: `
     <app-layout
       [pageTitle]="i18n.t('staff.pageTitle')"
@@ -35,6 +37,11 @@ import { Issue, IssueStatus } from '@dd/shared-types';
         <div class="stat-card"><div class="stat-icon amber"><i class="material-icons-outlined">pending</i></div><div class="stat-info"><div class="stat-value">{{ inProgressCount }}</div><div class="stat-label">{{ 'staff.inProgress' | t }}</div></div></div>
         <div class="stat-card"><div class="stat-icon green"><i class="material-icons-outlined">task_alt</i></div><div class="stat-info"><div class="stat-value">{{ completedTodayCount }}</div><div class="stat-label">{{ 'staff.completedToday' | t }}</div></div></div>
         <div class="stat-card"><div class="stat-icon red"><i class="material-icons-outlined">priority_high</i></div><div class="stat-info"><div class="stat-value">{{ highPriorityCount }}</div><div class="stat-label">{{ 'staff.highPriority' | t }}</div></div></div>
+      </div>
+
+      <div class="content-grid">
+        <app-activity-feed [limit]="6" />
+        <app-civic-score [userId]="auth.user()?.id" />
       </div>
 
       <div class="card" style="margin-bottom: 24px;">

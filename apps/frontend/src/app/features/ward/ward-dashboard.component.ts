@@ -7,6 +7,8 @@ import { ApiService, WardDigestRow } from '../../core/services/api.service';
 import { TranslationService } from '../../core/i18n/translation.service';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { Event, Issue } from '@dd/shared-types';
+import { ActivityFeedComponent } from '../../shared/activity-feed.component';
+import { CivicScoreComponent } from '../../shared/civic-score.component';
 
 interface WardCategory {
   name: string;
@@ -25,7 +27,7 @@ interface WardEvent {
 @Component({
   selector: 'app-ward-dashboard',
   standalone: true,
-  imports: [CommonModule, LayoutComponent, RouterLink, TranslatePipe],
+  imports: [CommonModule, LayoutComponent, RouterLink, TranslatePipe, ActivityFeedComponent, CivicScoreComponent],
   template: `
     <app-layout
       [pageTitle]="i18n.t('ward.pageTitle')"
@@ -40,6 +42,11 @@ interface WardEvent {
           <div><div style="font-size:28px;font-weight:800;">{{ wardIssues.length }}</div><div style="opacity:0.7;font-size:12px;">{{ 'ward.totalIssues' | t }}</div></div>
           <div><div style="font-size:28px;font-weight:800;">{{ events.length }}</div><div style="opacity:0.7;font-size:12px;">{{ 'ward.upcomingEvents' | t }}</div></div>
         </div>
+      </div>
+
+      <div class="content-grid">
+        <app-activity-feed [limit]="6" />
+        <app-civic-score [userId]="auth.user()?.id" />
       </div>
 
       <div class="card" style="margin-bottom:24px;" data-testid="ward-daily-digest">

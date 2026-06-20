@@ -14,6 +14,19 @@ A full-stack civic engagement platform enabling citizens to report issues, vote 
 > - 🗂 **Admin legislation KB** — upload ordinances / decisions, browse / retrieve with citations
 > - 🛠 **Database Schema Alignment** — removed database unique index drift on `User(departmentId)` to support multiple staff per department as defined in Prisma schema
 
+> ✨ **What’s new in v1.6 — Polish Upgrade**
+>
+> - ⌨️ **Command Palette (Cmd/Ctrl+K)** — fuzzy-search any page or quick action from anywhere; full keyboard navigation (↑/↓/Enter/Esc)
+> - 📊 **Activity Feed** — merged, time-sorted feed of recent issues, status changes, upvotes, and comments across the platform (`GET /api/v1/activity`)
+> - 🏆 **Civic Score & Badges** — gamification score computed from existing data (reports, upvotes, votes, comments, resolved issues) with Bronze/Silver/Gold/Platinum tiers and progress-to-next-tier (`GET /api/v1/civic-score/:userId`)
+> - 🎬 **Animation System** — staggered stat-card entrances, page transitions, count-up numbers, shimmer skeletons, button ripple
+> - 📱 **Mobile Sidebar** — collapsible sidebar with hamburger toggle and backdrop on screens < 1024px
+> - 🌈 **Scroll Progress Bar** — fixed gradient bar at viewport top showing scroll position
+> - ⬆️ **Back-to-Top FAB** — floating button that fades in after scrolling
+> - 🪟 **Glassmorphic Top Bar** — backdrop-blur header for a more modern feel
+> - 🦴 **Skeleton Loaders** — shimmering placeholders shown while data loads
+> - 🌍 **i18n** — all new features translated in English and Greek
+
 ---
 
 ## 📋 Table of Contents
@@ -573,6 +586,23 @@ curl -s -X POST http://localhost:3001/api/v1/ai/chat \
 ### Users / Notifications / Departments / Events / Announcements / Polls / Resolutions / Messages / Audit / Surveys / Forums / Reports / Comments / Attachments
 
 All standard CRUD + role-aware list endpoints. See `apps/backend/src/routes/*.routes.ts` for the full surface.
+
+### Activity Feed & Civic Score (v1.6)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/v1/activity?limit=20&scope=all` | ✅ | Merged, time-sorted feed of recent issues, status changes, upvotes, and comments. `scope=me` filters to the caller's activity. `limit` clamped to 50. |
+| `GET` | `/api/v1/civic-score/:userId` | ✅ | Gamification score computed from existing tables (issues reported, upvotes received, votes cast, comments, resolved issues). Returns points, tier (Newcomer/Bronze/Silver/Gold/Platinum), progress to next tier, and per-component breakdown. No schema changes. |
+
+```bash
+# Recent platform activity
+curl "http://localhost:3001/api/v1/activity?limit=10" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Your civic score
+curl "http://localhost:3001/api/v1/civic-score/$USER_ID" \
+  -H "Authorization: Bearer $TOKEN"
+```
 
 ---
 

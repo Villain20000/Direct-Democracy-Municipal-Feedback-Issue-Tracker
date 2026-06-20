@@ -6,6 +6,8 @@ import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
 import { TranslationService } from '../../core/i18n/translation.service';
 import { Event, Issue } from '@dd/shared-types';
+import { ActivityFeedComponent } from '../../shared/activity-feed.component';
+import { CivicScoreComponent } from '../../shared/civic-score.component';
 
 interface VolunteerEvent {
   id: string;
@@ -30,7 +32,7 @@ interface VolunteerProject {
 @Component({
   selector: 'app-volunteer-dashboard',
   standalone: true,
-  imports: [CommonModule, RouterLink, LayoutComponent],
+  imports: [CommonModule, RouterLink, LayoutComponent, ActivityFeedComponent, CivicScoreComponent],
   template: `
     <app-layout
       [pageTitle]="i18n.t('volunteer.pageTitle')"
@@ -52,6 +54,11 @@ interface VolunteerProject {
         <div class="stat-card"><div class="stat-icon green"><i class="material-icons-outlined">event_available</i></div><div class="stat-info"><div class="stat-value">{{ events.length }}</div><div class="stat-label">{{ i18n.t('volunteer.upcomingEvents') }}</div></div></div>
         <div class="stat-card"><div class="stat-icon blue"><i class="material-icons-outlined">emoji_events</i></div><div class="stat-info"><div class="stat-value">{{ resolvedCount }}</div><div class="stat-label">{{ i18n.t('volunteer.issuesResolved') }}</div></div></div>
         <div class="stat-card"><div class="stat-icon purple"><i class="material-icons-outlined">leaderboard</i></div><div class="stat-info"><div class="stat-value">{{ totalUpvotes }}</div><div class="stat-label">{{ i18n.t('volunteer.communityUpvotes') }}</div></div></div>
+      </div>
+
+      <div class="content-grid">
+        <app-activity-feed [limit]="6" />
+        <app-civic-score [userId]="auth.user()?.id" />
       </div>
 
       <div class="content-grid">

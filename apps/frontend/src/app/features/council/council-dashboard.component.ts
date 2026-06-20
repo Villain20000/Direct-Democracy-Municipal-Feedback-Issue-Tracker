@@ -8,6 +8,8 @@ import { ApiService } from '../../core/services/api.service';
 import { TranslationService } from '../../core/i18n/translation.service';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { Event } from '@dd/shared-types';
+import { ActivityFeedComponent } from '../../shared/activity-feed.component';
+import { CivicScoreComponent } from '../../shared/civic-score.component';
 
 interface CouncilMeeting {
   title: string;
@@ -40,7 +42,7 @@ interface ChatMessage {
 @Component({
   selector: 'app-council-dashboard',
   standalone: true,
-  imports: [CommonModule, FormsModule, LayoutComponent, RouterLink, TranslatePipe],
+  imports: [CommonModule, FormsModule, LayoutComponent, RouterLink, TranslatePipe, ActivityFeedComponent, CivicScoreComponent],
   template: `
     <app-layout [pageTitle]="i18n.t('council.pageTitle')" [navItems]="navItems" (logout)="auth.logout()">
 
@@ -60,6 +62,11 @@ interface ChatMessage {
         <div class="stat-card"><div class="stat-icon blue"><i class="material-icons-outlined">groups</i></div><div class="stat-info"><div class="stat-value">{{ constituentIssues }}</div><div class="stat-label">{{ 'council.constituents' | t }}</div></div></div>
         <div class="stat-card"><div class="stat-icon green"><i class="material-icons-outlined">thumb_up</i></div><div class="stat-info"><div class="stat-value">{{ resolutionRate }}%</div><div class="stat-label">{{ 'council.resolutionRate' | t }}</div></div></div>
         <div class="stat-card"><div class="stat-icon amber"><i class="material-icons-outlined">event</i></div><div class="stat-info"><div class="stat-value">{{ meetings.length }}</div><div class="stat-label">{{ 'council.upcoming' | t }}</div></div></div>
+      </div>
+
+      <div class="content-grid">
+        <app-activity-feed [limit]="6" />
+        <app-civic-score [userId]="auth.user()?.id" />
       </div>
 
       <div class="content-grid">

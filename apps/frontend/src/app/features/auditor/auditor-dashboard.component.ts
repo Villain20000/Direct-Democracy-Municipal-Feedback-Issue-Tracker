@@ -7,6 +7,8 @@ import { ApiService } from '../../core/services/api.service';
 import { TranslationService } from '../../core/i18n/translation.service';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { AuditLog } from '@dd/shared-types';
+import { ActivityFeedComponent } from '../../shared/activity-feed.component';
+import { CivicScoreComponent } from '../../shared/civic-score.component';
 
 interface AuditLogRow {
   id: string;
@@ -35,7 +37,7 @@ interface DeptScore {
 @Component({
   selector: 'app-auditor-dashboard',
   standalone: true,
-  imports: [CommonModule, RouterLink, LayoutComponent, DatePipe, TranslatePipe],
+  imports: [CommonModule, RouterLink, LayoutComponent, DatePipe, TranslatePipe, ActivityFeedComponent, CivicScoreComponent],
   template: `
     <app-layout
       [pageTitle]="i18n.t('auditor.pageTitle')"
@@ -47,6 +49,11 @@ interface DeptScore {
         <div class="stat-card"><div class="stat-icon red"><i class="material-icons-outlined">warning</i></div><div class="stat-info"><div class="stat-value">{{ anomalies.length }}</div><div class="stat-label">{{ 'auditor.anomalies' | t }}</div></div></div>
         <div class="stat-card"><div class="stat-icon green"><i class="material-icons-outlined">verified</i></div><div class="stat-info"><div class="stat-value">{{ complianceScore }}%</div><div class="stat-label">{{ 'auditor.compliance' | t }}</div></div></div>
         <div class="stat-card"><div class="stat-icon blue"><i class="material-icons-outlined">description</i></div><div class="stat-info"><div class="stat-value">{{ resolvedIssues }}</div><div class="stat-label">{{ 'auditor.issuesResolved' | t }}</div></div></div>
+      </div>
+
+      <div class="content-grid">
+        <app-activity-feed [limit]="6" />
+        <app-civic-score [userId]="auth.user()?.id" />
       </div>
 
       <div class="content-grid">

@@ -7,6 +7,8 @@ import { ApiService } from '../../core/services/api.service';
 import { TranslationService } from '../../core/i18n/translation.service';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { DashboardStats, Issue } from '@dd/shared-types';
+import { ActivityFeedComponent } from '../../shared/activity-feed.component';
+import { CivicScoreComponent } from '../../shared/civic-score.component';
 
 interface TrendingIssue {
   id: string;
@@ -35,7 +37,7 @@ interface AiTrend {
 @Component({
   selector: 'app-media-dashboard',
   standalone: true,
-  imports: [CommonModule, LayoutComponent, TitleCasePipe, DatePipe, RouterLink, TranslatePipe],
+  imports: [CommonModule, LayoutComponent, TitleCasePipe, DatePipe, RouterLink, TranslatePipe, ActivityFeedComponent, CivicScoreComponent],
   template: `
     <app-layout
       [pageTitle]="i18n.t('media.pageTitle')"
@@ -50,6 +52,11 @@ interface AiTrend {
           <div><div style="font-size:28px;font-weight:800;">{{ resolutionRate }}%</div><div style="opacity:0.7;font-size:12px;">{{ 'media.resolutionRate' | t }}</div></div>
           <div><div style="font-size:28px;font-weight:800;">{{ activeCitizens | number }}</div><div style="opacity:0.7;font-size:12px;">{{ 'media.activeCitizens' | t }}</div></div>
         </div>
+      </div>
+
+      <div class="content-grid">
+        <app-activity-feed [limit]="6" />
+        <app-civic-score [userId]="auth.user()?.id" />
       </div>
 
       <div class="card" style="margin-bottom:24px;" data-testid="media-ai-trends">
