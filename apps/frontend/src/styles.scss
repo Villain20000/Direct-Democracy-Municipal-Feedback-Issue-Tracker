@@ -120,6 +120,7 @@ a { color: var(--primary); text-decoration: none; transition: color var(--transi
   z-index: 100;
   overflow-y: auto;
   transition: transform var(--transition);
+  animation: slideInLeft 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 
   .sidebar-header {
     padding: 20px 24px;
@@ -193,20 +194,33 @@ a { color: var(--primary); text-decoration: none; transition: color var(--transi
   margin-left: var(--sidebar-width);
   flex: 1;
   min-height: 100vh;
+  transition: margin var(--transition);
 }
 
 .top-bar {
   height: var(--header-height);
-  background: var(--bg-card);
-  border-bottom: 1px solid var(--border);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border-bottom: 1px solid var(--glass-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 32px;
   position: sticky; top: 0; z-index: 50;
+  gap: 16px;
 
   .page-title {
     font-size: 20px; font-weight: 700; color: var(--text-primary);
+    animation: fadeInUp 0.4s ease;
+  }
+
+  .menu-toggle {
+    display: none;
+    background: none; border: none; cursor: pointer;
+    color: var(--text-secondary); font-size: 26px; padding: 6px;
+    border-radius: var(--radius); transition: all var(--transition);
+    &:hover { background: var(--border-light); color: var(--text-primary); }
   }
 
   .top-bar-actions {
@@ -558,4 +572,399 @@ a { color: var(--primary); text-decoration: none; transition: color var(--transi
   &.success { background: #F0FDF4; color: #16A34A; border-left: 4px solid #16A34A; }
   &.error { background: #FEF2F2; color: #DC2626; border-left: 4px solid #DC2626; }
   &.info { background: #EFF6FF; color: #2563EB; border-left: 4px solid #2563EB; }
+}
+
+// =====================================================
+// v1.6 polish — animation system + new shell widgets
+// =====================================================
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.05); opacity: 0.85; }
+}
+@keyframes shimmer {
+  0% { background-position: -800px 0; }
+  100% { background-position: 800px 0; }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes ripple {
+  to { transform: scale(2.5); opacity: 0; }
+}
+
+// Staggered entrance for stat cards — each card fades in 80ms after the previous
+.stats-grid .stat-card {
+  animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  &:nth-child(1) { animation-delay: 0.05s; }
+  &:nth-child(2) { animation-delay: 0.13s; }
+  &:nth-child(3) { animation-delay: 0.21s; }
+  &:nth-child(4) { animation-delay: 0.29s; }
+  &:nth-child(5) { animation-delay: 0.37s; }
+  &:nth-child(6) { animation-delay: 0.45s; }
+  &:nth-child(7) { animation-delay: 0.53s; }
+  &:nth-child(8) { animation-delay: 0.61s; }
+}
+
+// Staggered entrance for cards in a content grid
+.content-grid .card,
+.content-grid-3 .card {
+  animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: 0.2s;
+  &:nth-child(2) { animation-delay: 0.3s; }
+  &:nth-child(3) { animation-delay: 0.4s; }
+}
+
+// Page transition — applied to .page-content by the route-outlet wrapper
+.page-transition {
+  animation: fadeInUp 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+// Scroll progress bar — fixed gradient bar at the very top of the viewport
+.scroll-progress {
+  position: fixed;
+  top: 0; left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--primary), #7C3AED, var(--primary-light));
+  background-size: 200% 100%;
+  animation: shimmer-bg 3s linear infinite;
+  z-index: 9998;
+  transition: width 0.1s linear;
+  box-shadow: 0 0 8px hsla(var(--primary-h), var(--primary-s), var(--primary-l), 0.5);
+}
+@keyframes shimmer-bg {
+  0% { background-position: 0% 0; }
+  100% { background-position: 200% 0; }
+}
+
+// Back-to-top floating action button
+.scroll-top-fab {
+  position: fixed;
+  bottom: 24px; right: 24px;
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: white;
+  border: none;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: var(--shadow-lg);
+  z-index: 90;
+  opacity: 0;
+  transform: translateY(16px) scale(0.8);
+  pointer-events: none;
+  transition: all var(--transition);
+  i { font-size: 22px; }
+  &.visible {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+  }
+  &:hover {
+    background: var(--primary-dark);
+    transform: translateY(-2px) scale(1.05);
+  }
+}
+
+// Skeleton loader — shimmering placeholder block
+.skeleton {
+  background: linear-gradient(90deg,
+    var(--border-light) 0%,
+    var(--border) 40%,
+    var(--border-light) 80%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s infinite linear;
+  border-radius: var(--radius);
+  display: block;
+  &.skeleton-text { height: 12px; margin-bottom: 8px; }
+  &.skeleton-title { height: 18px; width: 60%; margin-bottom: 12px; }
+  &.skeleton-circle { width: 48px; height: 48px; border-radius: 50%; }
+  &.skeleton-block { height: 80px; width: 100%; }
+  &.skeleton-row { height: 40px; width: 100%; margin-bottom: 8px; }
+}
+
+// Button ripple effect
+.btn-ripple {
+  position: relative;
+  overflow: hidden;
+  .ripple {
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.5);
+    transform: scale(0);
+    animation: ripple 0.6s linear;
+    pointer-events: none;
+  }
+}
+
+// Command palette (Cmd/Ctrl+K)
+.command-palette-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 9000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  animation: fadeIn 0.2s ease;
+}
+
+.command-palette {
+  width: 100%;
+  max-width: 560px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  margin: 0 16px;
+
+  .cp-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    i { color: var(--text-muted); font-size: 22px; }
+    input {
+      flex: 1;
+      border: none;
+      outline: none;
+      background: none;
+      font-size: 15px;
+      color: var(--text-primary);
+      &::placeholder { color: var(--text-muted); }
+    }
+    .cp-kbd {
+      font-size: 11px;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 2px 6px;
+      font-family: monospace;
+    }
+  }
+
+  .cp-section-title {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    padding: 10px 20px 4px;
+  }
+
+  .cp-list {
+    max-height: 360px;
+    overflow-y: auto;
+    padding-bottom: 8px;
+  }
+
+  .cp-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 20px;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text-primary);
+    transition: background 0.12s;
+    i { color: var(--text-muted); font-size: 20px; }
+    .cp-item-label { flex: 1; }
+    .cp-item-hint { font-size: 11px; color: var(--text-muted); }
+    &.active, &:hover {
+      background: var(--border-light);
+      i { color: var(--primary); }
+    }
+  }
+
+  .cp-empty {
+    padding: 32px 20px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+
+  .cp-footer {
+    padding: 10px 20px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-muted);
+    display: flex;
+    gap: 16px;
+    justify-content: flex-end;
+    kbd {
+      font-family: monospace;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 5px;
+      margin-right: 4px;
+    }
+  }
+}
+
+// Activity feed
+.activity-feed {
+  .activity-item {
+    display: flex;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border-light);
+    animation: fadeInUp 0.4s ease both;
+    &:last-child { border-bottom: none; }
+  }
+  .activity-icon {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    font-size: 16px;
+    i { font-size: 18px; }
+    &.issue_created { background: rgba(37, 99, 235, 0.1); color: #2563EB; }
+    &.status_changed { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
+    &.upvote { background: rgba(16, 185, 129, 0.1); color: #10b981; }
+    &.comment { background: rgba(124, 58, 237, 0.1); color: #7c3aed; }
+  }
+  .activity-body {
+    flex: 1; min-width: 0;
+    .activity-actor { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+    .activity-action { font-size: 12px; color: var(--text-secondary); }
+    .activity-target {
+      font-size: 13px; color: var(--primary); font-weight: 500;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .activity-time { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  }
+}
+
+// Civic score widget
+.civic-score-card {
+  background: linear-gradient(135deg, hsla(var(--primary-h), var(--primary-s), calc(var(--primary-l) + 5%), 0.08), hsla(265, 60%, 60%, 0.08));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  text-align: center;
+  animation: scaleIn 0.4s ease both;
+
+  .civic-tier-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    i { font-size: 16px; }
+  }
+  .civic-points {
+    font-size: 42px;
+    font-weight: 800;
+    line-height: 1;
+    background: linear-gradient(135deg, var(--primary), #7C3AED);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .civic-points-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+  }
+  .civic-progress {
+    height: 6px;
+    background: var(--border-light);
+    border-radius: 3px;
+    margin: 16px 0 8px;
+    overflow: hidden;
+    .civic-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--primary), #7C3AED);
+      border-radius: 3px;
+      transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+  }
+  .civic-next-tier {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .civic-breakdown {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-top: 16px;
+    text-align: left;
+    .civic-breakdown-item {
+      padding: 8px 12px;
+      background: var(--bg-primary);
+      border-radius: var(--radius);
+      .label { font-size: 11px; color: var(--text-muted); }
+      .value { font-size: 14px; font-weight: 700; color: var(--text-primary); }
+    }
+  }
+}
+
+// Mobile sidebar — below 1024px the sidebar slides off-canvas and a
+// hamburger button appears in the top bar. A semi-transparent backdrop
+// closes the drawer on tap.
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  z-index: 99;
+  animation: fadeIn 0.2s ease;
+}
+
+@media (max-width: 1024px) {
+  .sidebar {
+    transform: translateX(-100%);
+    box-shadow: var(--shadow-lg);
+    &.open { transform: translateX(0); }
+  }
+  .sidebar-backdrop.open { display: block; }
+  .main-content {
+    margin-left: 0;
+  }
+  .top-bar {
+    padding: 0 16px;
+    .menu-toggle { display: inline-flex; }
+    .search-box { width: 180px; }
+  }
+  .page-content { padding: 16px; }
+}
+
+@media (max-width: 640px) {
+  .top-bar .search-box { display: none; }
+  .top-bar .page-title { font-size: 17px; }
+  .stats-grid { grid-template-columns: 1fr; }
+}
+
+// Spinner utility
+.spinner {
+  width: 18px; height: 18px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
 }

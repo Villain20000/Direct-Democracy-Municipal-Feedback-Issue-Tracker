@@ -890,6 +890,61 @@ export class ApiService {
       `${this.apiUrl}/share/${token}`,
     );
   }
+
+  // === Activity feed + civic score (gamification) ===
+  getActivityFeed(params: { limit?: number; scope?: 'all' | 'me' } = {}): Observable<ActivityFeedResponse> {
+    let httpParams = new HttpParams();
+    if (params.limit != null) httpParams = httpParams.set('limit', String(params.limit));
+    if (params.scope) httpParams = httpParams.set('scope', params.scope);
+    return this.http.get<ActivityFeedResponse>(`${this.apiUrl}/activity`, { params: httpParams });
+  }
+
+  getCivicScore(userId: string): Observable<CivicScoreResponse> {
+    return this.http.get<CivicScoreResponse>(`${this.apiUrl}/civic-score/${userId}`);
+  }
+}
+
+export interface ActivityFeedItem {
+  id: string;
+  type: 'issue_created' | 'status_changed' | 'upvote' | 'comment';
+  actorId: string | null;
+  actorName: string;
+  issueId: string | null;
+  issueTitle: string | null;
+  detail: string;
+  category?: string;
+  createdAt: string;
+}
+
+export interface ActivityFeedResponse {
+  success: boolean;
+  data: ActivityFeedItem[];
+  total: number;
+}
+
+export interface CivicScoreBreakdownComponent {
+  count: number;
+  points: number;
+}
+
+export interface CivicScoreData {
+  user: { id: string; name: string; role: string };
+  points: number;
+  tier: { name: string; min: number; color: string; icon: string };
+  nextTier: { name: string; min: number } | null;
+  progressToNext: number;
+  breakdown: {
+    issuesReported: CivicScoreBreakdownComponent;
+    upvotesReceived: CivicScoreBreakdownComponent;
+    votesCast: CivicScoreBreakdownComponent;
+    commentsPosted: CivicScoreBreakdownComponent;
+    issuesResolved: CivicScoreBreakdownComponent;
+  };
+}
+
+export interface CivicScoreResponse {
+  success: boolean;
+  data: CivicScoreData;
 }
 
 export interface WeeklySummaryRow {

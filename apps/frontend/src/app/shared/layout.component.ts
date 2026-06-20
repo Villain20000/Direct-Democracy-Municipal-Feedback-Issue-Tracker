@@ -1,4 +1,4 @@
-import { Component, input, output, OnInit, computed } from '@angular/core';
+import { Component, input, output, OnInit, computed, signal } from '@angular/core';
 import { CommonModule, formatDate } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
@@ -7,6 +7,7 @@ import { NotificationService } from '../core/services/notification.service';
 import { Notification } from '@dd/shared-types';
 import { TranslationService } from '../core/i18n/translation.service';
 import { LanguageSwitcherComponent } from './language-switcher.component';
+import { ActivityFeedComponent } from './activity-feed.component';
 
 export interface NavItem {
   icon: string;
@@ -18,10 +19,11 @@ export interface NavItem {
 @Component({
   selector: 'app-layout',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, RouterLinkActive, LanguageSwitcherComponent],
+  imports: [CommonModule, FormsModule, RouterLink, RouterLinkActive, LanguageSwitcherComponent, ActivityFeedComponent],
   template: `
     <div class="dashboard-layout">
-      <aside class="sidebar">
+      <div class="sidebar-backdrop" [class.open]="sidebarOpen()" (click)="closeSidebar()"></div>
+      <aside class="sidebar" [class.open]="sidebarOpen()">
         <div class="sidebar-header">
           <div class="logo">DD</div>
           <div class="brand">
@@ -33,7 +35,7 @@ export interface NavItem {
           <div class="nav-section">
             <div class="nav-section-title">{{ dashboardTitle() }}</div>
             @for (item of navItems(); track item.route) {
-              <a class="nav-item" [routerLink]="item.route" routerLinkActive="active">
+              <a class="nav-item" [routerLink]="item.route" routerLinkActive="active" (click)="closeSidebar()">
                 <i class="material-icons-outlined">{{ item.icon }}</i>
                 {{ i18n.t(item.label) }}
                 @if (item.badge) { <span class="badge">{{ item.badge }}</span> }
@@ -42,7 +44,7 @@ export interface NavItem {
           </div>
           <div class="nav-section">
             <div class="nav-section-title">{{ i18n.t('nav.general') }}</div>
-            <a class="nav-item" routerLink="/issues" routerLinkActive="active">
+            <a class="nav-item" routerLink="/issues" routerLinkActive="active" (click)="closeSidebar()">
               <i class="material-icons-outlined">report_problem</i> {{ i18n.t('nav.issues') }}
             </a>
           </div>
@@ -60,6 +62,9 @@ export interface NavItem {
       </aside>
       <main class="main-content">
         <header class="top-bar">
+          <button class="menu-toggle" (click)="toggleSidebar()" [attr.aria-label]="i18n.t('shell.menu')">
+            <i class="material-icons-outlined">menu</i>
+          </button>
           <div class="page-title">{{ pageTitle() }}</div>
           <div class="top-bar-actions">
             <div class="search-box">
@@ -110,7 +115,7 @@ export interface NavItem {
             </div>
           </div>
         </header>
-        <div class="page-content fade-in">
+        <div class="page-content page-transition">
           <ng-content />
         </div>
       </main>
@@ -245,6 +250,7 @@ export class LayoutComponent implements OnInit {
   searchQuery = '';
   showNotifications = false;
   isDarkMode = false;
+  sidebarOpen = signal(false);
 
   constructor(
     private auth: AuthService,
@@ -272,6 +278,14 @@ export class LayoutComponent implements OnInit {
       localStorage.setItem('theme', this.isDarkMode ? 'dark' : 'light');
       this.applyTheme();
     }
+  }
+
+  toggleSidebar(): void {
+    this.sidebarOpen.set(!this.sidebarOpen());
+  }
+
+  closeSidebar(): void {
+    this.sidebarOpen.set(false);
   }
 
   applyTheme(): void {

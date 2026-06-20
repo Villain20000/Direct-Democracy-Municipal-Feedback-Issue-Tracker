@@ -30,6 +30,8 @@ import weeklySummaryRoutes from './routes/weekly-summary.routes';
 import wardDigestRoutes from './routes/ward-digest.routes';
 import seasonalForecastRoutes from './routes/seasonal-forecast.routes';
 import portalRoutes from './routes/portal.routes';
+import activityRoutes from './routes/activity.routes';
+import civicScoreRoutes from './routes/civic-score.routes';
 
 const app = express();
 
@@ -86,6 +88,9 @@ app.use('/api/v1/ward-digests', wardDigestRoutes);
 app.use('/api/v1/seasonal-forecasts', seasonalForecastRoutes);
 // Phase D2: public transparency portal (no auth)
 app.use('/api/v1/portal', portalRoutes);
+// Activity feed + civic score (gamification) — computed from existing tables
+app.use('/api/v1/activity', activityRoutes);
+app.use('/api/v1/civic-score', civicScoreRoutes);
 
 // Public share-link resolve endpoint (no auth — mounted at top level so
 // /share/:token doesn't get swallowed by any other router)

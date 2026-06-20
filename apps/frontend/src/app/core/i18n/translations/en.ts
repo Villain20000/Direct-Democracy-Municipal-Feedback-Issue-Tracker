@@ -1184,6 +1184,58 @@ export const en = {
     confirmPassword: 'Passwords do not match.',
     phone: 'Please enter a valid phone number.',
   },
+  /**
+   * Activity feed, command palette, civic score, and shared shell
+   * widgets introduced in the v1.6 polish upgrade.
+   */
+  activity: {
+    title: 'Recent Activity',
+    subtitle: 'Latest happenings across the platform',
+    empty: 'No recent activity yet.',
+    loading: 'Loading activity…',
+    viewAll: 'View all',
+    scopeAll: 'Everyone',
+    scopeMe: 'Just me',
+    issueCreated: 'reported a new issue',
+    statusChanged: 'updated status',
+    upvote: 'upvoted an issue',
+    comment: 'commented on',
+  },
+  commandPalette: {
+    title: 'Quick Navigation',
+    placeholder: 'Search pages and actions…',
+    hint: 'Press ↑ ↓ to navigate, Enter to select, Esc to close',
+    open: 'Open command palette',
+    noResults: 'No matches found',
+    sectionNavigate: 'Navigate',
+    sectionActions: 'Actions',
+    actionReport: 'Report a new issue',
+    actionTheme: 'Toggle theme',
+    actionLogout: 'Sign out',
+    actionHome: 'Go to dashboard',
+  },
+  civicScore: {
+    title: 'Civic Score',
+    subtitle: 'Your contribution to the community',
+    points: 'points',
+    nextTier: 'Next tier',
+    progressToNext: 'Progress to {{tier}}',
+    tierNewcomer: 'Newcomer',
+    tierBronze: 'Bronze',
+    tierSilver: 'Silver',
+    tierGold: 'Gold',
+    tierPlatinum: 'Platinum',
+    issuesReported: 'Issues reported',
+    upvotesReceived: 'Upvotes received',
+    votesCast: 'Votes cast',
+    commentsPosted: 'Comments posted',
+    issuesResolved: 'Issues resolved',
+  },
+  shell: {
+    backToTop: 'Back to top',
+    menu: 'Menu',
+    close: 'Close',
+  },
 };
 
 export type TranslationDictionary = typeof en;
