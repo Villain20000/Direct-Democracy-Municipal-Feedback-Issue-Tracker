@@ -1,0 +1,28 @@
+
+> frontend@0.1.0 dev
+> next dev
+
+▲ Next.js 16.2.7 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.0.2:3000
+✓ Ready in 623ms
+
+○ Compiling / ...
+ GET / 200 in 8.7s (next.js: 8.1s, application-code: 549ms)
+ GET / 200 in 95ms (next.js: 7ms, application-code: 89ms)
+ GET / 200 in 76ms (next.js: 4ms, application-code: 72ms)
+ GET / 200 in 70ms (next.js: 7ms, application-code: 63ms)
+ GET / 200 in 65ms (next.js: 4ms, application-code: 60ms)
+ GET / 200 in 638ms (next.js: 112ms, application-code: 527ms)
+✓ Compiled in 2.6s
+ GET / 200 in 1147ms (next.js: 557ms, application-code: 589ms)
+Error: Turbopack build failed with 1 errors:
+./src/app
+Error: Next.js inferred your workspace root, but it may not be correct.
+    We couldn't find the Next.js package (next/package.json) from the project directory: /app/frontend/src/app
+     To fix this, set turbopack.root in your Next.js config, or ensure the Next.js package is resolvable from this directory.
+    Note: For security and performance reasons, files outside of the project directory will not be compiled.
+    See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
+
+    at ignore-listed frames
+[?25h
