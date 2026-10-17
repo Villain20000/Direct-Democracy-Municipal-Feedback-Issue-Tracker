@@ -5,6 +5,7 @@ import {
   BadRequestError,
   NotFoundError,
 } from '../errors/domain-errors';
+import { notificationService } from './notification.service';
 
 export const pollService = {
   async create(data: {
@@ -80,6 +81,30 @@ export const pollService = {
 
     await prisma.vote.create({ data: { value: 1, userId, pollId } });
     await prisma.pollOption.update({ where: { id: optionId }, data: { votes: { increment: 1 } } });
+
+    // P1-13: a vote notifies the poll creator (VOTE_RECEIVED, email
+    // throttled per poll per hour). Fire-and-forget.
+    if (poll.creatorId !== userId) {
+      void (async () => {
+        try {
+          const voter = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { firstName: true, lastName: true },
+          });
+          const voterName = voter ? `${voter.firstName} ${voter.lastName}` : 'Someone';
+          await notificationService.create(
+            poll.creatorId,
+            'VOTE_RECEIVED',
+            'New vote on your poll',
+            `${voterName} voted on "${poll.title}"`,
+            { pollId },
+            { sendEmail: true, emailThrottleMs: 60 * 60 * 1000, throttleKey: `VOTE_RECEIVED:poll:${pollId}` },
+          );
+        } catch (err: any) {
+          console.warn(`[poll.vote] notify failed for ${pollId}:`, err.message);
+        }
+      })();
+    }
 
     return this.getById(pollId);
   },

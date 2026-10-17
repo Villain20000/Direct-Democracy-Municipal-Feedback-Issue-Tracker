@@ -4,7 +4,7 @@ import { BadRequestError } from '../errors/domain-errors';
 /**
  * PostGIS-backed spatial queries for issues.
  *
- * The corresponding `Issue.location_geom` column is a
+ * The corresponding `Issue.locationGeom` column is a
  * `GEOMETRY(Point, 4326)` (WGS 84 / lat-lng) populated by the
  * `20260617000000_postgis_spatial` migration. Queries use
  * parameterized `$queryRaw` so Prisma doesn't need a native
@@ -35,7 +35,7 @@ export const spatialService = {
     lng: number,
     radiusMeters: number,
     opts: { statuses?: string[]; limit?: number } = {},
-  ): Promise<Array<{ id: string; title: string; distanceMeters: number }>> {
+  ): Promise<Array<{ id: string; title: string; status: string; category: string; priority: number | null; latitude: number; longitude: number; distanceMeters: number }>> {
     if (typeof lat !== 'number' || typeof lng !== 'number') {
       throw new BadRequestError('lat and lng must be numbers');
     }
@@ -44,44 +44,81 @@ export const spatialService = {
     }
     const limit = Math.min(Math.max(opts.limit ?? 200, 1), 2000);
 
+    // Index-assisted radius search: `ST_DWithin(... ::geography ...)`
+    // alone cannot use the geometry GIST index (different type
+    // domain), so we add an `&&` bbox prefilter that can. The bbox
+    // must be a guaranteed superset of the circle, so the two axes
+    // get *different* degree paddings:
+    //   dLat = radius / 111_320               (1° lat ≈ 111.32 km)
+    //   dLng = radius / (111_320 · cos(lat))  (1° lng shrinks with
+    //          latitude — at 40°N it's only ~84 km, so the same
+    //          degree padding would under-cover east-west and clip
+    //          real results)
+    // cos is evaluated at |lat|+dLat (the circle's pole-most edge,
+    // where lng degrees are shortest) so the box only over-covers.
+    // ST_DWithin then does the exact metre-accurate refinement on
+    // the small candidate set.
+    const dLat = radiusMeters / 111_320;
+    const worstLatRad = ((Math.abs(lat) + dLat) * Math.PI) / 180;
+    const cosWorst = Math.max(Math.cos(worstLatRad), 0.05);
+    const dLng = radiusMeters / (111_320 * cosWorst);
+
     // Two-branch implementation: with or without the optional
     // status IN-filter. The IN-list is parameterized via Prisma's
     // `ANY(${array}::text[])` so we never interpolate user input
     // into the SQL text.
+    type WithinRow = {
+      id: string; title: string; status: string; category: string;
+      priority: number | null; latitude: number; longitude: number;
+      distanceMeters: number;
+    };
+
     if (opts.statuses && opts.statuses.length > 0) {
-      return prisma.$queryRaw<Array<{ id: string; title: string; distanceMeters: number }>>`
-        SELECT i."id", i."title",
+      return prisma.$queryRaw<WithinRow[]>`
+        SELECT i."id", i."title", i."status"::text AS status,
+          i."category"::text AS category, i."priority",
+          ST_Y(i."locationGeom") AS latitude,
+          ST_X(i."locationGeom") AS longitude,
           ST_Distance(
-            i."location_geom"::geography,
+            i."locationGeom"::geography,
             ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)::geography
           ) AS "distanceMeters"
         FROM "Issue" i
-        WHERE i."location_geom" IS NOT NULL
+        WHERE i."locationGeom" IS NOT NULL
+          AND i."locationGeom" && ST_MakeEnvelope(
+            ${lng - dLng}, ${lat - dLat}, ${lng + dLng}, ${lat + dLat}, 4326
+          )
           AND ST_DWithin(
-            i."location_geom"::geography,
+            i."locationGeom"::geography,
             ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)::geography,
             ${radiusMeters}
           )
           AND i."status"::text = ANY(${opts.statuses}::text[])
-        ORDER BY i."location_geom" <-> ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)
+        ORDER BY i."locationGeom" <-> ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)
         LIMIT ${limit}
       `;
     }
 
-    return prisma.$queryRaw<Array<{ id: string; title: string; distanceMeters: number }>>`
-      SELECT i."id", i."title",
+    return prisma.$queryRaw<WithinRow[]>`
+      SELECT i."id", i."title", i."status"::text AS status,
+        i."category"::text AS category, i."priority",
+        ST_Y(i."locationGeom") AS latitude,
+        ST_X(i."locationGeom") AS longitude,
         ST_Distance(
-          i."location_geom"::geography,
+          i."locationGeom"::geography,
           ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)::geography
         ) AS "distanceMeters"
       FROM "Issue" i
-      WHERE i."location_geom" IS NOT NULL
+      WHERE i."locationGeom" IS NOT NULL
+        AND i."locationGeom" && ST_MakeEnvelope(
+          ${lng - dLng}, ${lat - dLat}, ${lng + dLng}, ${lat + dLat}, 4326
+        )
         AND ST_DWithin(
-          i."location_geom"::geography,
+          i."locationGeom"::geography,
           ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)::geography,
           ${radiusMeters}
         )
-      ORDER BY i."location_geom" <-> ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)
+      ORDER BY i."locationGeom" <-> ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)
       LIMIT ${limit}
     `;
   },
@@ -121,13 +158,14 @@ export const spatialService = {
     if (opts.statuses && opts.statuses.length > 0) {
       return prisma.$queryRaw<Array<{ id: string; title: string; status: string; latitude: number; longitude: number }>>`
         SELECT i."id", i."title", i."status"::text AS status,
-          ST_Y(i."location_geom") AS latitude,
-          ST_X(i."location_geom") AS longitude
+          ST_Y(i."locationGeom") AS latitude,
+          ST_X(i."locationGeom") AS longitude
         FROM "Issue" i
-        WHERE i."location_geom" IS NOT NULL
+        WHERE i."locationGeom" IS NOT NULL
+          AND i."locationGeom" && ST_Envelope(ST_GeomFromText(${wkt}, 4326))
           AND ST_Contains(
             ST_GeomFromText(${wkt}, 4326),
-            i."location_geom"
+            i."locationGeom"
           )
           AND i."status"::text = ANY(${opts.statuses}::text[])
         ORDER BY i."createdAt" DESC
@@ -137,13 +175,14 @@ export const spatialService = {
 
     return prisma.$queryRaw<Array<{ id: string; title: string; status: string; latitude: number; longitude: number }>>`
       SELECT i."id", i."title", i."status"::text AS status,
-        ST_Y(i."location_geom") AS latitude,
-        ST_X(i."location_geom") AS longitude
+        ST_Y(i."locationGeom") AS latitude,
+        ST_X(i."locationGeom") AS longitude
       FROM "Issue" i
-      WHERE i."location_geom" IS NOT NULL
+      WHERE i."locationGeom" IS NOT NULL
+        AND i."locationGeom" && ST_Envelope(ST_GeomFromText(${wkt}, 4326))
         AND ST_Contains(
           ST_GeomFromText(${wkt}, 4326),
-          i."location_geom"
+          i."locationGeom"
         )
       ORDER BY i."createdAt" DESC
       LIMIT ${limit}
@@ -163,26 +202,28 @@ export const spatialService = {
     lat: number,
     lng: number,
     k: number = 5,
-  ): Promise<Array<{ id: string; title: string; distanceMeters: number }>> {
+  ): Promise<Array<{ id: string; title: string; latitude: number; longitude: number; distanceMeters: number }>> {
     if (typeof lat !== 'number' || typeof lng !== 'number') {
       throw new BadRequestError('lat and lng must be numbers');
     }
     const n = Math.min(Math.max(k, 1), 50);
-    return prisma.$queryRaw<Array<{ id: string; title: string; distanceMeters: number }>>`
+    return prisma.$queryRaw<Array<{ id: string; title: string; latitude: number; longitude: number; distanceMeters: number }>>`
       SELECT i."id", i."title",
+        ST_Y(i."locationGeom") AS latitude,
+        ST_X(i."locationGeom") AS longitude,
         ST_Distance(
-          i."location_geom"::geography,
+          i."locationGeom"::geography,
           ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)::geography
         ) AS "distanceMeters"
       FROM "Issue" i
-      WHERE i."location_geom" IS NOT NULL
-      ORDER BY i."location_geom" <-> ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)
+      WHERE i."locationGeom" IS NOT NULL
+      ORDER BY i."locationGeom" <-> ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)
       LIMIT ${n}
     `;
   },
 
   /**
-   * Update `location_geom` to track the current lat/lng. Called
+   * Update `locationGeom` to track the current lat/lng. Called
    * from the issue service on create and on every update that
    * changes latitude/longitude. Cheap: a single GIST-compatible
    * UPDATE that the planner can do in-place.
@@ -191,14 +232,14 @@ export const spatialService = {
     if (latitude == null || longitude == null) {
       await prisma.$executeRaw`
         UPDATE "Issue"
-        SET "location_geom" = NULL
+        SET "locationGeom" = NULL
         WHERE "id" = ${issueId}
       `;
       return;
     }
     await prisma.$executeRaw`
       UPDATE "Issue"
-      SET "location_geom" = ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326)
+      SET "locationGeom" = ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326)
       WHERE "id" = ${issueId}
     `;
   },

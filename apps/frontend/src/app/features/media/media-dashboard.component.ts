@@ -1,14 +1,16 @@
 import { Component, OnInit, inject } from '@angular/core';
-import { CommonModule, TitleCasePipe, DatePipe } from '@angular/common';
+import { CommonModule, TitleCasePipe, DatePipe, CurrencyPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
-import { ApiService } from '../../core/services/api.service';
+import { ApiService, BudgetOverviewRow } from '../../core/services/api.service';
 import { TranslationService } from '../../core/i18n/translation.service';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { DashboardStats, Issue } from '@dd/shared-types';
 import { ActivityFeedComponent } from '../../shared/activity-feed.component';
 import { CivicScoreComponent } from '../../shared/civic-score.component';
+import { HeatMapPreviewComponent } from '../shared/heat-map-preview.component';
+import { ChartComponent } from '../shared/chart.component';
 
 interface TrendingIssue {
   id: string;
@@ -37,7 +39,7 @@ interface AiTrend {
 @Component({
   selector: 'app-media-dashboard',
   standalone: true,
-  imports: [CommonModule, LayoutComponent, TitleCasePipe, DatePipe, RouterLink, TranslatePipe, ActivityFeedComponent, CivicScoreComponent],
+  imports: [CommonModule, LayoutComponent, TitleCasePipe, DatePipe, CurrencyPipe, RouterLink, TranslatePipe, ActivityFeedComponent, CivicScoreComponent, HeatMapPreviewComponent, ChartComponent],
   template: `
     <app-layout
       [pageTitle]="i18n.t('media.pageTitle')"
@@ -117,6 +119,85 @@ interface AiTrend {
         </div>
       </div>
 
+      <div class="card" style="margin-bottom:24px;" data-testid="media-historical-comparison">
+        <div class="card-header"><h3>{{ 'media.historicalComparison' | t }}</h3></div>
+        <div class="card-body">
+          @if (comparisonLabels.length) {
+            <app-chart
+              kind="bar"
+              [labels]="comparisonLabels"
+              [data]="comparisonCreated"
+              [data2]="comparisonResolved"
+              [datasetLabel]="i18n.t('media.comparisonCreated')"
+              [datasetLabel2]="i18n.t('media.comparisonResolved')"
+              [height]="220" />
+          } @else {
+            <p style="color:var(--text-muted);font-size:13px;">{{ 'media.historicalComparisonEmpty' | t }}</p>
+          }
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:24px;" data-testid="media-minutes-archive">
+        <div class="card-header"><h3>{{ 'media.minutesTitle' | t }}</h3></div>
+        <div class="card-body">
+          @if (minutesLoading && !meetingMinutes.length) {
+            <p style="font-size:13px;color:var(--text-muted);">{{ 'media.loadingTrends' | t }}</p>
+          } @else if (meetingMinutes.length) {
+            @for (m of meetingMinutes; track m.id) {
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-light);">
+                <div>
+                  <div style="font-size:13px;font-weight:600;">{{ m.title }}</div>
+                  <div style="font-size:11px;color:var(--text-muted);">{{ m.date | date:'mediumDate' }}@if (m.organizer) { · {{ i18n.t('media.minutesBy', { name: m.organizer }) }} }</div>
+                </div>
+                <span class="badge badge-blue">{{ i18n.t('media.minutesRsvps', { n: m.attendees }) }}</span>
+              </div>
+            }
+          } @else {
+            <p style="font-size:13px;color:var(--text-muted);">{{ 'media.minutesEmpty' | t }}</p>
+          }
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:24px;" data-testid="media-api-rss">
+        <div class="card-header"><h3>{{ 'media.apiRssTitle' | t }}</h3><a routerLink="/portal" class="btn btn-secondary btn-sm">{{ 'media.apiRssPortal' | t }}</a></div>
+        <div class="card-body">
+          <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">{{ 'media.apiRssDesc' | t }}</p>
+          <ul style="font-size:12px;font-family:monospace;color:var(--text-secondary);margin:0 0 12px 18px;display:grid;gap:6px;">
+            <li>GET /api/v1/portal/announcements</li>
+            <li>GET /api/v1/portal/meetings</li>
+            <li>GET /api/v1/portal/events/upcoming</li>
+            <li>GET /api/v1/portal/issues/recent</li>
+          </ul>
+          <p style="font-size:12px;color:var(--text-muted);">{{ 'media.apiRssBulk' | t }}</p>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:24px;" data-testid="media-budget-transparency">
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+          <h3>{{ 'media.budgetTransparency' | t }}</h3>
+          <button type="button" class="btn btn-secondary btn-sm" (click)="downloadExpensesCsv()" [disabled]="exporting">{{ 'media.csv' | t }}</button>
+        </div>
+        <div class="card-body">
+          @if (budgetOverview.length) {
+            <div style="display:flex;gap:24px;margin-bottom:12px;">
+              <div><div style="font-size:20px;font-weight:800;">{{ budgetTotal | currency:'USD':'symbol':'1.0-0' }}</div><div style="font-size:12px;color:var(--text-muted);">{{ 'media.budgetAllocated' | t }}</div></div>
+              <div><div style="font-size:20px;font-weight:800;">{{ budgetSpent | currency:'USD':'symbol':'1.0-0' }}</div><div style="font-size:12px;color:var(--text-muted);">{{ 'media.budgetSpent' | t }}</div></div>
+            </div>
+            @for (row of budgetOverview.slice(0, 5); track row.departmentId) {
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+                <span style="font-size:13px;width:170px;color:var(--text-secondary);">{{ row.name }}</span>
+                <div style="flex:1;background:var(--bg-primary);border-radius:4px;height:8px;">
+                  <div [style.width.%]="row.pctUsed" style="height:100%;border-radius:4px;background:var(--primary);"></div>
+                </div>
+                <span style="font-size:13px;font-weight:700;width:110px;text-align:right;">{{ row.spent | currency:'USD':'symbol':'1.0-0' }}</span>
+              </div>
+            }
+          } @else {
+            <p style="color:var(--text-muted);font-size:13px;">{{ 'media.budgetEmpty' | t }}</p>
+          }
+        </div>
+      </div>
+
       <div class="card" style="margin-bottom:24px;">
         <div class="card-header"><h3>{{ 'media.downloads' | t }}</h3></div>
         <div class="card-body">
@@ -128,6 +209,7 @@ interface AiTrend {
                 <div style="font-size:12px;color:var(--text-muted);margin:4px 0;">{{ i18n.t(report.descKey) }}</div>
                 <div style="display:flex;gap:8px;justify-content:center;margin-top:12px;">
                   <button type="button" class="btn btn-secondary btn-sm" (click)="downloadReport(report.type, report.filename)" [disabled]="exporting">{{ 'media.csv' | t }}</button>
+                  <button type="button" class="btn btn-secondary btn-sm" data-testid="media-report-pdf-btn" (click)="downloadReportPdf(report.filename)" [disabled]="exporting">{{ 'media.pdf' | t }}</button>
                 </div>
               </div>
             }
@@ -162,14 +244,7 @@ interface AiTrend {
             <a routerLink="/media/map" class="btn btn-primary btn-sm">{{ 'media.openMap' | t }}</a>
           </div>
           <div class="card-body">
-            <div style="height:240px;background:linear-gradient(135deg,#EEF2FF,#E0E7FF);border-radius:var(--radius);display:flex;align-items:center;justify-content:center;">
-              <div style="text-align:center;background:rgba(255,255,255,0.9);padding:16px;border-radius:var(--radius-lg);">
-                <i class="material-icons-outlined" style="font-size:48px;color:#4F46E5;">map</i>
-                <div style="font-size:13px;font-weight:600;margin-top:8px;">{{ 'media.heatMap' | t }}</div>
-                <div style="font-size:11px;color:var(--text-muted);">{{ i18n.t('media.issuesTracked', { n: totalIssues }) }}</div>
-                <a routerLink="/media/map" class="btn btn-secondary btn-sm" style="margin-top:12px;">{{ 'media.viewFullMap' | t }}</a>
-              </div>
-            </div>
+            <app-heat-map-preview linkRoute="/media/map" [height]="240" />
           </div>
         </div>
       </div>
@@ -184,13 +259,24 @@ export class MediaDashboardComponent implements OnInit {
   publicStats: PublicStat[] = [];
   downloads = [
     { icon: 'assessment', titleKey: 'media.monthlyReport', descKey: 'media.monthlyDesc', type: 'issues' as const, filename: 'monthly-issues-report.csv' },
-    { icon: 'account_balance', titleKey: 'media.budgetTransparency', descKey: 'media.budgetDesc', type: 'issues' as const, filename: 'budget-transparency-issues.csv' },
+    { icon: 'account_balance', titleKey: 'media.budgetTransparency', descKey: 'media.budgetDesc', type: 'expenses' as const, filename: 'budget-transparency-expenses.csv' },
     { icon: 'groups', titleKey: 'media.community', descKey: 'media.communityDesc', type: 'issues' as const, filename: 'community-engagement-issues.csv' },
   ];
+  /** P1-9 — real budget numbers for the Budget Transparency card. */
+  budgetOverview: BudgetOverviewRow[] = [];
+  budgetTotal = 0;
+  budgetSpent = 0;
   pressReleases: Array<{ title: string; date: string; summary: string }> = [];
   aiTrends: AiTrend[] = [];
   aiTrendsLoading = false;
   exporting = false;
+  /** Weekly created-vs-resolved series for the historical comparison chart. */
+  comparisonLabels: string[] = [];
+  comparisonCreated: number[] = [];
+  comparisonResolved: number[] = [];
+  /** P2-19 — meeting-minutes archive (past public council meetings / hearings). */
+  meetingMinutes: Array<{ id: string; title: string; date: string; attendees: number; organizer: string }> = [];
+  minutesLoading = false;
   navItems = [
     { icon: 'dashboard', label: 'nav.overview', route: '/media' },
     { icon: 'trending_up', label: 'nav.trending', route: '/media/trending' },
@@ -211,6 +297,8 @@ export class MediaDashboardComponent implements OnInit {
 
   ngOnInit() {
     this.loadAiTrends();
+    this.loadBudgetOverview();
+    this.loadMeetingMinutes();
     this.api.getIssueStats().subscribe(res => {
       if (res.success) {
         const stats = res.data;
@@ -221,6 +309,15 @@ export class MediaDashboardComponent implements OnInit {
           : 0;
         this.buildPublicStats(stats);
       }
+    });
+    this.api.getIssueTrends(8).subscribe({
+      next: (res) => {
+        if (!res.success || !res.data?.length) return;
+        this.comparisonLabels = res.data.map((b) => b.weekStart.slice(5)); // MM-DD
+        this.comparisonCreated = res.data.map((b) => b.created);
+        this.comparisonResolved = res.data.map((b) => b.resolved);
+      },
+      error: () => {},
     });
     this.api.getAnnouncements({ pageSize: '5' }).subscribe((res: any) => {
       this.pressReleases = (res.data || []).map((a: any) => ({
@@ -245,9 +342,11 @@ export class MediaDashboardComponent implements OnInit {
     });
   }
 
-  downloadReport(type: 'issues' | 'audit', filename = 'issues-export.csv') {
+  downloadReport(type: 'issues' | 'audit' | 'expenses', filename = 'issues-export.csv') {
     this.exporting = true;
-    const request = type === 'audit' ? this.api.exportAuditCsv() : this.api.exportIssuesCsv();
+    const request = type === 'audit' ? this.api.exportAuditCsv()
+      : type === 'expenses' ? this.api.exportExpensesCsv()
+      : this.api.exportIssuesCsv();
     request.subscribe({
       next: (blob) => {
         const url = URL.createObjectURL(blob);
@@ -259,6 +358,60 @@ export class MediaDashboardComponent implements OnInit {
         this.exporting = false;
       },
       error: () => { this.exporting = false; },
+    });
+  }
+
+  /** P1-9 — real expenditure CSV for the Budget Transparency card. */
+  downloadExpensesCsv() {
+    this.downloadReport('expenses', 'budget-transparency-expenses.csv');
+  }
+
+  /** P1-9 — real cross-department plan-vs-spend numbers (replaces mock CSV). */
+  loadBudgetOverview() {
+    this.api.getBudgetOverview().subscribe({
+      next: (res) => {
+        if (!res.success || !Array.isArray(res.data)) return;
+        this.budgetOverview = res.data;
+        this.budgetTotal = res.data.reduce((s, r) => s + (r.budget || 0), 0);
+        this.budgetSpent = res.data.reduce((s, r) => s + (r.spent || 0), 0);
+      },
+      error: () => {},
+    });
+  }
+
+  /** P1-7 — branded issues-report PDF (CSV kept for raw data). */
+  downloadReportPdf(filename = 'issues-export.csv') {
+    this.exporting = true;
+    this.api.exportIssuesPdf().subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename.replace(/\.csv$/, '.pdf');
+        a.click();
+        URL.revokeObjectURL(url);
+        this.exporting = false;
+      },
+      error: () => { this.exporting = false; },
+    });
+  }
+
+  /** P2-19 — past public meetings (Event COUNCIL_MEETING / PUBLIC_HEARING / TOWN_HALL). */
+  loadMeetingMinutes() {
+    this.minutesLoading = true;
+    this.api.getPortalMeetings(6).subscribe({
+      next: (res) => {
+        const rows = res?.data || [];
+        this.meetingMinutes = rows.map((m: any) => ({
+          id: m.id,
+          title: m.title,
+          date: m.startTime,
+          attendees: m._count?.rsvps ?? 0,
+          organizer: m.creator ? `${m.creator.firstName} ${m.creator.lastName}` : '',
+        }));
+        this.minutesLoading = false;
+      },
+      error: () => { this.minutesLoading = false; },
     });
   }
 

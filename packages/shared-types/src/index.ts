@@ -107,6 +107,11 @@ export interface Issue {
   ward?: { id: string; name: string };
   aiCategory?: string;
   aiSentiment?: string;
+  // P1-10 escalation workflow (status enum stays stable).
+  escalatedAt?: string | null;
+  escalatedById?: string | null;
+  escalatedTo?: string | null;
+  escalationReason?: string | null;
   resolvedAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -315,6 +320,8 @@ export interface DashboardStats {
   totalIssues: number;
   openIssues: number;
   resolvedIssues: number;
+  /** P1-10: issues with escalatedAt set (replaces the priority>=4 proxy). */
+  escalatedCount?: number;
   avgResolutionTimeDays: number;
   totalUsers: number;
   issuesByCategory: Record<IssueCategory, number>;

@@ -167,6 +167,25 @@ import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../c
                           {{ 'issues.priority' | t }}: {{ issue.priority }}/5
                         </span>
                       }
+                      @if (issue.escalatedAt) {
+                        <span class="badge badge-red" [title]="issue.escalationReason || ''">
+                          ⚠ {{ 'issues.escalated' | t }}
+                        </span>
+                      }
+                      @if (canEditPriority) {
+                        <span style="display:inline-flex;align-items:center;gap:4px;">
+                          <select
+                            data-testid="issue-priority-select"
+                            [ngModel]="issue.priority || 3"
+                            (ngModelChange)="savePriority($event)"
+                            [disabled]="prioritySaving"
+                            style="padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;">
+                            @for (p of [1, 2, 3, 4, 5]; track p) {
+                              <option [value]="p">{{ 'issues.priority' | t }} {{ p }}/5</option>
+                            }
+                          </select>
+                        </span>
+                      }
                       @if (predictedDays) {
                         <span class="badge badge-teal">⏱ {{ i18n.t('ai.days', { n: predictedDays }) }}</span>
                       }
@@ -190,9 +209,27 @@ import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../c
                         <i class="material-icons-outlined" style="font-size:16px;">{{ isSubscribed ? 'notifications_off' : 'notifications' }}</i>
                         {{ isSubscribed ? ('issues.unsubscribe' | t) : ('issues.subscribe' | t) }}
                       </button>
+                      @if (subscriberCount !== null) {
+                        <span class="badge badge-slate" data-testid="issue-subscriber-count" [title]="i18n.t('issues.subscriberCountHint')">👥 {{ i18n.t('issues.subscriberCount', { n: subscriberCount }) }}</span>
+                      }
                     }
                     <button class="btn btn-secondary btn-sm" (click)="share()"><i class="material-icons-outlined" style="font-size:16px;">share</i> {{ 'issues.share' | t }}</button>
                     <button class="btn btn-secondary btn-sm" (click)="print()" [title]="'issues.print' | t"><i class="material-icons-outlined" style="font-size:16px;">print</i></button>
+                    @if (canUpdateStatus && !issue.escalatedAt) {
+                      @if (!showEscalateForm) {
+                        <button class="btn btn-secondary btn-sm" data-testid="issue-escalate-btn" (click)="showEscalateForm = true"><i class="material-icons-outlined" style="font-size:16px;">warning</i> {{ 'issues.escalate' | t }}</button>
+                      } @else {
+                        <span style="display:inline-flex;gap:4px;align-items:center;">
+                          <input
+                            data-testid="issue-escalate-reason"
+                            [(ngModel)]="escalateReason"
+                            [placeholder]="i18n.t('issues.escalationReason')"
+                            style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;min-width:180px;" />
+                          <button class="btn btn-primary btn-sm" data-testid="issue-escalate-confirm" [disabled]="escalating" (click)="submitEscalation()">{{ 'issues.escalate' | t }}</button>
+                          <button class="btn btn-ghost btn-sm" (click)="showEscalateForm = false">{{ 'common.cancel' | t }}</button>
+                        </span>
+                      }
+                    }
                   </div>
                 </div>
                 <p style="font-size:14px;color:var(--text-secondary);line-height:1.8;margin-bottom:16px;">{{ issue.description }}</p>
@@ -231,9 +268,9 @@ import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../c
             }
 
             <div class="card" style="margin-bottom:24px;">
-              <div class="card-header"><h3>{{ i18n.t('detail.comments', { n: issue.comments?.length || 0 }) }}</h3></div>
+              <div class="card-header"><h3>{{ i18n.t('detail.comments', { n: totalComments }) }}</h3></div>
               <div class="card-body">
-                @for (comment of issue.comments; track comment.id) {
+                @for (comment of threadedComments; track comment.id) {
                   <div style="display:flex;gap:12px;padding:14px 0;border-bottom:1px solid var(--border-light);">
                     <div style="width:36px;height:36px;border-radius:50%;background:var(--primary);color:white;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;">
                       {{ comment.user?.firstName?.[0] }}{{ comment.user?.lastName?.[0] }}
@@ -244,13 +281,54 @@ import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../c
                         <span style="font-size:11px;color:var(--text-muted);">{{ comment.createdAt | date:'medium' }}</span>
                       </div>
                       <p style="font-size:13px;color:var(--text-secondary);margin-top:6px;">{{ comment.content }}</p>
+                      @if (auth.isAuthenticated()) {
+                        <button class="btn btn-ghost btn-sm" [attr.data-testid]="'comment-reply-' + comment.id" (click)="startReply(comment)">{{ 'issues.reply' | t }}</button>
+                      }
+                      @if (replyTo?.id === comment.id) {
+                        <div style="margin-top:8px;display:flex;gap:8px;">
+                          <input #replyInput type="text" [placeholder]="i18n.t('issues.replyTo', { name: replyTo?.name || '' })" style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" />
+                          <button class="btn btn-primary btn-sm" [disabled]="replyLoading" (click)="postReply(replyInput)">{{ 'issues.post' | t }}</button>
+                          <button class="btn btn-ghost btn-sm" (click)="cancelReply()">{{ 'common.cancel' | t }}</button>
+                        </div>
+                      }
+                      @for (child of comment.children || []; track child.id) {
+                        <div style="display:flex;gap:10px;padding:10px 0 10px 16px;margin-top:8px;border-left:2px solid var(--border-light);">
+                          <div style="width:28px;height:28px;border-radius:50%;background:var(--bg-primary);color:var(--text-secondary);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;">
+                            {{ child.user?.firstName?.[0] }}{{ child.user?.lastName?.[0] }}
+                          </div>
+                          <div style="flex:1;">
+                            <div style="display:flex;justify-content:space-between;">
+                              <strong style="font-size:12px;">{{ child.user?.firstName }} {{ child.user?.lastName }}</strong>
+                              <span style="font-size:11px;color:var(--text-muted);">{{ child.createdAt | date:'medium' }}</span>
+                            </div>
+                            <p style="font-size:13px;color:var(--text-secondary);margin-top:4px;">{{ child.content }}</p>
+                          </div>
+                        </div>
+                      }
                     </div>
                   </div>
+                }
+                @if (!threadedComments.length && (issue.comments?.length || 0) > 0) {
+                  @for (comment of issue.comments; track comment.id) {
+                    <div style="display:flex;gap:12px;padding:14px 0;border-bottom:1px solid var(--border-light);">
+                      <div style="width:36px;height:36px;border-radius:50%;background:var(--primary);color:white;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;">
+                        {{ comment.user?.firstName?.[0] }}{{ comment.user?.lastName?.[0] }}
+                      </div>
+                      <div style="flex:1;">
+                        <div style="display:flex;justify-content:space-between;">
+                          <strong style="font-size:13px;">{{ comment.user?.firstName }} {{ comment.user?.lastName }}</strong>
+                          <span style="font-size:11px;color:var(--text-muted);">{{ comment.createdAt | date:'medium' }}</span>
+                        </div>
+                        <p style="font-size:13px;color:var(--text-secondary);margin-top:6px;">{{ comment.content }}</p>
+                      </div>
+                    </div>
+                  }
                 }
                 <div style="margin-top:16px;display:flex;gap:8px;">
                   <input #commentInput type="text" [placeholder]="i18n.t('issues.addComment')" (input)="clearFieldError('comment.content')" [class.input-error]="!!getFieldError('comment.content')" style="flex:1;padding:10px 16px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" />
                   <button class="btn btn-primary" (click)="postComment(commentInput)">{{ 'issues.post' | t }}</button>
                 </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">{{ 'issues.mentionHint' | t }}</div>
                 @if (getFieldError('comment.content')) { <div class="field-error">⚠ {{ getFieldError('comment.content') }}</div> }
               </div>
             </div>
@@ -412,6 +490,58 @@ import { issueStatusClass, formatIssueStatus as formatStatusI18n } from '../../c
                   </div>
                 </div>
               </div>
+
+            @if (canUpdateStatus) {
+              <div class="card" style="margin-bottom:24px;">
+                <div class="card-header"><h3>{{ "detail.shareLinks" | t }}</h3></div>
+                <div class="card-body">
+                  <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;">
+                    <input type="number" [(ngModel)]="shareLinkExpiresInDays" [placeholder]="'detail.shareExpiresInDays' | t" style="width:120px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" />
+                    <button class="btn btn-primary btn-sm" [disabled]="shareLinksLoading" (click)="createShareLink()">{{ "detail.createShareLink" | t }}</button>
+                  </div>
+                  @if (shareLinks.length === 0) {
+                    <p style="font-size:13px;color:var(--text-muted);">{{ "detail.noShareLinks" | t }}</p>
+                  } @else {
+                    <table class="data-table">
+                      <thead><tr><th>Token</th><th>Expires</th><th>Created</th><th></th></tr></thead>
+                      <tbody>
+                        @for (link of shareLinks; track link.id) {
+                          <tr>
+                            <td><code>{{ link.token }}</code></td>
+                            <td>{{ link.expiresAt ? (link.expiresAt | date:'short') : '-' }}</td>
+                            <td>{{ link.createdAt | date:'short' }}</td>
+                            <td><button class="btn btn-secondary btn-sm" (click)="revokeShareLink(link.id)">{{ "detail.revoke" | t }}</button></td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  }
+                </div>
+              </div>
+
+              <div class="card" style="margin-bottom:24px;">
+                <div class="card-header"><h3>{{ "detail.assignmentHistory" | t }}</h3></div>
+                <div class="card-body">
+                  @if (assignmentHistory.length === 0) {
+                    <p style="font-size:13px;color:var(--text-muted);">{{ "detail.noAssignmentHistory" | t }}</p>
+                  } @else {
+                    <table class="data-table">
+                      <thead><tr><th>Assignee</th><th>Assigned By</th><th>Assigned</th><th>Unassigned</th></tr></thead>
+                      <tbody>
+                        @for (h of assignmentHistory; track h.id) {
+                          <tr>
+                            <td>{{ h.assignee?.firstName }} {{ h.assignee?.lastName }}</td>
+                            <td>{{ h.assignedBy?.firstName }} {{ h.assignedBy?.lastName }}</td>
+                            <td>{{ h.assignedAt | date:'short' }}</td>
+                            <td>{{ h.unassignedAt ? (h.unassignedAt | date:'short') : '-' }}</td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  }
+                </div>
+              </div>
+            }
             }
 
             <div class="card" style="margin-bottom:24px;" data-testid="related-impact-panel">
@@ -523,8 +653,15 @@ export class IssueDetailComponent implements OnInit {
   fieldErrors: Record<string, string> = {};
   isSubscribed = false;
   subscribeLoading = false;
+  /** P2-24 — staff-visible subscriber count (null = not loaded / no access). */
+  subscriberCount: number | null = null;
   internalNotes: Array<{ id: string; content: string; createdAt: string; author?: { firstName: string; lastName: string } }> = [];
   noteLoading = false;
+  shareLinks: Array<{ id: string; token: string; expiresAt?: string; createdAt: string }> = [];
+  shareLinksLoading = false;
+  assignmentHistory: Array<any> = [];
+  assignmentHistoryLoading = false;
+  shareLinkExpiresInDays: number | null = null;
   sla: { priority: string; dueAt: string; breached: boolean } | null = null;
   staffMembers: User[] = [];
   selectedAssigneeId = '';
@@ -551,6 +688,37 @@ export class IssueDetailComponent implements OnInit {
     return this.canUpdateStatus;
   }
 
+  /**
+   * Manual priority override (PLAN feature 4). Mirrors the backend
+   * authorize() list on PATCH /issues/:id.
+   */
+  get canEditPriority(): boolean {
+    return this.auth.hasRole(
+      UserRole.SUPER_ADMIN, UserRole.MAYOR, UserRole.DEPARTMENT_HEAD,
+      UserRole.STAFF, UserRole.COUNCIL_MEMBER, UserRole.AUDITOR,
+    );
+  }
+
+  prioritySaving = false;
+  savePriority(value: number | string) {
+    const priority = Number(value);
+    if (!this.issue || !Number.isInteger(priority) || priority < 1 || priority > 5) return;
+    this.prioritySaving = true;
+    this.api.updateIssue(this.issue.id, { priority }).subscribe({
+      next: (res) => {
+        this.prioritySaving = false;
+        if (res.data) this.issue = res.data;
+        this.toast.success(this.i18n.t('issues.prioritySaved'));
+        // SLA deadline changed — reload the SLA row if it's shown.
+        this.loadSla();
+      },
+      error: () => {
+        this.prioritySaving = false;
+        this.toast.error(this.i18n.t('issues.prioritySaveFailed'));
+      },
+    });
+  }
+
   ngOnInit() {
     if (this.canAssign) this.loadStaffMembers();
     this.reloadIssue();
@@ -574,6 +742,7 @@ export class IssueDetailComponent implements OnInit {
           this.issue = res.data;
           this.attachments = (res.data as any).attachments || [];
           this.loadSubscriptionState();
+          this.loadThreadedComments();
           this.selectedAssigneeId = res.data.assigneeId || res.data.assignee?.id || '';
           if (this.canUpdateStatus) {
             this.loadInternalNotes();
@@ -599,6 +768,9 @@ export class IssueDetailComponent implements OnInit {
   toggleSubscribe() {
     if (!this.issue || this.subscribeLoading) return;
     this.subscribeLoading = true;
+    const bumpCount = (delta: number) => {
+      if (this.subscriberCount !== null) this.subscriberCount = Math.max(0, this.subscriberCount + delta);
+    };
     const onDone = () => {
       this.subscribeLoading = false;
       this.toast.success(this.isSubscribed ? this.i18n.t('issues.subscribed') : this.i18n.t('issues.unsubscribed'));
@@ -609,12 +781,12 @@ export class IssueDetailComponent implements OnInit {
     };
     if (this.isSubscribed) {
       this.api.unsubscribeFromIssue(this.issue.id).subscribe({
-        next: (res) => { if (res.success) { this.isSubscribed = false; onDone(); } },
+        next: (res) => { if (res.success) { this.isSubscribed = false; bumpCount(-1); onDone(); } },
         error: onError,
       });
     } else {
       this.api.subscribeToIssue(this.issue.id).subscribe({
-        next: (res) => { if (res.success) { this.isSubscribed = true; onDone(); } },
+        next: (res) => { if (res.success) { this.isSubscribed = true; bumpCount(1); onDone(); } },
         error: onError,
       });
     }
@@ -625,6 +797,20 @@ export class IssueDetailComponent implements OnInit {
     this.api.getInternalNotes(this.issue.id).subscribe({
       next: (res) => { if (res.success) this.internalNotes = res.data; },
     });
+    if (this.canUpdateStatus) {
+      this.api.getIssueSubscribers(this.issue.id).subscribe({
+        next: (res) => { if (res.success) this.subscriberCount = (res.data || []).length; },
+        error: () => { this.subscriberCount = null; },
+      });
+      this.api.getShareLinks(this.issue.id).subscribe({
+        next: (res) => { if (res.success) this.shareLinks = res.data; },
+        error: () => { /* ignore */ },
+      });
+      this.api.getIssueAssignmentHistory(this.issue.id).subscribe({
+        next: (res) => { if (res.success) this.assignmentHistory = res.data; },
+        error: () => { /* ignore */ },
+      });
+    }
   }
 
   addInternalNote(input: HTMLInputElement) {
@@ -884,6 +1070,79 @@ export class IssueDetailComponent implements OnInit {
     });
   }
 
+  /** P1-12: threaded comments (two levels) loaded with children. */
+  threadedComments: Array<{ id: string; content: string; createdAt: string; user?: { firstName: string; lastName: string }; children?: Array<{ id: string; content: string; createdAt: string; user?: { firstName: string; lastName: string } }> }> = [];
+  replyTo: { id: string; name: string } | null = null;
+  replyLoading = false;
+
+  /** P1-10 escalation form state. */
+  showEscalateForm = false;
+  escalateReason = '';
+  escalating = false;
+
+  get totalComments(): number {
+    const threaded = this.threadedComments.reduce((n, c) => n + 1 + (c.children?.length || 0), 0);
+    return threaded || this.issue?.comments?.length || 0;
+  }
+
+  loadThreadedComments() {
+    if (!this.issue) return;
+    this.api.getComments(this.issue.id).subscribe({
+      next: (res: any) => {
+        if (res.success) this.threadedComments = res.data || [];
+      },
+      error: () => { /* fall back to issue.comments */ },
+    });
+  }
+
+  startReply(comment: { id: string; user?: { firstName: string; lastName: string } }) {
+    this.replyTo = { id: comment.id, name: `${comment.user?.firstName || ''} ${comment.user?.lastName || ''}`.trim() };
+  }
+
+  cancelReply() {
+    this.replyTo = null;
+  }
+
+  postReply(input: HTMLInputElement) {
+    if (!this.issue || !this.replyTo || !input.value.trim() || this.replyLoading) return;
+    this.replyLoading = true;
+    this.api.createComment(this.issue.id, { content: input.value, parentId: this.replyTo.id }).subscribe({
+      next: (res: any) => {
+        this.replyLoading = false;
+        if (res.success) {
+          input.value = '';
+          this.replyTo = null;
+          this.toast.success(this.i18n.t('issues.commentPosted'));
+          this.loadThreadedComments();
+        }
+      },
+      error: (err) => {
+        this.replyLoading = false;
+        this.toast.error(err.error?.error || this.i18n.t('issues.commentPostedError'));
+      },
+    });
+  }
+
+  submitEscalation() {
+    if (!this.issue || this.escalating) return;
+    this.escalating = true;
+    this.api.escalateIssue(this.issue.id, { reason: this.escalateReason.trim() || undefined }).subscribe({
+      next: (res) => {
+        this.escalating = false;
+        if (res.success) {
+          this.issue = { ...this.issue!, ...res.data };
+          this.showEscalateForm = false;
+          this.escalateReason = '';
+          this.toast.success(this.i18n.t('issues.escalateSuccess'));
+        }
+      },
+      error: (err) => {
+        this.escalating = false;
+        this.toast.error(err.error?.error || this.i18n.t('issues.escalateFailed'));
+      },
+    });
+  }
+
   postComment(input: HTMLInputElement) {
     if (!this.issue || !input.value.trim()) return;
     this.api.createComment(this.issue.id, { content: input.value }).subscribe({
@@ -893,6 +1152,7 @@ export class IssueDetailComponent implements OnInit {
           this.toast.success(this.i18n.t('issues.commentPosted'));
           this.fieldErrors = {};
           this.reloadIssue();
+          this.loadThreadedComments();
         }
       },
       error: (err) => {
@@ -918,6 +1178,40 @@ export class IssueDetailComponent implements OnInit {
    * `errorFields.<field>` first, then falls back to the raw
    * backend message. Returns '' when no error is set.
    */
+
+  createShareLink() {
+    if (!this.issue) return;
+    const expires = this.shareLinkExpiresInDays;
+    this.shareLinksLoading = true;
+    this.api.createShareLink(this.issue.id, expires ?? undefined).subscribe({
+      next: (res) => {
+        this.shareLinksLoading = false;
+        if (res.success) {
+          this.toast.success(this.i18n.t('detail.shareLinkCreated'));
+          this.loadInternalNotes();
+        }
+      },
+      error: () => {
+        this.shareLinksLoading = false;
+        this.toast.error(this.i18n.t('detail.shareLinkFailed'));
+      },
+    });
+  }
+
+  revokeShareLink(linkId: string) {
+    if (!this.issue) return;
+    this.api.revokeShareLink(this.issue.id, linkId).subscribe({
+      next: (res) => {
+        if (res.success) {
+          this.toast.success(this.i18n.t('detail.shareLinkRevoked'));
+          this.loadInternalNotes();
+        }
+      },
+      error: () => {
+        this.toast.error(this.i18n.t('detail.shareLinkFailed'));
+      },
+    });
+  }
   getFieldError(field: string): string {
     const raw = this.fieldErrors[field];
     if (!raw) return '';

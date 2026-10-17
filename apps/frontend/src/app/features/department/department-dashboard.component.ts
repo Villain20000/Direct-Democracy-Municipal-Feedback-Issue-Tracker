@@ -9,13 +9,15 @@ import { ToastService } from '../../core/services/toast.service';
 import { TranslationService } from '../../core/i18n/translation.service';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { DashboardStats, Issue, User } from '@dd/shared-types';
+import { BudgetSummary } from '../../core/services/api.service';
 import { ActivityFeedComponent } from '../../shared/activity-feed.component';
 import { CivicScoreComponent } from '../../shared/civic-score.component';
+import { ChartComponent } from '../shared/chart.component';
 
 @Component({
   selector: 'app-department-dashboard',
   standalone: true,
-  imports: [CommonModule, RouterLink, LayoutComponent, CurrencyPipe, TranslatePipe, ActivityFeedComponent, CivicScoreComponent],
+  imports: [CommonModule, RouterLink, LayoutComponent, CurrencyPipe, TranslatePipe, ActivityFeedComponent, CivicScoreComponent, ChartComponent],
   template: `
     <app-layout
       [pageTitle]="i18n.t('department.pageTitle')"
@@ -27,6 +29,7 @@ import { CivicScoreComponent } from '../../shared/civic-score.component';
         <div class="stat-card"><div class="stat-icon amber"><i class="material-icons-outlined">pending</i></div><div class="stat-info"><div class="stat-value">{{ inProgressCount }}</div><div class="stat-label">{{ 'department.inProgress' | t }}</div></div></div>
         <div class="stat-card"><div class="stat-icon green"><i class="material-icons-outlined">task_alt</i></div><div class="stat-info"><div class="stat-value">{{ stats?.resolvedIssues || 0 }}</div><div class="stat-label">{{ 'department.resolved' | t }}</div></div></div>
         <div class="stat-card"><div class="stat-icon red"><i class="material-icons-outlined">warning</i></div><div class="stat-info"><div class="stat-value">{{ escalatedCount }}</div><div class="stat-label">{{ 'department.escalated' | t }}</div></div></div>
+        <div class="stat-card" routerLink="/sla-breaches" style="cursor:pointer;" [title]="'department.slaBreached' | t"><div class="stat-icon red"><i class="material-icons-outlined">timer_off</i></div><div class="stat-info"><div class="stat-value">{{ slaBreachedCount }}</div><div class="stat-label">{{ 'department.slaBreached' | t }}</div></div></div>
       </div>
 
       <div class="content-grid">
@@ -38,6 +41,11 @@ import { CivicScoreComponent } from '../../shared/civic-score.component';
         <div class="card">
           <div class="card-header"><h3>{{ 'department.staffWorkload' | t }}</h3></div>
           <div class="card-body">
+            @if (workloadLabels.length) {
+              <div style="margin-bottom:16px;">
+                <app-chart kind="bar" [labels]="workloadLabels" [data]="workloadCounts" [height]="180" [showLegend]="false" />
+              </div>
+            }
             @for (staff of staffWorkload; track staff.name) {
               <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px;">
                 <div style="width: 36px; height: 36px; border-radius: 50%; background: var(--primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700;">{{ staff.initials }}</div>
@@ -60,20 +68,33 @@ import { CivicScoreComponent } from '../../shared/civic-score.component';
         <div class="card">
           <div class="card-header"><h3>{{ 'department.budgetTracker' | t }}</h3></div>
           <div class="card-body">
-            <div style="margin-bottom: 20px;">
-              <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px;"><span>{{ 'department.totalBudget' | t }}</span><strong>$5,000,000</strong></div>
-              <div style="background: var(--bg-primary); border-radius: 4px; height: 12px;"><div style="width: 68%; background: var(--primary); height: 100%; border-radius: 4px;"></div></div>
-              <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-top: 4px;"><span>{{ 'department.spent' | t: { pct: 68, spent: '$3.4M' } }}</span><span>{{ 'department.remaining' | t: { pct: 32, remaining: '$1.6M' } }}</span></div>
-            </div>
-            <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px;">{{ 'department.spendingByCategory' | t }}</div>
-            @for (cat of budgetCategories; track cat.key) {
-              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
-                <span style="font-size: 12px; width: 100px; color: var(--text-secondary);">{{ i18n.t(cat.key) }}</span>
-                <div style="flex: 1; background: var(--bg-primary); border-radius: 3px; height: 6px;">
-                  <div [style.width.%]="cat.pct" [style.background]="cat.color" style="height: 100%; border-radius: 3px;"></div>
+            @if (budgetSummary) {
+              <div style="margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px;">
+                  <span>{{ 'department.totalBudget' | t }}</span>
+                  <strong>{{ budgetSummary.totalBudget | currency:'USD':'symbol':'1.0-0' }}</strong>
                 </div>
-                <span style="font-size: 12px; font-weight: 600;">{{ cat.amount }}</span>
+                <div style="background: var(--bg-primary); border-radius: 4px; height: 12px;"><div [style.width.%]="budgetSummary.pctUsed" style="background: var(--primary); height: 100%; border-radius: 4px;"></div></div>
+                <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                  <span>{{ 'department.spent' | t: { pct: budgetSummary.pctUsed, spent: (budgetSummary.totalSpent | currency:'USD':'symbol':'1.0-0') } }}</span>
+                  <span>{{ 'department.remaining' | t: { pct: 100 - budgetSummary.pctUsed, remaining: (budgetSummary.totalRemaining | currency:'USD':'symbol':'1.0-0') } }}</span>
+                </div>
               </div>
+              @if (budgetSummary.categories.length) {
+                <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px;">{{ 'department.spendingByCategory' | t }}</div>
+                @for (cat of budgetSummary.categories; track cat.category) {
+                  <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                    <span style="font-size: 12px; width: 100px; color: var(--text-secondary);">{{ cat.category }}</span>
+                    <div style="flex: 1; background: var(--bg-primary); border-radius: 3px; height: 6px;">
+                      <div [style.width.%]="cat.pctUsed || 0" style="background: var(--primary); height: 100%; border-radius: 3px;"></div>
+                    </div>
+                    <span style="font-size: 12px; font-weight: 600;">{{ cat.spent | currency:'USD':'symbol':'1.0-0' }}</span>
+                  </div>
+                }
+              }
+              <a routerLink="/department/budget" class="btn btn-secondary btn-sm" style="width:100%;margin-top:8px;">{{ 'department.manageBudget' | t }}</a>
+            } @else {
+              <p style="color: var(--text-muted); font-size: 13px;">{{ 'department.budgetLoading' | t }}</p>
             }
           </div>
         </div>
@@ -147,18 +168,16 @@ export class DepartmentDashboardComponent implements OnInit {
   rerankError = '';
   slaRiskMap: Record<string, { risk: string; justification: string }> = {};
   staffMembers: User[] = [];
-  staffWorkload = [
-    { name: 'Tom Wilson', initials: 'TW', active: 8, capacity: 12 },
-    { name: 'Sarah Adams', initials: 'SA', active: 6, capacity: 12 },
-    { name: 'Mike Chen', initials: 'MC', active: 11, capacity: 12 },
-    { name: 'Lisa Park', initials: 'LP', active: 4, capacity: 12 },
-  ];
-  budgetCategories = [
-    { key: 'department.repairs', amount: '$1.2M', pct: 60, color: '#2563EB' },
-    { key: 'department.materials', amount: '$800K', pct: 40, color: '#16A34A' },
-    { key: 'department.labor', amount: '$1.1M', pct: 55, color: '#7C3AED' },
-    { key: 'department.equipment', amount: '$300K', pct: 15, color: '#D97706' },
-  ];
+  /** Real workload: open issues assigned per staff member (PLAN §10). */
+  staffWorkload: Array<{ name: string; initials: string; active: number; capacity: number }> = [];
+  workloadLabels: string[] = [];
+  workloadCounts: number[] = [];
+  private workloadIssues: Issue[] = [];
+  private workloadIssuesLoaded = false;
+  private staffLoaded = false;
+  budgetSummary: BudgetSummary | null = null;
+  /** P0-1 — live count of breached SLAs (GET /sla/breached). */
+  slaBreachedCount = 0;
 
   navItems = [
     { icon: 'dashboard', label: 'nav.overview', route: '/department' },
@@ -178,15 +197,37 @@ export class DepartmentDashboardComponent implements OnInit {
     return this.stats?.issuesByStatus?.IN_PROGRESS || 0;
   }
 
+  /**
+   * P1-10: real escalation counter from the stats endpoint
+   * (issues with `escalatedAt` set). Falls back to the loaded page
+   * when stats are unavailable.
+   */
   get escalatedCount(): number {
-    return this.issues.filter(i => (i.priority || 0) >= 4).length;
+    if (typeof this.stats?.escalatedCount === 'number') return this.stats.escalatedCount;
+    return this.issues.filter(i => !!(i as Issue).escalatedAt).length;
   }
 
   ngOnInit() {
     const departmentId = this.auth.user()?.departmentId;
     if (!departmentId) return;
     this.api.getUsers({ role: 'STAFF', pageSize: '50' }).subscribe({
-      next: (res: any) => { if (res.data) this.staffMembers = res.data; },
+      next: (res: any) => {
+        if (res.data) {
+          this.staffMembers = res.data;
+          this.staffLoaded = true;
+          this.computeWorkload();
+        }
+      },
+    });
+    // Open (non-terminal) issues for this department — used to count
+    // real per-staff workload instead of the old hardcoded array.
+    this.api.getIssues({ departmentId, pageSize: '200' }).subscribe({
+      next: (res: any) => {
+        this.workloadIssues = res.data || [];
+        this.workloadIssuesLoaded = true;
+        this.computeWorkload();
+      },
+      error: () => {},
     });
     this.api.getIssues({ departmentId, pageSize: '8' }).subscribe((res: any) => {
       if (res.data) {
@@ -203,9 +244,44 @@ export class DepartmentDashboardComponent implements OnInit {
       },
       error: () => this.toast.error(this.i18n.t('department.statsFailed')),
     });
+    // Real budget tracker data (P1-9 — replaces the old hardcoded
+    // $5,000,000 / fixed category array).
+    this.api.getBudgetSummary(departmentId).subscribe({
+      next: (res) => { if (res.success) this.budgetSummary = res.data; },
+      error: () => {},
+    });
+    // P0-1 — breached SLA counter; the stat card links to /sla-breaches.
+    this.api.getSlaBreaches().subscribe({
+      next: (res) => { if (res.success) this.slaBreachedCount = res.data.length; },
+      error: () => {},
+    });
   }
 
   getStars(count: number): number[] { return Array(Math.max(0, count)); }
+
+  /**
+   * Build the workload list + chart datasets from real data:
+   * staff roster (getUsers) × open issues assigned to each of them.
+   * Capacity defaults to 12 (the visual scale used by the star meter).
+   */
+  private computeWorkload() {
+    if (!this.staffLoaded || !this.workloadIssuesLoaded) return;
+    const terminal = new Set(['RESOLVED', 'VERIFIED', 'REJECTED']);
+    const openByAssignee: Record<string, number> = {};
+    for (const issue of this.workloadIssues) {
+      if (!issue.assigneeId || terminal.has(issue.status)) continue;
+      openByAssignee[issue.assigneeId] = (openByAssignee[issue.assigneeId] || 0) + 1;
+    }
+    this.staffWorkload = this.staffMembers.map((s) => ({
+      name: `${s.firstName} ${s.lastName}`,
+      initials: `${s.firstName?.[0] || ''}${s.lastName?.[0] || ''}`.toUpperCase(),
+      active: openByAssignee[s.id] || 0,
+      capacity: 12,
+    }));
+    // Chart dataset (PLAN §10 — "Staff workload distribution chart")
+    this.workloadLabels = this.staffWorkload.map((s) => s.name);
+    this.workloadCounts = this.staffWorkload.map((s) => s.active);
+  }
 
   statusClass(status: string): string {
     return status.toLowerCase().replace(/_/g, '-');

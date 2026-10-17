@@ -15,6 +15,7 @@ import { weeklySummaryService } from './services/weekly-summary.service';
 import { wardDigestService } from './services/ward-digest.service';
 import { seasonalForecastService } from './services/seasonal-forecast.service';
 import { faqService } from './services/faq.service';
+import { slaTrackingService } from './services/sla-tracking.service';
 
 console.log('🚀 Starting background workers...');
 const worker = startEmbedIssueWorker();
@@ -112,6 +113,25 @@ const faqTask = cron.schedule(
 );
 console.log(`📅 FAQ KB cron scheduled (Sunday 06:00).`);
 
+/** Every 15 minutes — SLA breach scan (flips `breached` on past-due rows). */
+const slaScanTask = cron.schedule(
+  '*/15 * * * *',
+  async () => {
+    try {
+      const { breached } = await slaTrackingService.scanForBreaches();
+      if (breached > 0) {
+        console.log(`[cron] SLA breach scan: ${breached} row(s) newly breached`);
+      }
+    } catch (err: any) {
+      console.error(`[cron] SLA breach scan failed: ${err.message}`);
+    }
+  },
+  {
+    timezone: process.env.WEEKLY_SUMMARY_TZ || Intl.DateTimeFormat().resolvedOptions().timeZone,
+  },
+);
+console.log(`📅 SLA breach-scan cron scheduled (every 15 min).`);
+
 console.log('   (Press Ctrl+C to stop.)');
 
 let shuttingDown = false;
@@ -124,6 +144,7 @@ const shutdown = async (signal: string) => {
     wardDigestTask.stop();
     seasonalForecastTask.stop();
     faqTask.stop();
+    slaScanTask.stop();
     await stopEmbedIssueWorker();
     console.log('👋 Workers stopped cleanly. Bye!');
     process.exit(0);

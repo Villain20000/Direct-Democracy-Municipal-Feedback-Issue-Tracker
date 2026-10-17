@@ -139,7 +139,7 @@ export class AnnouncementsPageComponent implements OnInit {
 
   constructor() {
     this.navItems = [{ icon: 'dashboard', label: 'nav.dashboard', route: this.auth.getDashboardRoute() }];
-    this.canCreate = this.auth.hasRole(UserRole.SUPER_ADMIN, UserRole.MAYOR, UserRole.DEPARTMENT_HEAD, UserRole.STAFF);
+    this.canCreate = this.auth.hasRole(UserRole.SUPER_ADMIN, UserRole.MAYOR, UserRole.DEPARTMENT_HEAD, UserRole.STAFF, UserRole.MEDIA);
   }
 
   ngOnInit() { this.loadAnnouncements(); }

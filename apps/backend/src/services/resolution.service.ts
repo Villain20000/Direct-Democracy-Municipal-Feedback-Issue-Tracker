@@ -4,6 +4,7 @@ import {
   BadRequestError,
   NotFoundError,
 } from '../errors/domain-errors';
+import { notificationService } from './notification.service';
 
 export const resolutionService = {
   async create(data: {
@@ -72,7 +73,7 @@ export const resolutionService = {
     const alreadyVoted = resolution.votedByIds.includes(userId);
     if (alreadyVoted) throw new AlreadyVotedError('You have already voted on this resolution');
 
-    return prisma.resolution.update({
+    const updated = await prisma.resolution.update({
       where: { id },
       data: {
         votesFor: voteFor ? { increment: 1 } : undefined,
@@ -80,6 +81,32 @@ export const resolutionService = {
         votedByIds: { push: userId },
       },
     });
+
+    // P1-13: a vote notifies the proposer (VOTE_RECEIVED, email
+    // throttled per resolution per hour). Fire-and-forget.
+    if (resolution.proposedById !== userId) {
+      void (async () => {
+        try {
+          const voter = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { firstName: true, lastName: true },
+          });
+          const voterName = voter ? `${voter.firstName} ${voter.lastName}` : 'Someone';
+          await notificationService.create(
+            resolution.proposedById,
+            'VOTE_RECEIVED',
+            'New vote on your resolution',
+            `${voterName} voted ${voteFor ? 'for' : 'against'} "${resolution.title}"`,
+            { resolutionId: id },
+            { sendEmail: true, emailThrottleMs: 60 * 60 * 1000, throttleKey: `VOTE_RECEIVED:resolution:${id}` },
+          );
+        } catch (err: any) {
+          console.warn(`[resolution.vote] notify failed for ${id}:`, err.message);
+        }
+      })();
+    }
+
+    return updated;
   },
 
   async delete(id: string) {

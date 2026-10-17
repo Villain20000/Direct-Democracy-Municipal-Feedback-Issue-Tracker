@@ -8,6 +8,7 @@ import { TranslationService } from '../../core/i18n/translation.service';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { Event, Issue } from '@dd/shared-types';
 import { ActivityFeedComponent } from '../../shared/activity-feed.component';
+import { HeatMapPreviewComponent } from '../shared/heat-map-preview.component';
 import { CivicScoreComponent } from '../../shared/civic-score.component';
 
 interface WardCategory {
@@ -27,7 +28,7 @@ interface WardEvent {
 @Component({
   selector: 'app-ward-dashboard',
   standalone: true,
-  imports: [CommonModule, LayoutComponent, RouterLink, TranslatePipe, ActivityFeedComponent, CivicScoreComponent],
+  imports: [CommonModule, LayoutComponent, RouterLink, TranslatePipe, ActivityFeedComponent, CivicScoreComponent, HeatMapPreviewComponent],
   template: `
     <app-layout
       [pageTitle]="i18n.t('ward.pageTitle')"
@@ -81,19 +82,7 @@ interface WardEvent {
             <a routerLink="/ward/map" class="btn btn-primary btn-sm">{{ 'ward.openMap' | t }}</a>
           </div>
           <div class="card-body">
-            <div style="height:280px;background:linear-gradient(135deg,#E0F2FE,#DBEAFE);border-radius:var(--radius);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;">
-              <div style="position:absolute;inset:0;opacity:0.3;">
-                @for (pin of mapPins; track pin.x) {
-                  <div [style.left.%]="pin.x" [style.top.%]="pin.y" [style.background]="pin.color" style="position:absolute;width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.2);"></div>
-                }
-              </div>
-              <div style="text-align:center;z-index:1;background:rgba(255,255,255,0.9);padding:16px 24px;border-radius:var(--radius-lg);">
-                <i class="material-icons-outlined" style="font-size:48px;color:var(--primary);">map</i>
-                <div style="font-size:13px;font-weight:600;margin-top:8px;">{{ 'ward.heatMap' | t }}</div>
-                <div style="font-size:11px;color:var(--text-muted);">{{ i18n.t('ward.issuesTracked', { n: activeIssueCount }) }}</div>
-                <a routerLink="/ward/map" class="btn btn-secondary btn-sm" style="margin-top:12px;">{{ 'ward.viewMap' | t }}</a>
-              </div>
-            </div>
+            <app-heat-map-preview [wardId]="auth.user()?.wardId || null" linkRoute="/ward/map" [height]="280" />
           </div>
         </div>
         <div class="card">

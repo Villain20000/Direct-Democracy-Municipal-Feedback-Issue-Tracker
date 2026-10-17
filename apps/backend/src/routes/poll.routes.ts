@@ -31,8 +31,9 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Create poll (admin/council/mayor)
-router.post('/', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'COUNCIL_MEMBER'), async (req: AuthenticatedRequest, res) => {
+// Create poll (P2-16 — permissive: WARD_REP added to match the
+// PLAN §5 matrix row 14, which already grants Ward Rep ✅).
+router.post('/', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'COUNCIL_MEMBER', 'WARD_REP'), async (req: AuthenticatedRequest, res) => {
   try {
     const poll = await pollService.create({ ...req.body, creatorId: req.user!.id });
     res.status(201).json({ success: true, data: poll });

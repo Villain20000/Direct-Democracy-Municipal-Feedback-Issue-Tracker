@@ -147,7 +147,7 @@ Direct-Democracy-Municipal-Feedback-Issue-Tracker/
 | # | Feature | Description | Roles |
 |---|---------|-------------|-------|
 | 13 | **Issue Upvoting** | Citizens upvote issues to signal community priority; vote counts visible on dashboards | Citizen, Volunteer, Ward Rep |
-| 14 | **Community Polls** | Create and vote on municipal polls (e.g., park design, budget allocation preferences) | All Roles (create: Admin, Council, Mayor) |
+| 14 | **Community Polls** | Create and vote on municipal polls (e.g., park design, budget allocation preferences) | All Roles (create: Admin, Council, Mayor, Ward Rep — P2-16) |
 | 15 | **Resolution Voting** | Council members vote on proposed resolutions with transparent vote tracking | Council, Mayor (tiebreak) |
 | 16 | **Referendum Tracker** | Track active and historical referendums with results visualization | All Roles |
 
@@ -156,7 +156,7 @@ Direct-Democracy-Municipal-Feedback-Issue-Tracker/
 |---|---------|-------------|-------|
 | 17 | **Comment & Discussion Threads** | Threaded discussions on each issue with @mentions and notifications | All Roles |
 | 18 | **Notification System** | In-app + email notifications for status changes, assignments, mentions, and votes | All Roles |
-| 19 | **Public Announcements** | Post city-wide announcements visible on all dashboards and the public portal | Admin, Mayor |
+| 19 | **Public Announcements** | Post city-wide announcements visible on all dashboards and the public portal | Admin, Mayor, Media, Dept Head, Staff (create) — P2-17 permissive alignment |
 | 20 | **Direct Messaging** | Internal messaging between staff, between citizen↔official | All Roles |
 
 ### Analytics & Reporting (Features 21-24)
@@ -191,7 +191,7 @@ Direct-Democracy-Municipal-Feedback-Issue-Tracker/
 | 2. Issue Tracking | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 3. Smart Routing | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ |
 | 4. Priority Queue | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
-| 5. Bulk Management | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| 5. Bulk Management | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | 6. Issue Templates | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 7. AI Categorization | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 8. AI Priority Score | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
@@ -205,7 +205,7 @@ Direct-Democracy-Municipal-Feedback-Issue-Tracker/
 | 16. Referendum Tracker | ✅ | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 17. Comments | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | 18. Notifications | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 19. Announcements | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| 19. Announcements | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | 20. Direct Messaging | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ |
 | 21. Dashboard Analytics | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 22. Heat Map | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ✅ |
@@ -1080,9 +1080,12 @@ Citizens in the field (low 4G/5G) can still report issues without connectivity.
 - `npm run embed:backfill` re-embeds anything missing or stale (e.g. after a model swap)
 - BullMQ `WORKER_CONCURRENCY` (default 2) and `EMBED_LOCK_DURATION_MS` (default 60 s) are tunable via env
 
-### 10-feature sweep (engagement / workflow / analytics)
+### Feature sweep (engagement / workflow / analytics)
 
-Schema-only models added in `20260614000000_ten_feature_sweep` — Phase B wires up the routes, services, validators, tests, and UI hooks:
+Seven data models added in migration `20260614000000_ten_feature_sweep`
+(the migration keeps its historical "ten-feature" name, but it creates
+exactly 7 tables — the rows below). Phase B wires up the routes,
+services, validators, tests, and UI hooks:
 
 | # | Model | Purpose | API surface (Phase B) |
 |---|-------|---------|------------------------|
@@ -1118,4 +1121,50 @@ The platform ships with **10 active roles** (the `AUDITOR` enum value is in the 
 | 8 | `VOLUNTEER` | `/volunteer` |
 | 9 | `AUDITOR` | `/auditor` |
 | 10 | `MEDIA` | `/media` |
+
+### P2-16 / P2-17 / P2-18 — permissive RBAC alignment (2026-10-17)
+
+Where the backend and the §5 matrix disagreed, the backend was widened
+to match the matrix (never narrowed), and the matrix was updated where
+the backend was already broader:
+
+- **Polls (P2-16):** `POST /polls` now authorizes `WARD_REP`, matching
+  matrix row 14 (which already granted Ward Rep ✅). Frontend
+  `PollsPageComponent.canCreate/canManage` updated identically.
+- **Announcements (P2-17):** `POST /announcements` now authorizes
+  `MEDIA`, matching matrix row 19 (which already granted Media ✅).
+  Matrix row 19 now also marks Dept Head + Staff ✅, documenting the
+  pre-existing backend behaviour instead of removing it. Frontend
+  `AnnouncementsPageComponent.canCreate` updated identically.
+- **Bulk management (P2-18):** `PATCH /issues/bulk` keeps `MAYOR` and
+  `STAFF` (day-to-day routing is staff work); matrix row 5 now marks
+  Mayor + Staff ✅ instead of demanding a tighten.
+
+### §2 structure reconciliation (2026-10-17)
+
+The §2 tree predates three refactors; actual layout:
+
+- No `frontend/.../layouts/` dir — dashboard shell lives in
+  `shared/layout.component.ts`.
+- No `backend/src/models/` dir — Prisma schema + client live in
+  `backend/prisma/` (`schema.prisma`, `migrations/`).
+- No `backend/src/controllers/` dir — handlers were merged into
+  `routes/` + `services/`.
+
+### P2-19 / P2-20 — media + auditor parity (2026-10-17)
+
+- **Media (P2-19):** meeting-minutes archive on `/media`
+  (`GET /api/v1/portal/meetings`, no backend change), "Public API &
+  Data Feeds" card documenting the public portal JSON feeds, and the
+  historical created-vs-resolved comparison chart (shared `<app-chart>`).
+- **Auditor (P2-20):** schema-driven ER graph (inline SVG: User,
+  Department, Ward, Issue, Comment, AuditLog, BudgetLine, Expense),
+  budget expenditure audit trail on `/auditor`
+  (`GET /budget/overview` + expenses CSV export), and the 12-week
+  resolution timeline chart.
+- **Won't do:** a dedicated RSS/Atom endpoint — the public portal JSON
+  feeds (`/portal/announcements`, `/portal/meetings`,
+  `/portal/events/upcoming`, `/portal/issues/recent`, no auth) plus the
+  CSV exports serve as the machine-readable interface, so no new
+  backend surface was added for this.
 

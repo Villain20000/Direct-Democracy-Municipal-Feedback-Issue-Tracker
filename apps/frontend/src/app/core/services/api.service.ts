@@ -43,8 +43,61 @@ export class ApiService {
     return this.http.patch<{ success: boolean; data: Issue }>(`${this.apiUrl}/issues/${id}/assign`, { assigneeId, departmentId });
   }
 
+  // === PostGIS spatial queries (PLAN §13) — server-side radius /
+  // polygon / nearest searches so the map is not limited to the
+  // client-side page of issues. ===
+
+  spatialIssuesWithin(params: { lat: number; lng: number; radius?: number; statuses?: string; limit?: number }): Observable<{ success: boolean; data: Array<{ id: string; title: string; category?: string; priority?: number | null; status?: string; latitude?: number | string | null; longitude?: number | string | null; distanceMeters: number }>; mode: string }> {
+    let httpParams = new HttpParams().set('lat', String(params.lat)).set('lng', String(params.lng));
+    if (params.radius != null) httpParams = httpParams.set('radius', String(params.radius));
+    if (params.statuses) httpParams = httpParams.set('statuses', params.statuses);
+    if (params.limit != null) httpParams = httpParams.set('limit', String(params.limit));
+    return this.http.get<any>(`${this.apiUrl}/spatial/issues/within`, { params: httpParams });
+  }
+
+  spatialIssuesInPolygon(body: { polygon: Array<[number, number]>; statuses?: string[]; limit?: number }): Observable<{ success: boolean; data: any[]; mode: string }> {
+    return this.http.post<any>(`${this.apiUrl}/spatial/issues/in-polygon`, body);
+  }
+
+  spatialNearestIssues(lat: number, lng: number, k = 5): Observable<{ success: boolean; data: any[] }> {
+    const httpParams = new HttpParams().set('lat', String(lat)).set('lng', String(lng)).set('k', String(k));
+    return this.http.get<any>(`${this.apiUrl}/spatial/issues/nearest`, { params: httpParams });
+  }
+
+  /**
+   * Manual issue edit — priority override (1-5) plus title/description
+   * fixes (PLAN feature 4). Backend recalculates the SLA deadline on a
+   * priority change and writes an audit row.
+   */
+  updateIssue(
+    id: string,
+    updates: { priority?: number; title?: string; description?: string },
+  ): Observable<{ success: boolean; data: Issue }> {
+    return this.http.patch<{ success: boolean; data: Issue }>(`${this.apiUrl}/issues/${id}`, updates);
+  }
+
   upvoteIssue(id: string): Observable<{ success: boolean; data: { voted: boolean } }> {
     return this.http.post<{ success: boolean; data: { voted: boolean } }>(`${this.apiUrl}/issues/${id}/upvote`, {});
+  }
+
+  /**
+   * P1-10 escalation workflow: staff escalates an issue to department
+   * leadership. The backend stamps escalation fields, writes an audit
+   * row, and notifies the department head(s) + mayor.
+   */
+  escalateIssue(
+    id: string,
+    data: { reason?: string; escalatedTo?: string },
+  ): Observable<{ success: boolean; data: Issue }> {
+    return this.http.post<{ success: boolean; data: Issue }>(`${this.apiUrl}/issues/${id}/escalate`, data);
+  }
+
+  /**
+   * Weekly trend series (created / resolved / negative-sentiment share)
+   * powering the sentiment-trend and resolution-trend charts.
+   */
+  getIssueTrends(weeks = 6): Observable<{ success: boolean; data: Array<{ weekStart: string; created: number; resolved: number; negative: number; sentiment: number }> }> {
+    return this.http.get<any>(`${this.apiUrl}/issues/stats/trends?weeks=${weeks}`);
   }
 
   getDepartmentResolutionRates(): Observable<{ success: boolean; data: Array<{ department: string; total: number; resolved: number; pct: number }> }> {
@@ -90,6 +143,13 @@ export class ApiService {
     return this.http.get(`${this.apiUrl}/reports/issues.csv`, { params: httpParams, responseType: 'blob' });
   }
 
+  /** P1-7 — branded PDF variant of the issues report. */
+  exportIssuesPdf(params: Record<string, string> = {}): Observable<Blob> {
+    let httpParams = new HttpParams();
+    Object.entries(params).forEach(([key, value]) => { if (value) httpParams = httpParams.set(key, value); });
+    return this.http.get(`${this.apiUrl}/reports/issues.pdf`, { params: httpParams, responseType: 'blob' });
+  }
+
   /**
    * RAG-style summary of all issues inside a user-drawn polygon on the map.
    * Returns the count, a sample of the issues, and an AI-generated prose summary.
@@ -119,6 +179,25 @@ export class ApiService {
     let httpParams = new HttpParams();
     Object.entries(params).forEach(([key, value]) => { if (value) httpParams = httpParams.set(key, value); });
     return this.http.get(`${this.apiUrl}/reports/audit.csv`, { params: httpParams, responseType: 'blob' });
+  }
+
+  /** P1-7 — branded PDF variant of the audit trail report. */
+  exportAuditPdf(params: Record<string, string> = {}): Observable<Blob> {
+    let httpParams = new HttpParams();
+    Object.entries(params).forEach(([key, value]) => { if (value) httpParams = httpParams.set(key, value); });
+    return this.http.get(`${this.apiUrl}/reports/audit.pdf`, { params: httpParams, responseType: 'blob' });
+  }
+
+  /** P1-7 — weekly executive briefing PDF (latest, or ?weekKey=YYYY-Www). */
+  exportBriefingPdf(weekKey?: string): Observable<Blob> {
+    let httpParams = new HttpParams();
+    if (weekKey) httpParams = httpParams.set('weekKey', weekKey);
+    return this.http.get(`${this.apiUrl}/reports/briefing.pdf`, { params: httpParams, responseType: 'blob' });
+  }
+
+  /** P1-7 — per-issue resolution dossier PDF (detail + timeline + comments + audit). */
+  exportDossierPdf(issueId: string): Observable<Blob> {
+    return this.http.get(`${this.apiUrl}/reports/issues/${issueId}/dossier.pdf`, { responseType: 'blob' });
   }
 
   // Users
@@ -192,12 +271,50 @@ export class ApiService {
     return this.http.post<{ success: boolean; data: Department }>(`${this.apiUrl}/departments`, data);
   }
 
+  /** P2-15 — rename / re-code / re-describe a department (SUPER_ADMIN). */
+  updateDepartment(id: string, data: Partial<Department>): Observable<{ success: boolean; data: Department }> {
+    return this.http.patch<{ success: boolean; data: Department }>(`${this.apiUrl}/departments/${id}`, data);
+  }
+
+  /**
+   * P2-15 — delete a department (SUPER_ADMIN). Pass
+   * `reassignDepartmentId` to move its issues instead of getting a 409.
+   * A 409 body carries `blockers: string[]` naming what still references it.
+   */
+  deleteDepartment(id: string, reassignDepartmentId?: string): Observable<{ success: boolean; data: { removed: boolean; reassigned: number } }> {
+    return this.http.delete<{ success: boolean; data: { removed: boolean; reassigned: number } }>(
+      `${this.apiUrl}/departments/${id}`,
+      { body: reassignDepartmentId ? { reassignDepartmentId } : {} },
+    );
+  }
+
+  /** P2-15 — delete a ward (SUPER_ADMIN). 409 + `blockers` when referenced. */
+  deleteWard(id: string): Observable<{ success: boolean; data: { removed: boolean } }> {
+    return this.http.delete<{ success: boolean; data: { removed: boolean } }>(`${this.apiUrl}/departments/wards/${id}`);
+  }
+
   getWards(): Observable<{ success: boolean; data: Ward[] }> {
     return this.http.get<{ success: boolean; data: Ward[] }>(`${this.apiUrl}/departments/wards`);
   }
 
   createWard(data: Partial<Ward>): Observable<{ success: boolean; data: Ward }> {
     return this.http.post<{ success: boolean; data: Ward }>(`${this.apiUrl}/departments/wards`, data);
+  }
+
+  updateWard(id: string, data: Partial<Ward>): Observable<{ success: boolean; data: Ward }> {
+    return this.http.patch<{ success: boolean; data: Ward }>(`${this.apiUrl}/departments/wards/${id}`, data);
+  }
+
+  getWardDepartments(wardId: string): Observable<{ success: boolean; data: Array<{ id: string; departmentId: string; wardId: string; department: { id: string; name: string; code: string } }> }> {
+    return this.http.get<{ success: boolean; data: Array<{ id: string; departmentId: string; wardId: string; department: { id: string; name: string; code: string } }> }>(`${this.apiUrl}/departments/wards/${wardId}/departments`);
+  }
+
+  assignWardDepartment(wardId: string, departmentId: string): Observable<{ success: boolean; data: unknown }> {
+    return this.http.post<{ success: boolean; data: unknown }>(`${this.apiUrl}/departments/wards/${wardId}/departments`, { departmentId });
+  }
+
+  unassignWardDepartment(wardId: string, departmentId: string): Observable<{ success: boolean; data: unknown }> {
+    return this.http.delete<{ success: boolean; data: unknown }>(`${this.apiUrl}/departments/wards/${wardId}/departments/${departmentId}`);
   }
 
   // AI
@@ -834,6 +951,16 @@ export class ApiService {
     );
   }
 
+  /**
+   * P2-24 — subscriber roster + count for an issue (staff+ endpoint).
+   * Used for the subscriber count badge on the issue detail page.
+   */
+  getIssueSubscribers(issueId: string): Observable<{ success: boolean; data: Array<{ id: string; userId: string; issueId: string; user?: { id: string; firstName: string; lastName: string; email: string } }> }> {
+    return this.http.get<{ success: boolean; data: Array<{ id: string; userId: string; issueId: string; user?: { id: string; firstName: string; lastName: string; email: string } }> }>(
+      `${this.apiUrl}/issues/${issueId}/subscribers`,
+    );
+  }
+
   getInternalNotes(issueId: string): Observable<{ success: boolean; data: Array<{ id: string; content: string; createdAt: string; author?: { firstName: string; lastName: string } }> }> {
     return this.http.get<{ success: boolean; data: Array<{ id: string; content: string; createdAt: string; author?: { firstName: string; lastName: string } }> }>(
       `${this.apiUrl}/issues/${issueId}/internal-notes`,
@@ -864,6 +991,70 @@ export class ApiService {
     return this.http.put<{ success: boolean; data: Array<{ channel: string; type: string; enabled: boolean }> }>(
       `${this.apiUrl}/users/me/notification-prefs`, { preferences },
     );
+  }
+
+  // === Budget management (P1-9 — PLAN §10 budget tracker / charts) ===
+
+  getBudgetSummary(departmentId: string, year?: number): Observable<{ success: boolean; data: BudgetSummary }> {
+    return this.http.get<any>(
+      `${this.apiUrl}/budget/${departmentId}/summary${year != null ? `?year=${year}` : ''}`,
+    );
+  }
+
+  getBudgetLines(departmentId: string, year?: number): Observable<{ success: boolean; data: BudgetLine[] }> {
+    return this.http.get<any>(
+      `${this.apiUrl}/budget/${departmentId}/lines${year != null ? `?year=${year}` : ''}`,
+    );
+  }
+
+  saveBudgetLine(
+    departmentId: string,
+    data: { fiscalYear?: number; category: string; amount: number; note?: string },
+  ): Observable<{ success: boolean; data: BudgetLine }> {
+    return this.http.post<any>(`${this.apiUrl}/budget/${departmentId}/lines`, data);
+  }
+
+  deleteBudgetLine(departmentId: string, lineId: string): Observable<{ success: boolean; data: { deleted: boolean } }> {
+    return this.http.delete<any>(`${this.apiUrl}/budget/${departmentId}/lines/${lineId}`);
+  }
+
+  getExpenses(departmentId: string, params: { year?: number; category?: string; limit?: number } = {}): Observable<{ success: boolean; data: Expense[] }> {
+    let httpParams = new HttpParams();
+    if (params.year != null) httpParams = httpParams.set('year', String(params.year));
+    if (params.category) httpParams = httpParams.set('category', params.category);
+    if (params.limit != null) httpParams = httpParams.set('limit', String(params.limit));
+    return this.http.get<any>(`${this.apiUrl}/budget/${departmentId}/expenses`, { params: httpParams });
+  }
+
+  createExpense(
+    departmentId: string,
+    data: { category: string; amount: number; description?: string; incurredAt?: string; budgetLineId?: string },
+  ): Observable<{ success: boolean; data: Expense }> {
+    return this.http.post<any>(`${this.apiUrl}/budget/${departmentId}/expenses`, data);
+  }
+
+  deleteExpense(departmentId: string, expenseId: string): Observable<{ success: boolean; data: { deleted: boolean } }> {
+    return this.http.delete<any>(`${this.apiUrl}/budget/${departmentId}/expenses/${expenseId}`);
+  }
+
+  getBudgetOverview(year?: number): Observable<{ success: boolean; data: BudgetOverviewRow[] }> {
+    return this.http.get<any>(
+      `${this.apiUrl}/budget/overview${year != null ? `?year=${year}` : ''}`,
+    );
+  }
+
+  exportExpensesCsv(departmentId?: string, year?: number): Observable<Blob> {
+    let httpParams = new HttpParams();
+    if (year != null) httpParams = httpParams.set('year', String(year));
+    const url = departmentId
+      ? `${this.apiUrl}/budget/${departmentId}/expenses.csv`
+      : `${this.apiUrl}/budget/expenses.csv`;
+    return this.http.get(url, { params: httpParams, responseType: 'blob' });
+  }
+
+  // P2-21 — detailed system health (p95 latency, queue depth, Ollama, Redis).
+  getSystemHealth(): Observable<{ success: boolean; data: SystemHealth }> {
+    return this.http.get<any>(`${this.apiUrl}/health/detailed`);
   }
 
   // Phase C — weekly executive briefings
@@ -902,6 +1093,62 @@ export class ApiService {
   getCivicScore(userId: string): Observable<CivicScoreResponse> {
     return this.http.get<CivicScoreResponse>(`${this.apiUrl}/civic-score/${userId}`);
   }
+
+  // Phase B - extended methods
+  getShareLinks(issueId: string): Observable<{ success: boolean; data: Array<{ id: string; token: string; expiresAt?: string; createdAt: string }> }> {
+    return this.http.get<{ success: boolean; data: Array<{ id: string; token: string; expiresAt?: string; createdAt: string }> }>(
+      `${this.apiUrl}/issues/${issueId}/share-links`,
+    );
+  }
+
+  revokeShareLink(issueId: string, shareLinkId: string): Observable<{ success: boolean; data: { revoked: boolean } }> {
+    return this.http.delete<{ success: boolean; data: { revoked: boolean } }>(
+      `${this.apiUrl}/issues/${issueId}/share-link/${shareLinkId}`,
+    );
+  }
+
+  getMySavedSearches(): Observable<{ success: boolean; data: Array<{ id: string; name: string; filters: any; createdAt: string }> }> {
+    return this.http.get<{ success: boolean; data: Array<{ id: string; name: string; filters: any; createdAt: string }> }>(
+      `${this.apiUrl}/users/me/saved-searches`,
+    );
+  }
+
+  createSavedSearch(data: { name: string; filters: Record<string, unknown> }): Observable<{ success: boolean; data: any }> {
+    return this.http.post<{ success: boolean; data: any }>(
+      `${this.apiUrl}/users/me/saved-searches`, data,
+    );
+  }
+
+  updateSavedSearch(id: string, data: { name?: string; filters?: Record<string, unknown> }): Observable<{ success: boolean; data: any }> {
+    return this.http.patch<{ success: boolean; data: any }>(
+      `${this.apiUrl}/users/me/saved-searches/${id}`, data,
+    );
+  }
+
+  deleteSavedSearch(id: string): Observable<{ success: boolean; data: { deleted: boolean } }> {
+    return this.http.delete<{ success: boolean; data: { deleted: boolean } }>(
+      `${this.apiUrl}/users/me/saved-searches/${id}`,
+    );
+  }
+
+  getIssueAssignmentHistory(issueId: string): Observable<{ success: boolean; data: Array<{ id: string; assigneeId: string; assignedById: string; assignedAt: string; unassignedAt?: string; assignee?: any; assignedBy?: any }> }> {
+    return this.http.get<{ success: boolean; data: Array<{ id: string; assigneeId: string; assignedById: string; assignedAt: string; unassignedAt?: string; assignee?: any; assignedBy?: any }> }>(
+      `${this.apiUrl}/issues/${issueId}/assignment-history`,
+    );
+  }
+
+  getSlaBreaches(): Observable<{ success: boolean; data: Array<any> }> {
+    return this.http.get<{ success: boolean; data: Array<any> }>(
+      `${this.apiUrl}/sla/breached`,
+    );
+  }
+
+  scanSlaBreaches(): Observable<{ success: boolean; data: { breached: number; scannedAt: string } }> {
+    return this.http.post<{ success: boolean; data: { breached: number; scannedAt: string } }>(
+      `${this.apiUrl}/sla/scan-breaches`, {},
+    );
+  }
+
 }
 
 export interface ActivityFeedItem {
@@ -978,4 +1225,73 @@ export interface SeasonalForecastRow {
   narrative: string;
   generatedAt: string;
   source: string;
+}
+
+// === Budget management types (P1-9) ===
+
+export interface BudgetLine {
+  id: string;
+  departmentId: string;
+  fiscalYear: number;
+  category: string;
+  amount: string | number;
+  note?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Expense {
+  id: string;
+  departmentId: string;
+  budgetLineId?: string | null;
+  category: string;
+  amount: string | number;
+  description?: string | null;
+  incurredAt: string;
+  recordedById?: string | null;
+  createdAt?: string;
+  budgetLine?: { category: string; fiscalYear: number } | null;
+}
+
+export interface BudgetSummary {
+  fiscalYear: number;
+  department: { id: string; name: string; code: string } | null;
+  totalBudget: number;
+  totalPlanned: number;
+  totalSpent: number;
+  totalRemaining: number;
+  pctUsed: number;
+  categories: Array<{
+    category: string;
+    budgetLineId: string | null;
+    planned: number;
+    spent: number;
+    remaining: number;
+    pctUsed: number | null;
+  }>;
+}
+
+export interface BudgetOverviewRow {
+  departmentId: string;
+  name: string;
+  code: string;
+  fiscalYear: number;
+  budget: number;
+  planned: number;
+  spent: number;
+  remaining: number;
+  pctUsed: number;
+}
+
+// P2-21 — detailed system health (GET /health/detailed).
+export interface SystemHealth {
+  status: string;
+  timestamp: string;
+  version: string;
+  http: { count: number; dropped: number; avgMs: number; p50Ms: number; p95Ms: number };
+  database: { status: string; latencyMs: number | null };
+  redis: { status: string; latencyMs: number | null };
+  queue: { status: string; waiting: number; active: number; delayed: number; failed: number; completed: number };
+  ollama: { status: string; tier: string | null; models: number; chatLatencyMs: number | null };
+  probeMs: number;
 }

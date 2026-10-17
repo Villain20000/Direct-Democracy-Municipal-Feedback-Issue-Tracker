@@ -5,6 +5,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
+import { ToastService } from '../../core/services/toast.service';
 import { TranslationService } from '../../core/i18n/translation.service';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { Issue, IssueStatus, IssueCategory, UserRole } from '@dd/shared-types';
@@ -56,6 +57,15 @@ type IssueWithScore = Issue & { score?: number; rankReason?: string };
           <option value="">{{ i18n.t('issues.allCategories') }}</option>
           @for (c of categories; track c) { <option [value]="c">{{ i18n.tCategory(c) }}</option> }
         </select>
+        <button
+          class="btn btn-sm"
+          [class.btn-primary]="escalatedOnly"
+          [class.btn-secondary]="!escalatedOnly"
+          data-testid="escalated-filter-btn"
+          (click)="escalatedOnly = !escalatedOnly; loadIssues()"
+          [title]="i18n.t('issues.escalatedOnlyHint')">
+          ⚠ {{ 'issues.escalated' | t }}
+        </button>
         <button class="btn btn-primary" routerLink="/issues/new"><i class="material-icons-outlined" style="font-size:16px;">add</i> {{ 'issues.newIssue' | t }}</button>
         @if (canBulkUpdate) {
           <select [(ngModel)]="bulkStatus" style="padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;">
@@ -66,12 +76,46 @@ type IssueWithScore = Issue & { score?: number; rankReason?: string };
         }
         @if (canExport) {
           <button class="btn btn-secondary btn-sm" (click)="exportCsv()" [disabled]="exporting">{{ 'issues.export' | t }}</button>
+          <button class="btn btn-secondary btn-sm" data-testid="export-pdf-btn" (click)="exportPdf()" [disabled]="exporting">{{ 'issues.exportPdf' | t }}</button>
         }
         @if (canManageDuplicates) {
           <button class="btn btn-secondary btn-sm" (click)="toggleDuplicateQueue()">
             <i class="material-icons-outlined" style="font-size:16px;">content_copy</i>
             {{ showDuplicateQueue ? ('issues.hideDuplicates' | t) : ('issues.showDuplicates' | t) }}
           </button>
+        }
+      </div>
+
+      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center;" data-testid="saved-searches-row">
+        @if (!showSaveBox) {
+          <button class="btn btn-secondary btn-sm" (click)="showSaveBox = true">💾 {{ i18n.t('issues.saveSearch') }}</button>
+        } @else {
+          <input
+            type="text"
+            [(ngModel)]="saveSearchName"
+            [placeholder]="i18n.t('issues.searchNamePlaceholder')"
+            data-testid="save-search-name"
+            style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;min-width:180px;"
+          />
+          <button class="btn btn-primary btn-sm" (click)="saveCurrentSearch()" [disabled]="!saveSearchName.trim() || savingSearch" data-testid="save-search-confirm">
+            {{ i18n.t('issues.saveSearch') }}
+          </button>
+          <button class="btn btn-ghost btn-sm" (click)="showSaveBox = false; saveSearchName = ''">✕</button>
+        }
+        @if (savedSearches.length) {
+          <span style="font-size:12px;color:var(--text-muted);">{{ i18n.t('issues.savedSearchesLabel') }}</span>
+          @for (s of savedSearches; track s.id) {
+            <span class="badge badge-blue" style="display:inline-flex;align-items:center;gap:6px;padding:4px 6px 4px 10px;cursor:pointer;" (click)="applySavedSearch(s)" [title]="i18n.t('issues.applySavedSearch')">
+              {{ s.name }}
+              <span
+                role="button"
+                tabindex="0"
+                (click)="deleteSavedSearch(s.id, $event)"
+                (keydown.enter)="deleteSavedSearch(s.id, $event)"
+                [title]="i18n.t('detail.deleteSavedSearch')"
+                style="cursor:pointer;font-weight:700;padding:0 4px;">×</span>
+            </span>
+          }
         }
       </div>
 
@@ -192,6 +236,8 @@ export class IssueListComponent implements OnInit {
   search = '';
   filterStatus = '';
   filterCategory = '';
+  /** P1-10 escalation queue (?escalated=true from dashboards). */
+  escalatedOnly = false;
   statuses = ['SUBMITTED', 'ACKNOWLEDGED', 'IN_PROGRESS', 'PENDING_REVIEW', 'RESOLVED', 'VERIFIED', 'REJECTED'];
   categories = ['INFRASTRUCTURE', 'PUBLIC_SAFETY', 'SANITATION', 'UTILITIES', 'HOUSING', 'ENVIRONMENT', 'TRANSPORTATION', 'EDUCATION', 'HEALTH', 'OTHER'];
   navItems = [
@@ -224,6 +270,7 @@ export class IssueListComponent implements OnInit {
 
   auth = inject(AuthService);
   api = inject(ApiService);
+  toast = inject(ToastService);
   i18n = inject(TranslationService);
   route = inject(ActivatedRoute);
   router = inject(Router);
@@ -234,14 +281,24 @@ export class IssueListComponent implements OnInit {
     this.canManageDuplicates = this.auth.hasRole(UserRole.SUPER_ADMIN, UserRole.MAYOR, UserRole.DEPARTMENT_HEAD);
   }
 
+  // Saved searches (PLAN §16 B3) — persist the current filter combo
+  // server-side and re-apply it in one click.
+  savedSearches: Array<{ id: string; name: string; filters: any; createdAt: string }> = [];
+  showSaveBox = false;
+  saveSearchName = '';
+  savingSearch = false;
+
   ngOnInit() {
+    this.loadSavedSearches();
     const data = this.route.snapshot.data;
     if (data['sortBy']) this.sortBy = data['sortBy'];
     this.route.queryParams.subscribe(params => {
       if (params['search']) this.search = params['search'];
       if (params['status']) this.filterStatus = params['status'];
+      if (params['category']) this.filterCategory = params['category'];
       if (params['departmentId']) this.departmentId = params['departmentId'];
       if (params['wardId']) this.wardId = params['wardId'];
+      this.escalatedOnly = params['escalated'] === 'true';
       this.page = 1;
       this.loadIssues();
     });
@@ -340,6 +397,65 @@ export class IssueListComponent implements OnInit {
       : 0;
   }
 
+  loadSavedSearches() {
+    this.api.getMySavedSearches().subscribe({
+      next: (res) => { if (res.success) this.savedSearches = res.data || []; },
+      error: () => { this.savedSearches = []; },
+    });
+  }
+
+  private currentFilters(): Record<string, string> {
+    const filters: Record<string, string> = {};
+    if (this.search.trim()) filters['search'] = this.search.trim();
+    if (this.filterStatus) filters['status'] = this.filterStatus;
+    if (this.filterCategory) filters['category'] = this.filterCategory;
+    return filters;
+  }
+
+  saveCurrentSearch() {
+    const name = this.saveSearchName.trim();
+    if (!name || this.savingSearch) return;
+    this.savingSearch = true;
+    this.api.createSavedSearch({ name, filters: this.currentFilters() }).subscribe({
+      next: (res) => {
+        this.savingSearch = false;
+        if (res.success) {
+          this.toast.success(this.i18n.t('detail.savedSearchCreated'));
+          this.saveSearchName = '';
+          this.showSaveBox = false;
+          this.loadSavedSearches();
+        }
+      },
+      error: () => {
+        this.savingSearch = false;
+        this.toast.error(this.i18n.t('detail.savedSearchFailed'));
+      },
+    });
+  }
+
+  applySavedSearch(s: { filters: any }) {
+    const f = s.filters || {};
+    this.search = typeof f['search'] === 'string' ? f['search'] : '';
+    this.filterStatus = typeof f['status'] === 'string' ? f['status'] : '';
+    this.filterCategory = typeof f['category'] === 'string' ? f['category'] : '';
+    this.page = 1;
+    this.toast.success(this.i18n.t('issues.savedSearchApplied'));
+    this.loadIssues();
+  }
+
+  deleteSavedSearch(id: string, event?: Event) {
+    if (event) event.stopPropagation();
+    this.api.deleteSavedSearch(id).subscribe({
+      next: (res) => {
+        if (res.success) {
+          this.toast.success(this.i18n.t('detail.savedSearchDeleted'));
+          this.loadSavedSearches();
+        }
+      },
+      error: () => { this.toast.error(this.i18n.t('detail.savedSearchFailed')); },
+    });
+  }
+
   toggleDuplicateQueue() {
     this.showDuplicateQueue = !this.showDuplicateQueue;
     if (this.showDuplicateQueue && !this.duplicatePairs.length) {
@@ -397,6 +513,8 @@ export class IssueListComponent implements OnInit {
       const wardId = this.auth.user()?.wardId;
       if (wardId) params['wardId'] = wardId;
     }
+    // P1-10 escalation queue filter.
+    if (this.escalatedOnly) params['escalated'] = 'true';
 
     this.searching = true;
     const seq = ++this.searchSeq;
@@ -441,6 +559,26 @@ export class IssueListComponent implements OnInit {
         const a = document.createElement('a');
         a.href = url;
         a.download = 'issues-export.csv';
+        a.click();
+        URL.revokeObjectURL(url);
+        this.exporting = false;
+      },
+      error: () => { this.exporting = false; },
+    });
+  }
+
+  /** P1-7 — same filters, branded PDF output. */
+  exportPdf() {
+    this.exporting = true;
+    const params: Record<string, string> = {};
+    if (this.filterStatus) params['status'] = this.filterStatus;
+    if (this.departmentId) params['departmentId'] = this.departmentId;
+    this.api.exportIssuesPdf(params).subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'issues-report.pdf';
         a.click();
         URL.revokeObjectURL(url);
         this.exporting = false;

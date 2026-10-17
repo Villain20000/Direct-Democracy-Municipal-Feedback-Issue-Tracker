@@ -25,6 +25,7 @@ import {
   ForbiddenError,
   NotFoundError,
 } from '../errors/domain-errors';
+import { notificationService } from './notification.service';
 import type { Prisma, UserRole } from '@prisma/client';
 
 type Role = (typeof import('@prisma/client').UserRole)[keyof typeof import('@prisma/client').UserRole];
@@ -261,6 +262,23 @@ export const referendumService = {
       }),
       prisma.referendum.update({ where: { id: referendumId }, data: tallyIncrement }),
     ]);
+
+    // P1-13: a vote notifies the referendum creator (VOTE_RECEIVED,
+    // email throttled per referendum per hour). Fire-and-forget.
+    if (ref.createdById !== userId) {
+      void notificationService
+        .create(
+          ref.createdById,
+          'VOTE_RECEIVED',
+          'New vote on your referendum',
+          `${vote.user.firstName} ${vote.user.lastName} voted ${choice} on "${ref.title}"`,
+          { referendumId },
+          { sendEmail: true, emailThrottleMs: 60 * 60 * 1000, throttleKey: `VOTE_RECEIVED:referendum:${referendumId}` },
+        )
+        .catch((err: any) => {
+          console.warn(`[referendum.vote] notify failed for ${referendumId}:`, err.message);
+        });
+    }
     return vote;
   },
 

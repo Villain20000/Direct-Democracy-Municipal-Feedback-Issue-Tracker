@@ -31,9 +31,17 @@ import { AuditLog, UserRole } from '@dd/shared-types';
           <div class="card">
             <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
               <h3>{{ i18n.t('auditLogs.header') }}</h3>
-              <button class="btn btn-secondary btn-sm" (click)="exportCsv()" [disabled]="exporting">
-                @if (exporting) { {{ i18n.t('auditLogs.exporting') }} } @else { {{ i18n.t('auditLogs.exportCsv') }} }
-              </button>
+              <div style="display:flex;gap:8px;">
+                <button class="btn btn-secondary btn-sm" (click)="exportCsv()" [disabled]="exporting">
+                  @if (exporting) { {{ i18n.t('auditLogs.exporting') }} } @else { {{ i18n.t('auditLogs.exportCsv') }} }
+                </button>
+                <button class="btn btn-secondary btn-sm" data-testid="audit-export-pdf-btn" (click)="exportPdf()" [disabled]="exporting">
+                  {{ i18n.t('auditLogs.exportPdf') }}
+                </button>
+                <button class="btn btn-secondary btn-sm" data-testid="audit-export-briefing-btn" (click)="exportBriefing()" [disabled]="exporting">
+                  {{ i18n.t('auditLogs.exportBriefing') }}
+                </button>
+              </div>
             </div>
             <div class="card-body" style="padding:0;">
               <table class="data-table">
@@ -99,6 +107,45 @@ export class AuditLogsPageComponent implements OnInit {
       error: (err) => {
         this.error = err.error?.error || this.i18n.t('auditLogs.loadFailed');
         this.loading = false;
+      },
+    });
+  }
+
+  exportPdf() {
+    this.exporting = true;
+    this.api.exportAuditPdf().subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'audit-report.pdf';
+        a.click();
+        URL.revokeObjectURL(url);
+        this.exporting = false;
+      },
+      error: () => {
+        this.error = this.i18n.t('auditLogs.exportFailed');
+        this.exporting = false;
+      },
+    });
+  }
+
+  /** P1-7 — weekly briefing PDF (auditors hold the report-generator role). */
+  exportBriefing() {
+    this.exporting = true;
+    this.api.exportBriefingPdf().subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'weekly-briefing.pdf';
+        a.click();
+        URL.revokeObjectURL(url);
+        this.exporting = false;
+      },
+      error: () => {
+        this.error = this.i18n.t('auditLogs.exportFailed');
+        this.exporting = false;
       },
     });
   }

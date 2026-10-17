@@ -144,6 +144,51 @@ model Department {
 
   issues Issue[]
   wards  DepartmentWard[]
+
+  // Budget management (PLAN §10 — dept head budget tracker, mayor
+  // allocation-vs-spending chart, auditor expenditure audit trail)
+  budgetLines BudgetLine[]
+  expenses    Expense[]
+}
+
+/// Annual budget allocation per (department, fiscal year, category).
+/// `Department.budget` remains as the headline total; BudgetLine rows
+/// break it down for the tracker / charts.
+model BudgetLine {
+  id           String     @id @default(uuid())
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  fiscalYear   Int
+  category     String
+  amount       Decimal    @db.Decimal(12, 2)
+  note         String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  expenses Expense[]
+
+  @@unique([departmentId, fiscalYear, category])
+  @@index([fiscalYear])
+}
+
+/// A recorded expenditure against a department (optionally against a
+/// specific budget line). Powers spend-vs-budget charts and the
+/// auditor's expenditure audit trail.
+model Expense {
+  id           String      @id @default(uuid())
+  departmentId String
+  department   Department  @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  budgetLineId String?
+  budgetLine   BudgetLine? @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
+  category     String
+  amount       Decimal     @db.Decimal(12, 2)
+  description  String?
+  incurredAt   DateTime    @default(now())
+  recordedById String?
+  createdAt    DateTime    @default(now())
+
+  @@index([departmentId, incurredAt])
+  @@index([category])
 }
 
 model DepartmentWard {
@@ -200,6 +245,14 @@ model Issue {
   descriptionEn         String?
   descriptionEl         String?
   resolvedAt            DateTime?
+  /// Escalation workflow (P1-10). The IssueStatus enum stays stable;
+  /// an escalated issue keeps its status and carries these fields.
+  /// `escalatedTo` names the escalation target (role or user id,
+  /// e.g. "DEPARTMENT_HEAD").
+  escalatedAt           DateTime?
+  escalatedById         String?
+  escalatedTo           String?
+  escalationReason      String?
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
 

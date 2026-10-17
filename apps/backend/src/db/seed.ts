@@ -20,14 +20,30 @@ async function main() {
     prisma.department.create({ data: { name: 'Health & Human Services', code: 'HHS', description: 'Public health and social services', budget: 7000000 } }),
   ]);
 
+  // Demo ward boundaries (P1-11 — GeoJSON rectangles around the
+  // demo-issue cluster; [lng, lat] order, closed rings). The same
+  // polygons are backfilled onto existing DBs by migration
+  // 20261016000000_ward_demo_boundaries.
+  const wardBox = (code: string, minLng: number, minLat: number, maxLng: number, maxLat: number) => ({
+    type: 'Feature',
+    properties: { code },
+    geometry: {
+      type: 'Polygon',
+      coordinates: [[
+        [minLng, minLat], [maxLng, minLat], [maxLng, maxLat],
+        [minLng, maxLat], [minLng, minLat],
+      ]],
+    },
+  });
+
   // Create wards
   const wards = await Promise.all([
-    prisma.ward.create({ data: { name: 'Downtown', code: 'WD-01', description: 'City center and business district' } }),
-    prisma.ward.create({ data: { name: 'Northside', code: 'WD-02', description: 'Residential northern neighborhood' } }),
-    prisma.ward.create({ data: { name: 'Eastview', code: 'WD-03', description: 'Eastern suburban area' } }),
-    prisma.ward.create({ data: { name: 'Southgate', code: 'WD-04', description: 'Southern gateway district' } }),
-    prisma.ward.create({ data: { name: 'Westfield', code: 'WD-05', description: 'Western residential community' } }),
-    prisma.ward.create({ data: { name: 'Riverside', code: 'WD-06', description: 'Riverfront area' } }),
+    prisma.ward.create({ data: { name: 'Downtown', code: 'WD-01', description: 'City center and business district', boundary: wardBox('WD-01', -74.012, 40.709, -74.002, 40.718) } }),
+    prisma.ward.create({ data: { name: 'Northside', code: 'WD-02', description: 'Residential northern neighborhood', boundary: wardBox('WD-02', -74.008, 40.711, -73.998, 40.719) } }),
+    prisma.ward.create({ data: { name: 'Eastview', code: 'WD-03', description: 'Eastern suburban area', boundary: wardBox('WD-03', -73.998, 40.708, -73.99, 40.716) } }),
+    prisma.ward.create({ data: { name: 'Southgate', code: 'WD-04', description: 'Southern gateway district', boundary: wardBox('WD-04', -74.006, 40.716, -73.996, 40.724) } }),
+    prisma.ward.create({ data: { name: 'Westfield', code: 'WD-05', description: 'Western residential community', boundary: wardBox('WD-05', -74.018, 40.714, -74.008, 40.722) } }),
+    prisma.ward.create({ data: { name: 'Riverside', code: 'WD-06', description: 'Riverfront area', boundary: wardBox('WD-06', -74.022, 40.706, -74.012, 40.724) } }),
   ]);
 
   // Create users with different roles
@@ -56,6 +72,14 @@ async function main() {
     prisma.department.update({ where: { id: departments[1].id }, data: { headId: users[3].id } }),  // Sanitation → Maria Garcia
   ]);
   console.log('  ✅ Department heads linked');
+
+  // Demo department↔ward hierarchy (P1-11 — ward-aware routing demo:
+  // issues filed in Downtown route to Public Works even when the
+  // category would map elsewhere; Southgate routes to Utilities).
+  await Promise.all([
+    prisma.departmentWard.create({ data: { departmentId: departments[0].id, wardId: wards[0].id } }),
+    prisma.departmentWard.create({ data: { departmentId: departments[4].id, wardId: wards[3].id } }),
+  ]);
 
   // Wire ward representative via representativeId (one-to-one relationship)
   await Promise.all([
@@ -160,6 +184,45 @@ async function main() {
     prisma.auditLog.create({ data: { userId: users[0].id, action: 'ASSIGN', entity: 'Issue', entityId: issues[1].id, newValues: { assigneeId: users[7].id } } }),
     prisma.auditLog.create({ data: { userId: users[10].id, action: 'CREATE', entity: 'Issue', entityId: issues[4].id, newValues: { title: issues[4].title } } }),
   ]);
+
+  // Budget management demo data (P1-9) — annual budget lines per
+  // department + a handful of recorded expenses so the tracker /
+  // charts have real numbers on first login.
+  const year = new Date().getFullYear();
+  const budgetCategories = ['repairs', 'materials', 'labor', 'equipment'];
+  for (const dept of departments) {
+    if (!dept.budget) continue;
+    const perCategory = Number(dept.budget) / budgetCategories.length;
+    await Promise.all(
+      budgetCategories.map((category) =>
+        prisma.budgetLine.upsert({
+          where: { departmentId_fiscalYear_category: { departmentId: dept.id, fiscalYear: year, category } },
+          create: { departmentId: dept.id, fiscalYear: year, category, amount: perCategory },
+          update: { amount: perCategory },
+        }),
+      ),
+    );
+    // Two seeded expenses per department (~30-60% of each line)
+    await prisma.expense.createMany({
+      data: [
+        {
+          departmentId: dept.id,
+          category: 'repairs',
+          amount: Math.round(perCategory * 0.55),
+          description: 'Scheduled maintenance — Q1/Q2 works',
+          incurredAt: new Date(year, 1, 15),
+        },
+        {
+          departmentId: dept.id,
+          category: 'materials',
+          amount: Math.round(perCategory * 0.32),
+          description: 'Materials procurement — aggregate + consumables',
+          incurredAt: new Date(year, 3, 8),
+        },
+      ],
+    });
+  }
+  console.log(`  ✅ Budget lines + expenses seeded for ${departments.length} departments`);
 
   console.log('✅ Seeding complete!');
   console.log(`   ${departments.length} departments`);

@@ -1,5 +1,6 @@
 import { prisma } from '../db/client';
 import { NotFoundError } from '../errors/domain-errors';
+import { notificationService } from './notification.service';
 
 export const announcementService = {
   async create(data: {
@@ -15,6 +16,36 @@ export const announcementService = {
         author: { select: { id: true, firstName: true, lastName: true } },
       },
     });
+  },
+
+  /**
+   * P1-13: publishing an announcement notifies every active user
+   * (except the author). In-app rows honour per-user prefs; email
+   * goes out only to users who opted in, throttled per announcement.
+   */
+  async fanOutPublished(announcementId: string) {
+    const announcement = await prisma.announcement.findUnique({
+      where: { id: announcementId },
+      select: { id: true, title: true, authorId: true },
+    });
+    if (!announcement) return;
+    const recipients = await prisma.user.findMany({
+      where: { isActive: true, id: { not: announcement.authorId } },
+      select: { id: true },
+      take: 2000,
+    });
+    await notificationService.broadcast(
+      recipients.map(r => r.id),
+      'ANNOUNCEMENT',
+      'New announcement',
+      announcement.title,
+      { announcementId: announcement.id },
+      {
+        sendEmail: true,
+        emailThrottleMs: 24 * 60 * 60 * 1000,
+        throttleKey: `ANNOUNCEMENT:${announcement.id}`,
+      },
+    );
   },
 
   async getAll(params: {

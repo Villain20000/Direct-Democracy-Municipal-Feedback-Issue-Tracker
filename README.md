@@ -64,7 +64,7 @@ A full-stack civic engagement platform enabling citizens to report issues, vote 
 | **ORM** | Prisma | Type-safe access; `Unsupported("vector(768)")` and `Unsupported("geometry(Point, 4326)")` for embeddings + location |
 | **AI — Chat** | Ollama + Gemma 2B | Local CPU inference for categorization, priority, sentiment, summaries, chat |
 | **AI — Embeddings** | Ollama + `nomic-embed-text` | 768-dim vectors for semantic search, duplicate detection, RAG retrieval |
-| **Vector store** | pgvector | `ivfflat` HNSW indexes; cosine distance; SQL-only queries |
+| **Vector store** | pgvector | `ivfflat` indexes; cosine distance; SQL-only queries |
 | **Spatial store** | PostGIS | `GEOMETRY(Point, 4326)`, GIST index, `ST_DWithin` / `ST_Contains` |
 | **Job queue** | BullMQ + ioredis | Embedding + heavy AI work runs in a separate `worker` container |
 | **Cache** | Redis 7 | Embedding-result cache (300 s TTL), in-memory fallback if Redis is down |
@@ -172,10 +172,10 @@ flowchart LR
 
 - **Issue Management:** Submission, tracking, smart routing, priority queue, **bulk management**, templates, **map area summary** (draw a polygon → AI summary)
 - **AI-Powered:** Auto-categorization, priority scoring, sentiment analysis, summaries, **RAG chatbot with citations**, trend detection
-- **Spatial:** **Radius search**, **polygon search**, **nearest-issue lookup**, **draw-to-summarize area**, map heat layer
+- **Spatial:** **Radius search**, **polygon search**, **nearest-issue lookup**, **draw-to-summarize area**, priority-weighted heat layer (`leaflet.heat` toggle + ward drill-down + live previews on Ward/Media dashboards)
 - **Democratic:** Upvoting, community polls, resolution voting, referendum tracker
 - **Communication:** Comments, notifications, announcements, direct messaging
-- **Analytics:** Dashboard analytics, heat maps, report export, transparency portal
+- **Analytics:** Dashboard analytics, live heat-map previews, report export (CSV + PDF), transparency portal
 - **Legislation KB (new):** Upload ordinances / decisions / regulations, semantic search with citations
 - **Offline (new):** **PWA** with service worker, IndexedDB submission queue, background auto-drain, install prompt
 - **Administration:** User management, department/ward management, audit trail, custom dashboards
@@ -587,6 +587,24 @@ curl -s -X POST http://localhost:3001/api/v1/ai/chat \
 
 All standard CRUD + role-aware list endpoints. See `apps/backend/src/routes/*.routes.ts` for the full surface.
 
+### Escalation, Comment Threading & Notification Fan-out
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/v1/issues/:id/escalate` | Staff+ | Escalate to department leadership. Body: `{ "reason"?, "escalatedTo"? }`. Stamps `escalatedAt/escalatedById/escalatedTo/escalationReason` (the `IssueStatus` enum stays stable), writes an `ESCALATE` audit row, and notifies the department head(s) + mayor. |
+| `GET` | `/api/v1/issues?escalated=true` | — | Escalation queue filter (also `false`). Powers the dept/mayor dashboard counters via `GET /issues/stats` → `escalatedCount`. |
+| `POST` | `/api/v1/issues/:issueId/comments` | ✅ | Accepts `parentId` for a **two-level** reply (`children` are returned nested; replying to a reply is a 400). `@email` / `@first-name` tokens in the content emit `ISSUE_MENTION` notifications. |
+
+Notification channel defaults (all emits honour per-user prefs in Settings):
+
+| Type | Emitted when | In-app | Email |
+|------|--------------|--------|-------|
+| `ISSUE_ESCALATED` | Issue escalated → dept head(s) + mayor | ✅ on by default | Only if opted in |
+| `ISSUE_MENTION` | `@`-mentioned in a comment | ✅ on by default | Only if opted in |
+| `ANNOUNCEMENT` | Announcement published → all active users | ✅ on by default | Only if opted in |
+| `VOTE_RECEIVED` | Poll/resolution/referendum vote → owner/proposer/creator | ✅ on by default | Only if opted in, max 1/hour per item |
+| `EVENT` | New public event → all active users; RSVP change → event creator | ✅ on by default | Only if opted in, throttled per event |
+
 ### Activity Feed & Civic Score (v1.6)
 
 | Method | Endpoint | Auth | Description |
@@ -863,7 +881,8 @@ PLAYWRIGHT_SKIP_WEBSERVER=1 npm run dev   # in a separate terminal
 
 # 3. Run the suite
 npm run test:e2e
-# → 3 specs: auth, issue flow, semantic search
+# → 8 specs: auth, issue-flow, issue-subscribe, legislation-kb, map,
+#   portal, report-export (PDF), semantic-search (+ media-auditor)
 # → HTML report at ./playwright-report/
 
 # Interactive modes

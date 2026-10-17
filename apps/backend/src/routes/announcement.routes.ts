@@ -31,10 +31,16 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Create announcement (admin/staff only)
-router.post('/', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMENT_HEAD', 'STAFF'), async (req: AuthenticatedRequest, res) => {
+// Create announcement (P2-17 — permissive: MEDIA added to match the
+// PLAN §5 matrix row 19, which already grants Media ✅).
+router.post('/', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMENT_HEAD', 'STAFF', 'MEDIA'), async (req: AuthenticatedRequest, res) => {
   try {
     const announcement = await announcementService.create({ ...req.body, authorId: req.user!.id });
+    // P1-13: publishing notifies all users (fire-and-forget — a fan-out
+    // failure must not fail the publish).
+    void announcementService.fanOutPublished(announcement.id).catch((err: any) => {
+      console.warn(`[announcements.create] fan-out failed for ${announcement.id}:`, err.message);
+    });
     res.status(201).json({ success: true, data: announcement });
   } catch (error: any) {
     if (sendDomainError(res, error, { logger: console })) return;

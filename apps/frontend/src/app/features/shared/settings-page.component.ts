@@ -1,6 +1,7 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { LayoutComponent, NavItem } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ApiService } from '../../core/services/api.service';
@@ -124,6 +125,46 @@ import { User } from '@dd/shared-types';
             }
           </div>
         </div>
+        <div class="card" style="margin-top:24px;">
+          <div class="card-header">
+            <h3>{{ i18n.t('detail.savedSearches') }}</h3>
+          </div>
+          <div class="card-body">
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">{{ i18n.t('detail.noSavedSearches') }}</p>
+            @if (savedSearchesLoading) {
+              <div style="color:var(--text-muted);">{{ i18n.t('settings.loading') }}</div>
+            } @else {
+              @if (savedSearches.length === 0) {
+                <div style="color:var(--text-muted);">{{ i18n.t('detail.noSavedSearches') }}</div>
+              } @else {
+                <table class="data-table">
+                  <thead>
+                    <tr><th>Name</th><th>Created</th><th></th></tr>
+                  </thead>
+                  <tbody>
+                    @for (s of savedSearches; track s.id) {
+                      <tr>
+                        <td>{{ s.name }}</td>
+                        <td>{{ s.createdAt | date:'short' }}</td>
+                        <td style="white-space:nowrap;">
+                          <button class="btn btn-primary btn-sm" (click)="applySavedSearch(s)">{{ i18n.t('detail.applySavedSearch') }}</button>
+                          <button class="btn btn-secondary btn-sm" (click)="deleteSavedSearch(s.id)">{{ i18n.t('detail.deleteSavedSearch') }}</button>
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              }
+              <div style="margin-top:16px;display:flex;gap:8px;align-items:center;">
+                <input type="text" [(ngModel)]="newSavedSearch.name" [placeholder]="i18n.t('detail.createSavedSearch')" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;flex:1;" />
+                <button class="btn btn-primary btn-sm" (click)="createSavedSearch()">{{ i18n.t('detail.saveSearch') }}</button>
+              </div>
+              <small style="color:var(--text-muted);display:block;margin-top:8px;">Filters as JSON (optional)</small>
+              <textarea [(ngModel)]="newSavedSearch.filters" rows="2" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;font-family:monospace;"></textarea>
+            }
+          </div>
+        </div>
+
 
         <div class="card" style="margin-top:24px;" data-testid="ai-health-card">
           <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
@@ -197,6 +238,9 @@ export class SettingsPageComponent implements OnInit {
    * Forms can read a single field's error via `getFieldError(name)`.
    */
   fieldErrors: Record<string, string> = {};
+  savedSearches: Array<{ id: string; name: string; filters: any; createdAt: string }> = [];
+  savedSearchesLoading = false;
+  newSavedSearch = { name: '', filters: '{}' };
   notifPrefs: Array<{ channel: string; type: string; enabled: boolean }> = [];
   notifPrefsLoading = false;
   notifPrefsSaving = false;
@@ -210,6 +254,7 @@ export class SettingsPageComponent implements OnInit {
   api = inject(ApiService);
   toast = inject(ToastService);
   i18n = inject(TranslationService);
+  router = inject(Router);
 
   constructor() {
     this.navItems = [{ icon: 'dashboard', label: 'nav.dashboard', route: this.auth.getDashboardRoute() }];
@@ -219,6 +264,55 @@ export class SettingsPageComponent implements OnInit {
     this.loadProfile();
     this.loadNotificationPrefs();
     this.loadAiHealth();
+    this.loadSavedSearches();
+  }
+
+  loadSavedSearches() {
+    this.savedSearchesLoading = true;
+    this.api.getMySavedSearches().subscribe({
+      next: (res) => {
+        this.savedSearchesLoading = false;
+        if (res.success) this.savedSearches = res.data;
+      },
+      error: () => { this.savedSearchesLoading = false; },
+    });
+  }
+
+  createSavedSearch() {
+    try {
+      const filters = this.newSavedSearch.filters ? JSON.parse(this.newSavedSearch.filters) : {};
+      this.api.createSavedSearch({ name: this.newSavedSearch.name, filters }).subscribe({
+        next: (res) => {
+          if (res.success) {
+            this.toast.success(this.i18n.t('detail.savedSearchCreated'));
+            this.newSavedSearch = { name: '', filters: '{}' };
+            this.loadSavedSearches();
+          }
+        },
+        error: () => { this.toast.error(this.i18n.t('detail.savedSearchFailed')); },
+      });
+    } catch (e) { this.toast.error('Invalid JSON'); }
+  }
+
+  applySavedSearch(s: { filters: any }) {
+    const f = s.filters || {};
+    const queryParams: Record<string, string> = {};
+    for (const key of ['search', 'status', 'category', 'wardId', 'departmentId']) {
+      if (typeof f[key] === 'string' && f[key]) queryParams[key] = f[key];
+    }
+    this.router.navigate(['/issues'], { queryParams });
+  }
+
+  deleteSavedSearch(id: string) {
+    this.api.deleteSavedSearch(id).subscribe({
+      next: (res) => {
+        if (res.success) {
+          this.toast.success(this.i18n.t('detail.savedSearchDeleted'));
+          this.loadSavedSearches();
+        }
+      },
+      error: () => { this.toast.error(this.i18n.t('detail.savedSearchFailed')); },
+    });
   }
 
   loadAiHealth() {

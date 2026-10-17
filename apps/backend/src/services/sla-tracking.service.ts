@@ -12,9 +12,9 @@ import { NotFoundError } from '../errors/domain-errors';
  *   1 (inform)    → 14 d
  *
  * The row is created when the issue is first prioritized and updated as
- * the issue moves through the workflow. A periodic breach scanner (to
- * be wired into a cron in a later phase) flips `breached = true` when
- * `dueAt` passes without a resolution.
+ * the issue moves through the workflow. A periodic breach scanner —
+ * wired into the worker (`worker.ts`, every 15 min) — flips
+ * `breached = true` when `dueAt` passes without a resolution.
  */
 const SLA_HOURS: Record<number, number> = {
   5: 4,

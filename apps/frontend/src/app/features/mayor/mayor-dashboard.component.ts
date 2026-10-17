@@ -4,12 +4,13 @@ import { RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
-import { ApiService, WeeklySummaryRow, SeasonalForecastRow } from '../../core/services/api.service';
+import { ApiService, WeeklySummaryRow, SeasonalForecastRow, BudgetOverviewRow } from '../../core/services/api.service';
 import { TranslationService } from '../../core/i18n/translation.service';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { DashboardStats, Department, Issue } from '@dd/shared-types';
 import { ActivityFeedComponent } from '../../shared/activity-feed.component';
 import { CivicScoreComponent } from '../../shared/civic-score.component';
+import { ChartComponent } from '../shared/chart.component';
 
 interface DeptWithCount extends Department {
   issueCount: number;
@@ -26,7 +27,7 @@ interface AiTrend {
 @Component({
   selector: 'app-mayor-dashboard',
   standalone: true,
-  imports: [CommonModule, RouterLink, LayoutComponent, DecimalPipe, CurrencyPipe, DatePipe, TranslatePipe, ActivityFeedComponent, CivicScoreComponent],
+  imports: [CommonModule, RouterLink, LayoutComponent, DecimalPipe, CurrencyPipe, DatePipe, TranslatePipe, ActivityFeedComponent, CivicScoreComponent, ChartComponent],
   template: `
     <app-layout
       [pageTitle]="i18n.t('mayor.pageTitle')"
@@ -59,6 +60,10 @@ interface AiTrend {
         <div class="stat-card">
           <div class="stat-icon teal"><i class="material-icons-outlined">sentiment_satisfied</i></div>
           <div class="stat-info"><div class="stat-value">{{ resolutionRate }}%</div><div class="stat-label">{{ 'mayor.resolutionRate' | t }}</div></div>
+        </div>
+        <div class="stat-card" routerLink="/issues" [queryParams]="{ escalated: 'true' }" style="cursor:pointer;">
+          <div class="stat-icon red"><i class="material-icons-outlined">warning</i></div>
+          <div class="stat-info"><div class="stat-value">{{ stats?.escalatedCount || 0 }}</div><div class="stat-label">{{ 'issues.escalated' | t }}</div></div>
         </div>
       </div>
 
@@ -152,6 +157,42 @@ interface AiTrend {
               <div style="text-align:center;padding:32px;color:var(--text-muted);">{{ 'mayor.noDepts' | t }}</div>
             }
           </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px;" data-testid="mayor-sentiment-trend">
+        <div class="card-header"><h3>{{ 'mayor.sentimentTrend' | t }}</h3></div>
+        <div class="card-body">
+          @if (trendLabels.length) {
+            <app-chart
+              kind="line"
+              [labels]="trendLabels"
+              [data]="trendCreated"
+              [data2]="trendNegative"
+              [datasetLabel]="'mayor.trendReported' | t"
+              [datasetLabel2]="'mayor.trendNegative' | t"
+              [height]="220" />
+          } @else {
+            <p style="color:var(--text-muted);font-size:13px;">{{ 'mayor.sentimentTrendEmpty' | t }}</p>
+          }
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px;" data-testid="mayor-budget-chart">
+        <div class="card-header"><h3>{{ 'mayor.budgetAllocation' | t }}</h3></div>
+        <div class="card-body">
+          @if (budgetOverview.length) {
+            <app-chart
+              kind="bar"
+              [labels]="budgetLabels"
+              [data]="budgetAllocated"
+              [data2]="budgetSpent"
+              [datasetLabel]="'mayor.budgetAllocated' | t"
+              [datasetLabel2]="'mayor.budgetSpentLabel' | t"
+              [height]="240" />
+          } @else {
+            <p style="color:var(--text-muted);font-size:13px;">{{ 'mayor.budgetEmpty' | t }}</p>
+          }
         </div>
       </div>
 
@@ -264,10 +305,25 @@ export class MayorDashboardComponent implements OnInit {
     return [...this.departments].sort((a, b) => b.issueCount - a.issueCount)[0];
   }
 
+  // Sentiment / volume trend chart (PLAN §10 — mayor "Sentiment trend
+  // line graph (last 30 days)")
+  trendLabels: string[] = [];
+  trendCreated: number[] = [];
+  trendNegative: number[] = [];
+
+  // Budget allocation vs spending chart (PLAN §10 — mayor "Budget
+  // allocation vs spending chart", P1-9 real data)
+  budgetOverview: BudgetOverviewRow[] = [];
+  budgetLabels: string[] = [];
+  budgetAllocated: number[] = [];
+  budgetSpent: number[] = [];
+
   ngOnInit() {
     this.loadWeeklyBriefing();
     this.loadTrends();
     this.loadForecast();
+    this.loadSentimentTrend();
+    this.loadBudgetOverview();
     this.api.getIssueStats().subscribe(res => {
       if (res.success) {
         this.stats = res.data;
@@ -315,6 +371,33 @@ export class MayorDashboardComponent implements OnInit {
         this.briefingLoading = false;
       },
       error: () => { this.briefingLoading = false; },
+    });
+  }
+
+  /** Weekly created vs negative-sentiment series for the line chart. */
+  loadSentimentTrend() {
+    this.api.getIssueTrends(6).subscribe({
+      next: (res) => {
+        if (!res.success) return;
+        this.trendLabels = res.data.map((b) => b.weekStart.slice(5)); // MM-DD
+        this.trendCreated = res.data.map((b) => b.created);
+        this.trendNegative = res.data.map((b) => b.negative);
+      },
+      error: () => {},
+    });
+  }
+
+  /** Cross-department plan-vs-spend series for the budget chart. */
+  loadBudgetOverview() {
+    this.api.getBudgetOverview().subscribe({
+      next: (res) => {
+        if (!res.success || !res.data.length) return;
+        this.budgetOverview = res.data;
+        this.budgetLabels = res.data.map((d) => d.name);
+        this.budgetAllocated = res.data.map((d) => d.budget);
+        this.budgetSpent = res.data.map((d) => d.spent);
+      },
+      error: () => {},
     });
   }
 

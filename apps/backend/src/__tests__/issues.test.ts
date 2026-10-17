@@ -261,6 +261,109 @@ describe('Issue Endpoints', () => {
     });
   });
 
+  describe('PATCH /api/v1/issues/:id (manual priority override)', () => {
+    it('should let staff set priority 1-5 and write an audit row', async () => {
+      const reporter = await createTestUser({ email: 'prio-reporter@test.com', role: 'CITIZEN' });
+      const staff = await createTestUser({ email: 'prio-staff@test.com', role: 'STAFF' });
+      const issue = await createTestIssue(reporter.user.id);
+
+      const res = await request(app)
+        .patch(`/api/v1/issues/${issue.id}`)
+        .set('Authorization', `Bearer ${staff.accessToken}`)
+        .send({ priority: 5 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.priority).toBe(5);
+
+      const audit = await prisma.auditLog.findFirst({
+        where: { entityId: issue.id, action: 'UPDATE' },
+      });
+      expect(audit).toBeTruthy();
+    });
+
+    it('should recalculate the SLA deadline on priority change', async () => {
+      const reporter = await createTestUser({ email: 'prio-sla@test.com', role: 'CITIZEN' });
+      const staff = await createTestUser({ email: 'prio-sla-staff@test.com', role: 'STAFF' });
+      const issue = await createTestIssue(reporter.user.id);
+
+      await request(app)
+        .patch(`/api/v1/issues/${issue.id}`)
+        .set('Authorization', `Bearer ${staff.accessToken}`)
+        .send({ priority: 1 });
+
+      // upsertForIssue is fire-and-forget — give it a beat to persist.
+      await new Promise((r) => setTimeout(r, 100));
+      const sla = await prisma.slaTracking.findUnique({ where: { issueId: issue.id } });
+      expect(sla).toBeTruthy();
+      expect(sla!.priority).toBe('1');
+    });
+
+    it('should reject out-of-range priority', async () => {
+      const staff = await createTestUser({ email: 'prio-bad@test.com', role: 'STAFF' });
+      const issue = await createTestIssue(staff.user.id);
+
+      const res = await request(app)
+        .patch(`/api/v1/issues/${issue.id}`)
+        .set('Authorization', `Bearer ${staff.accessToken}`)
+        .send({ priority: 9 });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('should reject priority override from citizens', async () => {
+      const citizen = await createTestUser({ email: 'prio-citizen@test.com', role: 'CITIZEN' });
+      const issue = await createTestIssue(citizen.user.id);
+
+      const res = await request(app)
+        .patch(`/api/v1/issues/${issue.id}`)
+        .set('Authorization', `Bearer ${citizen.accessToken}`)
+        .send({ priority: 5 });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('should return 404 for non-existent issue', async () => {
+      const staff = await createTestUser({ email: 'prio-404@test.com', role: 'STAFF' });
+
+      const res = await request(app)
+        .patch('/api/v1/issues/non-existent-id')
+        .set('Authorization', `Bearer ${staff.accessToken}`)
+        .send({ priority: 3 });
+
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('PATCH /api/v1/issues/bulk with priority', () => {
+    it('should bulk update priority', async () => {
+      const staff = await createTestUser({ email: 'bulk-prio-staff@test.com', role: 'STAFF' });
+      const issue1 = await createTestIssue(staff.user.id, { status: 'SUBMITTED' });
+      const issue2 = await createTestIssue(staff.user.id, { status: 'SUBMITTED' });
+
+      const res = await request(app)
+        .patch('/api/v1/issues/bulk')
+        .set('Authorization', `Bearer ${staff.accessToken}`)
+        .send({ ids: [issue1.id, issue2.id], priority: 4 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toHaveLength(2);
+      expect(res.body.data[0].priority).toBe(4);
+      expect(res.body.data[1].priority).toBe(4);
+    });
+
+    it('should reject out-of-range bulk priority', async () => {
+      const staff = await createTestUser({ email: 'bulk-prio-bad@test.com', role: 'STAFF' });
+      const issue = await createTestIssue(staff.user.id, { status: 'SUBMITTED' });
+
+      const res = await request(app)
+        .patch('/api/v1/issues/bulk')
+        .set('Authorization', `Bearer ${staff.accessToken}`)
+        .send({ ids: [issue.id], priority: 0 });
+
+      expect(res.status).toBe(400);
+    });
+  });
+
   describe('Smart routing on create', () => {
     it('should auto-assign department based on category', async () => {
       const dept = await createTestDepartment({ code: 'PW', name: 'Public Works' });

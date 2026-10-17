@@ -5,7 +5,7 @@ import { authorize } from '../middleware/rbac.middleware';
 import { issueService } from '../services/issue.service';
 import { areaSummaryService } from '../services/area-summary.service';
 import { clusterReportService } from '../services/cluster-report.service';
-import { createIssueSchema, updateStatusSchema } from '../validators/issue.validators';
+import { createIssueSchema, updateStatusSchema, updateIssueSchema } from '../validators/issue.validators';
 import { getEmbedIssueQueue } from '../queue/embed-issue.queue';
 import { sendDomainError } from '../errors/domain-errors';
 import { parsePagination } from '../utils/pagination';
@@ -26,6 +26,7 @@ router.get('/', async (req, res) => {
       reporterId: req.query.reporterId as string,
       assigneeId: req.query.assigneeId as string,
       search: req.query.search as string,
+      escalated: req.query.escalated as string,
       sortBy: req.query.sortBy as string,
       sortOrder: req.query.sortOrder as 'asc' | 'desc',
     });
@@ -84,12 +85,12 @@ router.post('/summarize-area', authenticate, async (req: AuthenticatedRequest, r
 // Bulk update (staff+ only) — must be before /:id
 router.patch('/bulk', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMENT_HEAD', 'STAFF'), async (req: AuthenticatedRequest, res) => {
   try {
-    const { ids, status, assigneeId, departmentId } = req.body;
+    const { ids, status, assigneeId, departmentId, priority } = req.body;
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
       res.status(400).json({ error: 'ids array is required' });
       return;
     }
-    const results = await issueService.bulkUpdate(ids, { status, assigneeId, departmentId }, req.user!.id);
+    const results = await issueService.bulkUpdate(ids, { status, assigneeId, departmentId, priority }, req.user!.id);
     res.json({ success: true, data: results });
   } catch (error: any) {
     // Defence-in-depth: the service throws BadRequestError(400) when
@@ -98,6 +99,21 @@ router.patch('/bulk', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMEN
     // behaviour consistent with other routes.
     if (sendDomainError(res, error, { logger: console })) return;
     console.error('[issues.bulk]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Weekly trend series (created / resolved / negative sentiment) for
+// the analytics dashboards (PLAN feature 21). Staff+ because the
+// sentiment breakdown is not public data.
+router.get('/stats/trends', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'AUDITOR', 'DEPARTMENT_HEAD', 'COUNCIL_MEMBER'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const weeks = parseInt(req.query.weeks as string) || 6;
+    const trends = await issueService.getTrends(weeks);
+    res.json({ success: true, data: trends });
+  } catch (error: any) {
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[issues.stats.trends]', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -304,6 +320,26 @@ router.patch('/:id/link-duplicate', authenticate, authorize('SUPER_ADMIN', 'MAYO
   }
 });
 
+// Manual edit — priority override (PLAN feature 4: "AI-scored priority
+// ranking with manual override capability") plus title/description fixes.
+// Priority changes recalculate the SLA deadline inside the service and
+// always write an audit row.
+router.patch('/:id', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMENT_HEAD', 'STAFF', 'COUNCIL_MEMBER', 'AUDITOR'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const updates = updateIssueSchema.parse(req.body);
+    const issue = await issueService.update(req.params.id as string, updates, req.user!.id);
+    res.json({ success: true, data: issue });
+  } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ error: 'Validation failed', details: error.issues });
+      return;
+    }
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[issues.update]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.patch('/:id/status', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMENT_HEAD', 'STAFF'), async (req: AuthenticatedRequest, res) => {
   try {
     const { status, note, notificationMessage } = updateStatusSchema.parse(req.body);
@@ -341,6 +377,30 @@ router.patch('/:id/assign', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEP
     // No Zod validation on the body (assigneeId/departmentId are simple
     // strings), so any thrown error is a server-side failure.
     console.error('[issues.assign]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Escalate issue to department leadership (P1-10). Staff+ only.
+// Stamps escalation fields, writes an ESCALATE audit row, and notifies
+// the department head(s) + mayor. Must be declared before generic
+// PATCH /:id so validation stays on this handler.
+router.post('/:id/escalate', authenticate, authorize('SUPER_ADMIN', 'MAYOR', 'DEPARTMENT_HEAD', 'STAFF'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const { reason, escalatedTo } = req.body || {};
+    if (reason !== undefined && (typeof reason !== 'string' || reason.length > 1000)) {
+      res.status(400).json({ error: 'reason must be a string of at most 1000 characters' });
+      return;
+    }
+    if (escalatedTo !== undefined && (typeof escalatedTo !== 'string' || escalatedTo.length > 200)) {
+      res.status(400).json({ error: 'escalatedTo must be a string of at most 200 characters' });
+      return;
+    }
+    const issue = await issueService.escalate(req.params.id as string, req.user!.id, { reason, escalatedTo });
+    res.json({ success: true, data: issue });
+  } catch (error: any) {
+    if (sendDomainError(res, error, { logger: console })) return;
+    console.error('[issues.escalate]', error);
     res.status(500).json({ error: error.message });
   }
 });

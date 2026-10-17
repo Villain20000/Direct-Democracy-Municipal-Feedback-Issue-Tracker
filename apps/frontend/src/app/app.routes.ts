@@ -54,7 +54,7 @@ export const routes: Routes = [
   { path: 'department', loadComponent: () => import('./features/department/department-dashboard.component').then(m => m.DepartmentDashboardComponent), canActivate: [authGuard, dept] },
   { path: 'department/issues', loadComponent: () => import('./features/issues/issue-list.component').then(m => m.IssueListComponent), canActivate: [authGuard, dept] },
   { path: 'department/staff', loadComponent: () => import('./features/shared/messages-page.component').then(m => m.MessagesPageComponent), canActivate: [authGuard, dept] },
-  { path: 'department/budget', loadComponent: () => import('./features/shared/analytics-page.component').then(m => m.AnalyticsPageComponent), canActivate: [authGuard, dept] },
+  { path: 'department/budget', loadComponent: () => import('./features/department/budget-page.component').then(m => m.BudgetPageComponent), canActivate: [authGuard, dept] },
   { path: 'department/reports', loadComponent: () => import('./features/shared/audit-logs-page.component').then(m => m.AuditLogsPageComponent), canActivate: [authGuard, dept] },
 
   // Council
@@ -81,7 +81,7 @@ export const routes: Routes = [
   // Citizen
   { path: 'citizen', loadComponent: () => import('./features/citizen/citizen-dashboard.component').then(m => m.CitizenDashboardComponent), canActivate: [authGuard, citizen] },
   { path: 'citizen/reports', loadComponent: () => import('./features/shared/issue-reports-page.component').then(m => m.IssueReportsPageComponent), canActivate: [authGuard, citizen] },
-  { path: 'citizen/nearby', loadComponent: () => import('./features/issues/issue-list.component').then(m => m.IssueListComponent), canActivate: [authGuard, citizen] },
+  { path: 'citizen/nearby', loadComponent: () => import('./features/shared/issues-map-page.component').then(m => m.IssuesMapPageComponent), canActivate: [authGuard, citizen] },
   { path: 'citizen/polls', loadComponent: () => import('./features/shared/polls-page.component').then(m => m.PollsPageComponent), canActivate: [authGuard, citizen] },
   { path: 'citizen/referendums', loadComponent: () => import('./features/shared/referendums-page.component').then(m => m.ReferendumsPageComponent), canActivate: [authGuard] },
   { path: 'citizen/surveys', loadComponent: () => import('./features/shared/surveys-page.component').then(m => m.SurveysPageComponent), canActivate: [authGuard, citizen] },
@@ -110,6 +110,8 @@ export const routes: Routes = [
   { path: 'media/map', loadComponent: () => import('./features/shared/issues-map-page.component').then(m => m.IssuesMapPageComponent), canActivate: [authGuard, media] },
 
   // Shared views
+
+  { path: 'sla-breaches', loadComponent: () => import('./features/shared/sla-breaches-page.component').then(m => m.SlaBreachesPageComponent), canActivate: [authGuard, roleGuard('SUPER_ADMIN', 'AUDITOR', 'DEPARTMENT_HEAD', 'MAYOR')] },
   { path: 'issues', loadComponent: () => import('./features/issues/issue-list.component').then(m => m.IssueListComponent), canActivate: [authGuard] },
   { path: 'issues/new', loadComponent: () => import('./features/issues/issue-create.component').then(m => m.IssueCreateComponent), canActivate: [authGuard] },
   { path: 'issues/:id', loadComponent: () => import('./features/issues/issue-detail.component').then(m => m.IssueDetailComponent), canActivate: [authGuard] },

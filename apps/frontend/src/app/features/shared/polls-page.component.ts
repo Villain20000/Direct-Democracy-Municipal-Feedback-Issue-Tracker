@@ -189,7 +189,7 @@ export class PollsPageComponent implements OnInit {
 
   constructor() {
     this.navItems = [{ icon: 'dashboard', label: 'nav.dashboard', route: this.auth.getDashboardRoute() }];
-    this.canCreate = this.auth.hasRole(UserRole.SUPER_ADMIN, UserRole.MAYOR, UserRole.COUNCIL_MEMBER);
+    this.canCreate = this.auth.hasRole(UserRole.SUPER_ADMIN, UserRole.MAYOR, UserRole.COUNCIL_MEMBER, UserRole.WARD_REP);
   }
 
   ngOnInit() { this.loadPolls(); }
@@ -241,7 +241,7 @@ export class PollsPageComponent implements OnInit {
   }
 
   canManage(): boolean {
-    return this.auth.hasRole(UserRole.SUPER_ADMIN, UserRole.MAYOR, UserRole.COUNCIL_MEMBER);
+    return this.auth.hasRole(UserRole.SUPER_ADMIN, UserRole.MAYOR, UserRole.COUNCIL_MEMBER, UserRole.WARD_REP);
   }
 
   explainPoll(poll: Poll) {

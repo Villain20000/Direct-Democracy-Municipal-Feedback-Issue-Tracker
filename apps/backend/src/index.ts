@@ -5,6 +5,10 @@ import cookieParser from 'cookie-parser';
 import { config } from './config';
 import { errorHandler } from './middleware/error.middleware';
 import { apiLimiter } from './middleware/rateLimit.middleware';
+import { httpMetricsMiddleware } from './middleware/http-metrics.middleware';
+import { authenticate, AuthenticatedRequest } from './middleware/auth.middleware';
+import { authorize } from './middleware/rbac.middleware';
+import { systemHealthService } from './services/system-health.service';
 import authRoutes from './routes/auth.routes';
 import issueRoutes from './routes/issue.routes';
 import userRoutes from './routes/user.routes';
@@ -23,6 +27,7 @@ import attachmentRoutes from './routes/attachment.routes';
 import surveyRoutes from './routes/survey.routes';
 import forumRoutes from './routes/forum.routes';
 import reportsRoutes from './routes/reports.routes';
+import budgetRoutes from './routes/budget.routes';
 import adminDocumentRoutes from './routes/admin-documents.routes';
 import spatialRoutes from './routes/spatial.routes';
 import featureSweepRoutes, { _issueShareLinkServiceForPublicResolve } from './routes/feature-sweep.routes';
@@ -56,6 +61,26 @@ app.get('/api/v1/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '1.0.0' });
 });
 
+// P2-21 — Detailed system health for the Super Admin dashboard card:
+// p95 latency, BullMQ queue depth, Ollama status, Redis + DB probes.
+app.get(
+  '/api/v1/health/detailed',
+  authenticate,
+  authorize('SUPER_ADMIN'),
+  async (_req: AuthenticatedRequest, res) => {
+    try {
+      const data = await systemHealthService.detailed();
+      res.json({ success: true, data });
+    } catch (error: any) {
+      console.error('[health.detailed]', error);
+      res.status(500).json({ error: error.message });
+    }
+  },
+);
+
+// P2-21 — latency samples for the p95 card (skips its own poll path)
+app.use(httpMetricsMiddleware);
+
 // Rate limiting (applied globally)
 (app as any).use('/api/v1', apiLimiter);
 
@@ -77,6 +102,7 @@ app.use('/api/v1/audit', auditRoutes);
 app.use('/api/v1/surveys', surveyRoutes);
 app.use('/api/v1/forums', forumRoutes);
 app.use('/api/v1/reports', reportsRoutes);
+app.use('/api/v1/budget', budgetRoutes);
 app.use('/api/v1/admin/documents', adminDocumentRoutes);
 app.use('/api/v1/spatial', spatialRoutes);
 app.use('/api/v1', attachmentRoutes);

@@ -35,7 +35,10 @@ export const issueService = {
     location: string; latitude?: number; longitude?: number;
     reporterId: string; wardId?: string; isPublic?: boolean;
   }) {
-    const departmentId = await routingService.resolveDepartmentId(data.category);
+    // Ward-aware routing (PLAN feature 3): issues filed with a ward
+    // route through the ward→department hierarchy first, falling back
+    // to the legacy category→code mapping.
+    const departmentId = await routingService.resolveDepartmentId(data.category, data.wardId);
     let bilingual: Awaited<ReturnType<typeof aiService.buildBilingualContent>> | null = null;
     try {
       bilingual = await aiService.buildBilingualContent(data.title, data.description);
@@ -84,6 +87,15 @@ export const issueService = {
     void spatialService.syncGeomFromLatLng(issue.id, data.latitude ?? null, data.longitude ?? null).catch((err) => {
       console.warn(`[issue.create] syncGeomFromLatLng failed for ${issue.id}:`, err.message);
     });
+    // Phase B6: initialise the SLA timer at creation. Priority is
+    // nullable until an AI score or manual override lands, so we
+    // default to medium (3 → 72 h) — a later priority change calls
+    // `upsertForIssue` again and recalculates the deadline.
+    void slaTrackingService
+      .upsertForIssue(issue.id, issue.priority ?? 3)
+      .catch((err) => {
+        console.warn(`[issue.create] SLA upsert failed for ${issue.id}:`, err.message);
+      });
     await cache.invalidatePattern('issues:stats');
     return issue;
   },
@@ -92,12 +104,13 @@ export const issueService = {
     page?: number; pageSize?: number; status?: string;
     category?: string; departmentId?: string; wardId?: string;
     reporterId?: string; assigneeId?: string; search?: string;
+    escalated?: string;
     sortBy?: string; sortOrder?: 'asc' | 'desc';
   }) {
     const {
       page = 1, pageSize = 20, status, category,
       departmentId, wardId, reporterId, assigneeId,
-      search, sortBy = 'createdAt', sortOrder = 'desc',
+      search, escalated, sortBy = 'createdAt', sortOrder = 'desc',
     } = params;
 
     const where: any = {};
@@ -107,6 +120,9 @@ export const issueService = {
     if (wardId) where.wardId = wardId;
     if (reporterId) where.reporterId = reporterId;
     if (assigneeId) where.assigneeId = assigneeId;
+    // P1-10 escalation queue filter: ?escalated=true → only escalated.
+    if (escalated === 'true') where.escalatedAt = { not: null };
+    else if (escalated === 'false') where.escalatedAt = null;
     if (search) {
       where.OR = [
         { title: { contains: search, mode: 'insensitive' } },
@@ -232,8 +248,10 @@ export const issueService = {
       status?: string;
       assigneeId?: string;
       departmentId?: string;
+      /** Manual priority override (1-5) — recalculates SLA per issue. */
+      priority?: number;
       // Optional location refinement. When provided, the PostGIS
-      // `location_geom` column is re-synced via `syncGeomFromLatLng`
+      // `locationGeom` column is re-synced via `syncGeomFromLatLng`
       // so radius / polygon queries see the new pin position
       // immediately (not after the next migration-rerun). Either
       // field alone is accepted; callers usually send both together.
@@ -244,6 +262,12 @@ export const issueService = {
   ) {
     if (!ids.length) throw new BadRequestError('No issue IDs provided');
     if (ids.length > 100) throw new BadRequestError('Cannot update more than 100 issues at once');
+    if (
+      updates.priority !== undefined &&
+      (!Number.isInteger(updates.priority) || updates.priority < 1 || updates.priority > 5)
+    ) {
+      throw new BadRequestError('Priority must be an integer between 1 and 5');
+    }
 
     const results = [];
     for (const id of ids) {
@@ -253,6 +277,7 @@ export const issueService = {
       const data: any = {};
       if (updates.assigneeId) data.assigneeId = updates.assigneeId;
       if (updates.departmentId) data.departmentId = updates.departmentId;
+      if (updates.priority !== undefined) data.priority = updates.priority;
       if (updates.latitude !== undefined) data.latitude = updates.latitude;
       if (updates.longitude !== undefined) data.longitude = updates.longitude;
       if (updates.status) {
@@ -279,6 +304,12 @@ export const issueService = {
       }
 
       const updated = await prisma.issue.update({ where: { id }, data });
+      // Priority override moves the SLA deadline (Phase B6).
+      if (updates.priority !== undefined) {
+        void slaTrackingService.upsertForIssue(id, updates.priority).catch((err) => {
+          console.warn(`[issue.bulkUpdate] SLA recalc failed for ${id}:`, err.message);
+        });
+      }
       await cache.del(`issues:detail:${id}`);
       results.push(updated);
     }
@@ -320,6 +351,59 @@ export const issueService = {
 
     await cache.invalidatePattern('issues:stats');
     return results;
+  },
+
+  /**
+   * Manual edit (PLAN feature 4 — "AI-scored priority ranking with
+   * manual override capability"). Staff+ can adjust the AI score,
+   * title, or description. A priority change recalculates the SLA
+   * deadline and writes an audit row.
+   */
+  async update(
+    id: string,
+    updates: { priority?: number; title?: string; description?: string },
+    changedBy: string,
+  ) {
+    const issue = await prisma.issue.findUnique({ where: { id } });
+    if (!issue) throw new NotFoundError('Issue not found');
+
+    const data: any = {};
+    if (updates.priority !== undefined) {
+      if (!Number.isInteger(updates.priority) || updates.priority < 1 || updates.priority > 5) {
+        throw new BadRequestError('Priority must be an integer between 1 and 5');
+      }
+      data.priority = updates.priority;
+    }
+    if (updates.title !== undefined && updates.title.trim()) data.title = updates.title.trim();
+    if (updates.description !== undefined && updates.description.trim()) data.description = updates.description.trim();
+    if (!Object.keys(data).length) throw new BadRequestError('No updatable fields provided');
+
+    const updated = await prisma.issue.update({ where: { id }, data });
+
+    await auditService.log({
+      userId: changedBy,
+      action: 'UPDATE',
+      entity: 'Issue',
+      entityId: id,
+      oldValues: {
+        ...(updates.priority !== undefined ? { priority: issue.priority } : {}),
+        ...(updates.title !== undefined ? { title: issue.title } : {}),
+        ...(updates.description !== undefined ? { description: issue.description } : {}),
+      },
+      newValues: data,
+    });
+
+    // Phase B6: a priority change moves the SLA deadline. The
+    // upsert resets first-response/resolution markers so the timer
+    // restarts against the new deadline.
+    if (updates.priority !== undefined) {
+      void slaTrackingService.upsertForIssue(id, updates.priority).catch((err) => {
+        console.warn(`[issue.update] SLA recalc failed for ${id}:`, err.message);
+      });
+    }
+
+    await cache.del(`issues:detail:${id}`);
+    return updated;
   },
 
   async assign(id: string, assigneeId: string, departmentId?: string, assignedBy?: string) {
@@ -374,6 +458,83 @@ export const issueService = {
     return updated;
   },
 
+  /**
+   * P1-10 escalation workflow. Staff escalates an issue to department
+   * leadership: stamps `escalatedAt/escalatedById/escalatedTo/
+   * escalationReason` (the IssueStatus enum stays stable), writes an
+   * ESCALATE audit row, and notifies the department head(s) + mayor
+   * (in-app per prefs, email when opted in).
+   */
+  async escalate(
+    id: string,
+    escalatedBy: string,
+    opts?: { reason?: string; escalatedTo?: string },
+  ) {
+    const issue = await prisma.issue.findUnique({ where: { id } });
+    if (!issue) throw new NotFoundError('Issue not found');
+
+    const reason = opts?.reason?.trim().slice(0, 1000) || null;
+    const escalatedTo = opts?.escalatedTo?.trim().slice(0, 200) || 'DEPARTMENT_HEAD';
+
+    const updated = await prisma.issue.update({
+      where: { id },
+      data: {
+        escalatedAt: new Date(),
+        escalatedById: escalatedBy,
+        escalatedTo,
+        escalationReason: reason,
+      },
+    });
+
+    await auditService.log({
+      userId: escalatedBy,
+      action: 'ESCALATE',
+      entity: 'Issue',
+      entityId: id,
+      oldValues: { escalatedAt: issue.escalatedAt ?? null },
+      newValues: { escalatedAt: updated.escalatedAt, escalatedTo, escalationReason: reason },
+    });
+
+    // Notify department leadership: head(s) of the issue's department
+    // (or every dept head when unrouted) + every mayor. Fire-and-forget
+    // so a notification failure can't fail the escalation itself.
+    void (async () => {
+      try {
+        const heads = await prisma.user.findMany({
+          where: {
+            isActive: true,
+            role: 'DEPARTMENT_HEAD',
+            ...(issue.departmentId
+              ? { OR: [{ departmentId: issue.departmentId }, { managedDepartment: { id: issue.departmentId } }] }
+              : {}),
+          },
+          select: { id: true },
+        });
+        const mayors = await prisma.user.findMany({
+          where: { isActive: true, role: { in: ['MAYOR', 'SUPER_ADMIN'] } },
+          select: { id: true },
+        });
+        const recipientIds = [...new Set([...heads, ...mayors].map(u => u.id))].filter(
+          uid => uid !== escalatedBy,
+        );
+        await notificationService.broadcast(
+          recipientIds,
+          'ISSUE_ESCALATED',
+          'Issue escalated',
+          `"${issue.title}" was escalated${reason ? `: ${reason}` : ''}`,
+          { issueId: id, escalatedTo, reason },
+          { sendEmail: true },
+        );
+      } catch (err: any) {
+        console.warn(`[issue.escalate] leadership fan-out failed for ${id}:`, err.message);
+      }
+    })();
+
+    await cache.del(`issues:detail:${id}`);
+    await cache.invalidatePattern('issues:stats');
+    return updated;
+  },
+
   async upvote(id: string, userId: string) {
     const existing = await prisma.vote.findUnique({
       where: { userId_issueId: { userId, issueId: id } },
@@ -413,13 +574,15 @@ export const issueService = {
 
     const where = filters || {};
     const [
-      totalIssues, openIssues, resolvedIssues,
+      totalIssues, openIssues, resolvedIssues, escalatedCount,
       byCategory, byStatus, recentIssues,
       resolvedWithDates, totalUsers,
     ] = await Promise.all([
       prisma.issue.count({ where }),
       prisma.issue.count({ where: { ...where, status: { notIn: ['RESOLVED', 'VERIFIED', 'REJECTED'] } } }),
       prisma.issue.count({ where: { ...where, status: 'RESOLVED' } }),
+      // P1-10: real escalation counter (replaces the priority>=4 proxy).
+      prisma.issue.count({ where: { ...where, escalatedAt: { not: null } } }),
       prisma.issue.groupBy({ by: ['category'], _count: true, where }),
       prisma.issue.groupBy({ by: ['status'], _count: true, where }),
       prisma.issue.findMany({
@@ -441,7 +604,7 @@ export const issueService = {
       : 0;
 
     const stats = {
-      totalIssues, openIssues, resolvedIssues,
+      totalIssues, openIssues, resolvedIssues, escalatedCount,
       avgResolutionTimeDays: Math.round(avgResolutionTimeDays * 10) / 10,
       totalUsers,
       issuesByCategory: Object.fromEntries(byCategory.map(c => [c.category, c._count])),
@@ -456,6 +619,82 @@ export const issueService = {
     return prisma.statusHistory.create({
       data: { issueId, oldStatus, newStatus, changedBy, note },
     });
+  },
+
+  /**
+   * Weekly trend series for dashboard charts (PLAN §10 — mayor
+   * "sentiment trend line (last 30 days)", "resolution-time trend",
+   * admin historical comparisons).
+   *
+   * Buckets the last `weeks` (default 6) calendar weeks (Mon-Sun) and
+   * returns, per bucket:
+   *   created   — issues reported that week
+   *   resolved  — issues resolved that week (resolvedAt)
+   *   negative  — issues whose AI sentiment is NEGATIVE that week
+   *   sentiment — negative share 0-1 (0 when no issues that week)
+   *
+   * Reads straight from the Issue table (aiSentiment is stamped by the
+   * AI pipeline at create/analysis time), so no extra model is needed.
+   */
+  async getTrends(weeks = 6) {
+    const safeWeeks = Math.min(Math.max(weeks, 1), 26);
+    const now = new Date();
+    // Walk back to the Monday of the current week, then `safeWeeks-1`
+    // Mondays before that.
+    const currentMonday = new Date(now);
+    const day = (currentMonday.getUTCDay() + 6) % 7; // Mon=0 … Sun=6
+    currentMonday.setUTCDate(currentMonday.getUTCDate() - day);
+    currentMonday.setUTCHours(0, 0, 0, 0);
+
+    const buckets: Array<{
+      weekStart: string; created: number; resolved: number; negative: number; sentiment: number;
+    }> = [];
+    for (let i = 0; i < safeWeeks; i++) {
+      const start = new Date(currentMonday);
+      start.setUTCDate(start.getUTCDate() - (safeWeeks - 1 - i) * 7);
+      const end = new Date(start);
+      end.setUTCDate(end.getUTCDate() + 7);
+      buckets.push({
+        weekStart: start.toISOString().slice(0, 10),
+        created: 0, resolved: 0, negative: 0, sentiment: 0,
+      });
+    }
+    const rangeStart = new Date(buckets[0].weekStart);
+    const rangeEnd = new Date(buckets[buckets.length - 1].weekStart);
+    rangeEnd.setUTCDate(rangeEnd.getUTCDate() + 7);
+
+    const [createdRows, resolvedRows] = await Promise.all([
+      prisma.issue.findMany({
+        where: { createdAt: { gte: rangeStart, lt: rangeEnd } },
+        select: { createdAt: true, aiSentiment: true },
+      }),
+      prisma.issue.findMany({
+        where: { resolvedAt: { gte: rangeStart, lt: rangeEnd } },
+        select: { resolvedAt: true },
+      }),
+    ]);
+
+    const bucketIndexFor = (d: Date) => {
+      const diff = d.getTime() - rangeStart.getTime();
+      return Math.floor(diff / (7 * 24 * 60 * 60 * 1000));
+    };
+
+    for (const row of createdRows) {
+      const idx = bucketIndexFor(row.createdAt);
+      if (idx < 0 || idx >= buckets.length) continue;
+      buckets[idx].created++;
+      if (row.aiSentiment === 'NEGATIVE') buckets[idx].negative++;
+    }
+    for (const row of resolvedRows) {
+      if (!row.resolvedAt) continue;
+      const idx = bucketIndexFor(row.resolvedAt);
+      if (idx < 0 || idx >= buckets.length) continue;
+      buckets[idx].resolved++;
+    }
+    for (const b of buckets) {
+      b.sentiment = b.created ? Math.round((b.negative / b.created) * 100) / 100 : 0;
+    }
+    return buckets;
   },
 
   /**

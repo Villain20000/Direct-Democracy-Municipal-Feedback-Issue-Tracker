@@ -1,5 +1,6 @@
 import { prisma } from '../db/client';
 import { NotFoundError } from '../errors/domain-errors';
+import { notificationService } from './notification.service';
 
 export const eventService = {
   async create(data: {
@@ -7,7 +8,7 @@ export const eventService = {
     startTime: string; endTime: string; type: string;
     creatorId: string; isPublic?: boolean;
   }) {
-    return prisma.event.create({
+    const event = await prisma.event.create({
       data: {
         ...data,
         startTime: new Date(data.startTime),
@@ -19,6 +20,36 @@ export const eventService = {
         _count: { select: { rsvps: true } },
       },
     });
+
+    // P1-13: a new public event notifies all active users (EVENT,
+    // email throttled per event). Fire-and-forget.
+    if (event.isPublic) {
+      void (async () => {
+        try {
+          const recipients = await prisma.user.findMany({
+            where: { isActive: true, id: { not: data.creatorId } },
+            select: { id: true },
+            take: 2000,
+          });
+          await notificationService.broadcast(
+            recipients.map(r => r.id),
+            'EVENT',
+            'New community event',
+            `"${event.title}" — ${new Date(data.startTime).toLocaleDateString()}`,
+            { eventId: event.id },
+            {
+              sendEmail: true,
+              emailThrottleMs: 24 * 60 * 60 * 1000,
+              throttleKey: `EVENT:${event.id}`,
+            },
+          );
+        } catch (err: any) {
+          console.warn(`[event.create] fan-out failed for ${event.id}:`, err.message);
+        }
+      })();
+    }
+
+    return event;
   },
 
   async getAll(params: {
@@ -104,18 +135,35 @@ export const eventService = {
       where: { eventId_userId: { eventId, userId } },
     });
 
-    if (existing) {
-      return prisma.eventRSVP.update({
+    const rsvp = existing
+      ? await prisma.eventRSVP.update({
         where: { id: existing.id },
         data: { status },
         include: { user: { select: { id: true, firstName: true, lastName: true } } },
+      })
+      : await prisma.eventRSVP.create({
+        data: { eventId, userId, status },
+        include: { user: { select: { id: true, firstName: true, lastName: true } } },
       });
+
+    // P1-13: an RSVP change notifies the event creator (EVENT, email
+    // throttled per event per hour). Fire-and-forget.
+    if (event.creatorId !== userId) {
+      void notificationService
+        .create(
+          event.creatorId,
+          'EVENT',
+          'New RSVP for your event',
+          `${rsvp.user.firstName} ${rsvp.user.lastName} RSVP'd ${status} to "${event.title}"`,
+          { eventId },
+          { sendEmail: true, emailThrottleMs: 60 * 60 * 1000, throttleKey: `EVENT:rsvp:${eventId}` },
+        )
+        .catch((err: any) => {
+          console.warn(`[event.rsvp] notify failed for ${eventId}:`, err.message);
+        });
     }
 
-    return prisma.eventRSVP.create({
-      data: { eventId, userId, status },
-      include: { user: { select: { id: true, firstName: true, lastName: true } } },
-    });
+    return rsvp;
   },
 
   async cancelRsvp(eventId: string, userId: string) {

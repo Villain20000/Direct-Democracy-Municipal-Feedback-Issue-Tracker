@@ -28,5 +28,13 @@ export const updateStatusSchema = z.object({
   notificationMessage: z.string().max(2000).optional(),
 });
 
+/** Manual edit — priority override (PLAN feature 4) plus title/description fixes. */
+export const updateIssueSchema = z.object({
+  priority: z.number().int().min(1, 'Priority must be 1-5').max(5, 'Priority must be 1-5').optional(),
+  title: z.string().min(1).max(200).optional(),
+  description: z.string().min(1).max(5000).optional(),
+});
+
 export type CreateIssueInput = z.infer<typeof createIssueSchema>;
 export type UpdateStatusInput = z.infer<typeof updateStatusSchema>;
+export type UpdateIssueInput = z.infer<typeof updateIssueSchema>;

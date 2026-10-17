@@ -25,6 +25,11 @@ import { Department, UserRole } from '@dd/shared-types';
             <div class="card-body" style="color:var(--danger);">{{ error }}</div>
           </div>
         }
+        @if (actionMsg) {
+          <div class="card" style="margin-bottom:24px;" [style.border-color]="actionOk ? 'var(--success)' : 'var(--danger)'">
+            <div class="card-body" [style.color]="actionOk ? 'var(--success)' : 'var(--danger)'" style="font-size:13px;">{{ actionMsg }}</div>
+          </div>
+        }
 
         <div class="content-grid">
           <div class="card">
@@ -35,22 +40,47 @@ import { Department, UserRole } from '@dd/shared-types';
               } @else {
                 <table class="data-table">
                   <thead>
-                    <tr><th>{{ i18n.t('adminDepartments.colName') }}</th><th>{{ i18n.t('adminDepartments.colCode') }}</th><th>{{ i18n.t('adminDepartments.colDescription') }}</th><th>{{ i18n.t('adminDepartments.colHead') }}</th></tr>
+                    <tr><th>{{ i18n.t('adminDepartments.colName') }}</th><th>{{ i18n.t('adminDepartments.colCode') }}</th><th>{{ i18n.t('adminDepartments.colDescription') }}</th><th>{{ i18n.t('adminDepartments.colHead') }}</th><th>{{ i18n.t('adminDepartments.colActions') }}</th></tr>
                   </thead>
                   <tbody>
                     @for (dept of departments; track dept.id) {
-                      <tr>
-                        <td><strong>{{ dept.name }}</strong></td>
-                        <td><span class="badge badge-blue">{{ dept.code }}</span></td>
-                        <td style="font-size:12px;color:var(--text-secondary);">{{ dept.description || '-' }}</td>
-                        <td style="font-size:12px;">
-                          @if (dept.head) {
-                            {{ dept.head.firstName }} {{ dept.head.lastName }}
-                          } @else { - }
-                        </td>
-                      </tr>
+                      @if (editingId === dept.id) {
+                        <tr>
+                          <td><input type="text" [(ngModel)]="editName" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" /></td>
+                          <td><input type="text" [(ngModel)]="editCode" style="width:90px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" /></td>
+                          <td><input type="text" [(ngModel)]="editDesc" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;" /></td>
+                          <td style="font-size:12px;">
+                            @if (dept.head) {
+                              {{ dept.head.firstName }} {{ dept.head.lastName }}
+                            } @else { - }
+                          </td>
+                          <td>
+                            <div style="display:flex;gap:4px;">
+                              <button type="button" class="btn btn-primary btn-sm" [disabled]="savingEdit" (click)="saveEdit(dept)">{{ i18n.t('adminDepartments.saveBtn') }}</button>
+                              <button type="button" class="btn btn-ghost btn-sm" [disabled]="savingEdit" (click)="cancelEdit()">{{ i18n.t('common.cancel') }}</button>
+                            </div>
+                          </td>
+                        </tr>
+                      } @else {
+                        <tr>
+                          <td><strong>{{ dept.name }}</strong></td>
+                          <td><span class="badge badge-blue">{{ dept.code }}</span></td>
+                          <td style="font-size:12px;color:var(--text-secondary);">{{ dept.description || '-' }}</td>
+                          <td style="font-size:12px;">
+                            @if (dept.head) {
+                              {{ dept.head.firstName }} {{ dept.head.lastName }}
+                            } @else { - }
+                          </td>
+                          <td>
+                            <div style="display:flex;gap:4px;">
+                              <button type="button" class="btn btn-secondary btn-sm" (click)="startEdit(dept)">{{ i18n.t('adminDepartments.editBtn') }}</button>
+                              <button type="button" class="btn btn-secondary btn-sm" [disabled]="deletingId === dept.id" (click)="deleteDepartment(dept)">{{ deletingId === dept.id ? i18n.t('adminDepartments.deleting') : i18n.t('adminDepartments.deleteBtn') }}</button>
+                            </div>
+                          </td>
+                        </tr>
+                      }
                     } @empty {
-                      <tr><td colspan="4" style="text-align:center;padding:48px;color:var(--text-muted);">{{ i18n.t('adminDepartments.noDepartments') }}</td></tr>
+                      <tr><td colspan="5" style="text-align:center;padding:48px;color:var(--text-muted);">{{ i18n.t('adminDepartments.noDepartments') }}</td></tr>
                     }
                   </tbody>
                 </table>
@@ -83,6 +113,15 @@ export class AdminDepartmentsPageComponent implements OnInit {
   error = '';
   authorized = false;
   newDept = { name: '', code: '', description: '' };
+  // P2-15 — inline edit + delete state
+  editingId = '';
+  editName = '';
+  editCode = '';
+  editDesc = '';
+  savingEdit = false;
+  deletingId = '';
+  actionMsg = '';
+  actionOk = false;
   navItems: NavItem[] = [];
 
   i18n = inject(TranslationService);
@@ -135,5 +174,98 @@ export class AdminDepartmentsPageComponent implements OnInit {
         this.creating = false;
       },
     });
+  }
+
+  // -----------------------------------------------------------------
+  // P2-15 — inline edit + delete with reassignment guards
+  // -----------------------------------------------------------------
+  startEdit(dept: Department) {
+    this.editingId = dept.id;
+    this.editName = dept.name;
+    this.editCode = dept.code;
+    this.editDesc = dept.description || '';
+    this.actionMsg = '';
+  }
+
+  cancelEdit() {
+    this.editingId = '';
+  }
+
+  saveEdit(dept: Department) {
+    if (this.savingEdit) return;
+    this.savingEdit = true;
+    this.actionMsg = '';
+    this.api.updateDepartment(dept.id, {
+      name: this.editName.trim() || undefined,
+      code: this.editCode.trim().toUpperCase() || undefined,
+      description: this.editDesc.trim() || undefined,
+    }).subscribe({
+      next: (res: any) => {
+        this.savingEdit = false;
+        if (res.success) {
+          this.departments = this.departments.map((d) => (d.id === dept.id ? { ...d, ...res.data } : d));
+          this.editingId = '';
+          this.actionOk = true;
+          this.actionMsg = this.i18n.t('adminDepartments.updateOk');
+        }
+      },
+      error: (err) => {
+        this.savingEdit = false;
+        this.actionOk = false;
+        const details = err.error?.details?.map((d: any) => d.message).join('; ');
+        this.actionMsg = err.error?.error === 'A department with this code already exists'
+          ? this.i18n.t('adminDepartments.codeConflict')
+          : details || err.error?.error || this.i18n.t('adminDepartments.updateFailed');
+      },
+    });
+  }
+
+  deleteDepartment(dept: Department) {
+    if (this.deletingId) return;
+    const reassignedTo = this.promptReassign(dept);
+    if (reassignedTo === null) return;
+    this.deletingId = dept.id;
+    this.actionMsg = '';
+    this.api.deleteDepartment(dept.id, reassignedTo || undefined).subscribe({
+      next: (res: any) => {
+        this.deletingId = '';
+        if (res.success) {
+          this.departments = this.departments.filter((d) => d.id !== dept.id);
+          this.actionOk = true;
+          this.actionMsg = res.data?.reassigned
+            ? this.i18n.t('adminDepartments.deleteOkReassigned', { n: res.data.reassigned })
+            : this.i18n.t('adminDepartments.deleteOk');
+        }
+      },
+      error: (err) => {
+        this.deletingId = '';
+        this.actionOk = false;
+        const blockers = err.error?.blockers?.join(' ');
+        this.actionMsg = blockers || err.error?.error || this.i18n.t('adminDepartments.deleteFailed');
+      },
+    });
+  }
+
+  /**
+   * Confirm the delete; when the department still owns issues, offer to
+   * move them by asking for a target department code. Returns the
+   * target department id, '' for a plain delete, or null to abort.
+   */
+  private promptReassign(dept: Department): string | null {
+    const issueCount = (dept as any)._count?.issues;
+    if (!window.confirm(this.i18n.t('adminDepartments.deleteConfirm', { name: dept.name }))) return null;
+    if (issueCount > 0) {
+      const codes = this.departments.filter((d) => d.id !== dept.id).map((d) => d.code).join(', ');
+      const code = window.prompt(this.i18n.t('adminDepartments.reassignPrompt', { n: issueCount, codes }), '');
+      if (code === null) return null;
+      const target = this.departments.find((d) => d.code === code.trim().toUpperCase());
+      if (!target) {
+        this.actionOk = false;
+        this.actionMsg = this.i18n.t('adminDepartments.reassignTargetMissing');
+        return null;
+      }
+      return target.id;
+    }
+    return '';
   }
 }

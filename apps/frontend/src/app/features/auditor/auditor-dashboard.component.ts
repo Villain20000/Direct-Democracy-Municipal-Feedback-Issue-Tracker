@@ -3,12 +3,13 @@ import { CommonModule, DatePipe, formatDate } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { LayoutComponent } from '../../shared/layout.component';
 import { AuthService } from '../../core/services/auth.service';
-import { ApiService } from '../../core/services/api.service';
+import { ApiService, BudgetOverviewRow } from '../../core/services/api.service';
 import { TranslationService } from '../../core/i18n/translation.service';
 import { TranslatePipe } from '../../core/i18n/translate.pipe';
 import { AuditLog } from '@dd/shared-types';
 import { ActivityFeedComponent } from '../../shared/activity-feed.component';
 import { CivicScoreComponent } from '../../shared/civic-score.component';
+import { ChartComponent } from '../shared/chart.component';
 
 interface AuditLogRow {
   id: string;
@@ -37,7 +38,7 @@ interface DeptScore {
 @Component({
   selector: 'app-auditor-dashboard',
   standalone: true,
-  imports: [CommonModule, RouterLink, LayoutComponent, DatePipe, TranslatePipe, ActivityFeedComponent, CivicScoreComponent],
+  imports: [CommonModule, RouterLink, LayoutComponent, DatePipe, TranslatePipe, ActivityFeedComponent, CivicScoreComponent, ChartComponent],
   template: `
     <app-layout
       [pageTitle]="i18n.t('auditor.pageTitle')"
@@ -127,6 +128,78 @@ interface DeptScore {
         </div>
       </div>
 
+      <div class="card" style="margin-bottom:16px;" data-testid="auditor-resolution-timeline">
+        <div class="card-header"><h3>{{ 'auditor.resolutionTimeline' | t }}</h3></div>
+        <div class="card-body">
+          @if (timelineLabels.length) {
+            <app-chart
+              kind="line"
+              [labels]="timelineLabels"
+              [data]="timelineCreated"
+              [data2]="timelineResolved"
+              [datasetLabel]="i18n.t('auditor.timelineCreated')"
+              [datasetLabel2]="i18n.t('auditor.timelineResolved')"
+              [height]="220" />
+          } @else {
+            <p style="color:var(--text-muted);font-size:13px;">{{ 'auditor.resolutionTimelineEmpty' | t }}</p>
+          }
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px;" data-testid="auditor-er-graph">
+        <div class="card-header"><h3>{{ 'auditor.erGraphTitle' | t }}</h3></div>
+        <div class="card-body">
+          <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">{{ 'auditor.erGraphDesc' | t }}</p>
+          <svg viewBox="0 0 900 340" width="100%" role="img" [attr.aria-label]="i18n.t('auditor.erGraphTitle')" style="max-width:900px;">
+            @for (node of erNodes; track node.label) {
+              <g>
+                <rect [attr.x]="node.x" [attr.y]="node.y" width="150" height="52" rx="8"
+                  fill="var(--bg-primary)" stroke="var(--primary)" stroke-width="1.5" />
+                <text [attr.x]="node.x + 75" [attr.y]="node.y + 22" text-anchor="middle"
+                  style="font-size:12px;font-weight:700;fill:var(--text-primary);">{{ node.label }}</text>
+                <text [attr.x]="node.x + 75" [attr.y]="node.y + 39" text-anchor="middle"
+                  style="font-size:10px;fill:var(--text-muted);">{{ node.sub }}</text>
+              </g>
+            }
+            @for (edge of erEdges; track edge.label) {
+              <g>
+                <line [attr.x1]="edge.x1" [attr.y1]="edge.y1" [attr.x2]="edge.x2" [attr.y2]="edge.y2"
+                  stroke="var(--border)" stroke-width="1.5" />
+                <text [attr.x]="(edge.x1 + edge.x2) / 2" [attr.y]="(edge.y1 + edge.y2) / 2 - 5" text-anchor="middle"
+                  style="font-size:10px;fill:var(--primary);">{{ edge.label }}</text>
+              </g>
+            }
+          </svg>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px;" data-testid="auditor-budget-trail">
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+          <h3>{{ 'auditor.budgetTrailTitle' | t }}</h3>
+          <button type="button" class="btn btn-secondary btn-sm" (click)="downloadCsv('expenses-export.csv', expensesRequest)" [disabled]="exporting">{{ 'auditor.budgetCsv' | t }}</button>
+        </div>
+        <div class="card-body">
+          @if (budgetTrail.length) {
+            <div style="display:flex;gap:24px;margin-bottom:12px;">
+              <div><div style="font-size:20px;font-weight:800;">{{ budgetTrailAllocated | number }}</div><div style="font-size:12px;color:var(--text-muted);">{{ 'auditor.budgetAllocated' | t }}</div></div>
+              <div><div style="font-size:20px;font-weight:800;">{{ budgetTrailSpent | number }}</div><div style="font-size:12px;color:var(--text-muted);">{{ 'auditor.budgetSpent' | t }}</div></div>
+              <div><div style="font-size:20px;font-weight:800;">{{ budgetTrailAllocated - budgetTrailSpent | number }}</div><div style="font-size:12px;color:var(--text-muted);">{{ 'auditor.budgetRemaining' | t }}</div></div>
+            </div>
+            @for (row of budgetTrail.slice(0, 6); track row.departmentId) {
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+                <span style="font-size:13px;width:170px;color:var(--text-secondary);">{{ row.name }}</span>
+                <div style="flex:1;background:var(--bg-primary);border-radius:4px;height:8px;">
+                  <div [style.width.%]="row.pctUsed" style="height:100%;border-radius:4px;background:var(--primary);"></div>
+                </div>
+                <span style="font-size:13px;font-weight:700;width:110px;text-align:right;">{{ row.spent | number }}</span>
+              </div>
+            }
+          } @else {
+            <p style="color:var(--text-muted);font-size:13px;">{{ 'auditor.budgetTrailEmpty' | t }}</p>
+          }
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-header"><h3>{{ 'auditor.reportGen' | t }}</h3></div>
         <div class="card-body">
@@ -154,6 +227,35 @@ export class AuditorDashboardComponent implements OnInit {
   complianceScore = 0;
   resolvedIssues = 0;
   exporting = false;
+  /** Weekly created-vs-resolved series for the resolution timeline chart. */
+  timelineLabels: string[] = [];
+  timelineCreated: number[] = [];
+  timelineResolved: number[] = [];
+  /** P2-20 — budget expenditure audit trail (plan-vs-spend per department). */
+  budgetTrail: BudgetOverviewRow[] = [];
+  budgetTrailAllocated = 0;
+  budgetTrailSpent = 0;
+  /** P2-20 — schema-driven entity-relationship graph (Prisma model names). */
+  erNodes = [
+    { label: 'User', sub: 'reporter · staff', x: 20, y: 20 },
+    { label: 'Department', sub: 'budget owner', x: 375, y: 20 },
+    { label: 'Ward', sub: 'district', x: 730, y: 20 },
+    { label: 'Issue', sub: 'core entity', x: 200, y: 144 },
+    { label: 'Comment', sub: 'threaded', x: 555, y: 144 },
+    { label: 'AuditLog', sub: 'immutable', x: 20, y: 268 },
+    { label: 'BudgetLine', sub: 'plan', x: 375, y: 268 },
+    { label: 'Expense', sub: 'spend', x: 730, y: 268 },
+  ];
+  erEdges = [
+    { label: 'reports', x1: 95, y1: 72, x2: 230, y2: 144 },
+    { label: 'owns', x1: 450, y1: 72, x2: 320, y2: 144 },
+    { label: 'in', x1: 805, y1: 72, x2: 320, y2: 144 },
+    { label: 'on', x1: 350, y1: 170, x2: 555, y2: 170 },
+    { label: 'logs', x1: 200, y1: 196, x2: 95, y2: 268 },
+    { label: 'plans', x1: 450, y1: 72, x2: 450, y2: 268 },
+    { label: 'spends', x1: 525, y1: 294, x2: 730, y2: 294 },
+    { label: 'audits', x1: 730, y1: 268, x2: 170, y2: 268 },
+  ];
   navItems = [
     { icon: 'dashboard', label: 'nav.overview', route: '/auditor' },
     { icon: 'fact_check', label: 'nav.auditLog', route: '/auditor/logs' },
@@ -164,6 +266,7 @@ export class AuditorDashboardComponent implements OnInit {
   reportTypes = [
     { icon: 'assessment', titleKey: 'auditor.issueSummary', type: 'issues' as const },
     { icon: 'history', titleKey: 'auditor.auditExport', type: 'audit' as const },
+    { icon: 'payments', titleKey: 'auditor.expenseExport', type: 'expenses' as const },
   ];
 
   private readonly locale = 'en-US';
@@ -211,18 +314,47 @@ export class AuditorDashboardComponent implements OnInit {
         }
       },
     });
+
+    this.api.getIssueTrends(12).subscribe({
+      next: (res) => {
+        if (!res.success || !res.data?.length) return;
+        this.timelineLabels = res.data.map((b) => b.weekStart.slice(5)); // MM-DD
+        this.timelineCreated = res.data.map((b) => b.created);
+        this.timelineResolved = res.data.map((b) => b.resolved);
+      },
+      error: () => {},
+    });
+
+    this.loadBudgetTrail();
   }
+
+  /** P2-20 — real plan-vs-spend numbers for the expenditure audit trail. */
+  loadBudgetTrail() {
+    this.api.getBudgetOverview().subscribe({
+      next: (res) => {
+        if (!res.success || !Array.isArray(res.data)) return;
+        this.budgetTrail = res.data;
+        this.budgetTrailAllocated = res.data.reduce((s, r) => s + (r.budget || 0), 0);
+        this.budgetTrailSpent = res.data.reduce((s, r) => s + (r.spent || 0), 0);
+      },
+      error: () => {},
+    });
+  }
+
+  /** CSV request factory for the budget-trail export button. */
+  expensesRequest = () => this.api.exportExpensesCsv();
 
   exportAudit() { this.downloadCsv('audit-export.csv', () => this.api.exportAuditCsv()); }
   toggleLogDetails(id: string) {
     this.expandedLogId = this.expandedLogId === id ? '' : id;
   }
-  exportReport(type: 'issues' | 'audit') {
+  exportReport(type: 'issues' | 'audit' | 'expenses') {
     if (type === 'issues') this.downloadCsv('issues-export.csv', () => this.api.exportIssuesCsv());
+    else if (type === 'expenses') this.downloadCsv('expenses-export.csv', () => this.api.exportExpensesCsv());
     else this.exportAudit();
   }
 
-  private downloadCsv(filename: string, request: () => import('rxjs').Observable<Blob>) {
+  downloadCsv(filename: string, request: () => import('rxjs').Observable<Blob>) {
     this.exporting = true;
     request().subscribe({
       next: (blob) => {
