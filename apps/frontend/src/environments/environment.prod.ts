@@ -1,4 +1,4 @@
 export const environment = {
   production: true,
-  apiUrl: '/api/v1',
+  apiUrl: 'https://direct-democracy-backend.onrender.com/api/v1',
 };

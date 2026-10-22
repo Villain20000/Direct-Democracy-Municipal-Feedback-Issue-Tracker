@@ -1,0 +1,35 @@
+# Render blueprint — deploys the Express API (Docker) + managed Postgres.
+# Connect this repo at https://dashboard.render.com/blueprint and the
+# whole stack is created from this file.
+services:
+  - type: web
+    name: direct-democracy-backend
+    runtime: docker
+    dockerfilePath: apps/backend/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /api/v1/health
+    # The image's default CMD is `npm run dev` (tsx watch) — override it
+    # with a production start: apply Prisma migrations, then boot the API.
+    startCommand: npx prisma migrate deploy && npx tsx src/index.ts
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CORS_ORIGIN
+        value: https://villain20000.github.io
+      - key: REDIS_ENABLED
+        value: 'false' # disable BullMQ/cache on the free tier
+      - key: DATABASE_URL
+        fromDatabase:
+          name: direct-democracy-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: REFRESH_TOKEN_SECRET
+        generateValue: true
+
+databases:
+  - name: direct-democracy-db
+    databaseName: direct_democracy
+    plan: free
+    postgresMajorVersion: '16'
