@@ -1415,7 +1415,7 @@ export const en = {
     subtitle: 'Your contribution to the community',
     points: 'points',
     nextTier: 'Next tier',
-    progressToNext: 'Progress to {{tier}}',
+    progressToNext: 'Progress to {tier}',
     tierNewcomer: 'Newcomer',
     tierBronze: 'Bronze',
     tierSilver: 'Silver',

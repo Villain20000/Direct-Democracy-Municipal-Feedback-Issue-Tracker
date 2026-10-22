@@ -2,6 +2,8 @@
 
 A full-stack civic engagement platform enabling citizens to report issues, vote on priorities, and participate in local democracy. Powered by **Angular 18**, **Express.js 5**, **PostgreSQL 16 + PostGIS + pgvector**, **BullMQ**, **Redis 7**, and local AI via **Ollama** (Gemma 2B for chat + `nomic-embed-text` for RAG embeddings). Ships as an installable **PWA** with **offline-first issue submission**, and ships with a **Playwright E2E** test suite.
 
+> 🌐 **Live frontend (GitHub Pages):** <https://villain20000.github.io/Direct-Democracy-Municipal-Feedback-Issue-Tracker/> — the Express API + PostgreSQL deploy from [`render.yaml`](render.yaml) via the Render blueprint flow (see [Deployment](#-cicd)).
+
 > ✨ **What’s new in v1.5**
 >
 > - 🗺️ **PostGIS spatial queries** — radius / polygon / nearest-issue endpoints with a GIST index
@@ -32,6 +34,7 @@ A full-stack civic engagement platform enabling citizens to report issues, vote 
 ## 📋 Table of Contents
 
 - [What’s New](#-whats-new)
+- [Screenshots](#-screenshots)
 - [Tech Stack](#-tech-stack)
 - [Architecture](#-architecture)
 - [Roles & Features](#-roles--features)
@@ -51,6 +54,23 @@ A full-stack civic engagement platform enabling citizens to report issues, vote 
 - [Project Structure](#-project-structure)
 - [Health Check](#-health-check)
 - [License](#-license)
+
+---
+
+## 📸 Screenshots
+
+Captured against the seeded demo data (see [Demo Accounts](#-demo-accounts)).
+
+| | |
+|:--:|:--:|
+| **Login** | **Citizen dashboard** |
+| ![Login](docs/screenshots/login.png) | ![Citizen dashboard](docs/screenshots/citizen-dashboard.png) |
+| **Mayor dashboard** | **Dark mode** |
+| ![Mayor dashboard](docs/screenshots/mayor-dashboard.png) | ![Dark mode dashboard](docs/screenshots/dashboard-dark.png) |
+| **Issues map** — Leaflet markers, ward boundaries, heat layer, draw-to-summarize | **Issue list** |
+| ![Issues map](docs/screenshots/issues-map.png) | ![Issue list](docs/screenshots/issue-list.png) |
+| **Command palette** (`Ctrl/Cmd+K`) | **Transparency portal** (public) |
+| ![Command palette](docs/screenshots/command-palette.png) | ![Transparency portal](docs/screenshots/transparency-portal.png) |
 
 ---
 
@@ -905,6 +925,12 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push / PR:
 5. **Playwright E2E** against a fresh stack (Postgres service + Redis service + seeded DB)
 6. **Upload** the Playwright HTML report as a build artifact
 
+### Deployment
+
+- **Frontend → GitHub Pages** (`.github/workflows/pages.yml`): builds the Angular PWA with the project-page base href, adds a `404.html` SPA-route fallback, and publishes on every push to `main` (also manually triggerable from the Actions tab).
+- **Backend → Render** ([`render.yaml`](render.yaml) blueprint): Docker web service (`apps/backend/Dockerfile`) + managed PostgreSQL 16 with **pgvector** and **PostGIS**. The blueprint runs `prisma migrate deploy` on boot, sets `CORS_ORIGIN` to the Pages origin, and auto-generates the JWT secrets. Create it once via **Dashboard → New → Blueprint** and select this repo.
+- The production frontend (`environment.prod.ts`) calls the API at `https://direct-democracy-backend.onrender.com/api/v1`.
+
 ---
 
 ## ⚙️ Environment Variables
@@ -957,12 +983,19 @@ EMBED_LOCK_DURATION_MS=60000
 EMBED_STALLED_INTERVAL_MS=30000
 ```
 
-### Frontend (`apps/frontend/src/environments/environment.ts`)
+### Frontend (`apps/frontend/src/environments/`)
 
 ```typescript
+// environment.ts — dev; relative URL proxied to :3001 by proxy.conf.json
 export const environment = {
   production: false,
-  apiUrl: 'http://localhost:3001/api/v1',
+  apiUrl: '/api/v1',
+};
+
+// environment.prod.ts — GitHub Pages build, points at the Render backend
+export const environment = {
+  production: true,
+  apiUrl: 'https://direct-democracy-backend.onrender.com/api/v1',
 };
 ```
 
@@ -1031,6 +1064,8 @@ Direct-Democracy-Municipal-Feedback-Issue-Tracker/
 │   └── semantic-search.spec.ts
 │
 ├── playwright.config.ts
+├── render.yaml                                    # **Render blueprint** (API + Postgres)
+├── docs/screenshots/                              # README screenshots
 ├── .github/workflows/ci.yml                     # Lint + test + build + **E2E**
 ├── PLAN.md                                      # Original architecture plan
 ├── package.json                                 # Monorepo root (workspaces + `test:e2e` scripts)

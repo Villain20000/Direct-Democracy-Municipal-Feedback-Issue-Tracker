@@ -1278,7 +1278,7 @@ export const el: TranslationDictionary = {
     subtitle: 'Η συνεισφορά σας στην κοινότητα',
     points: 'πόντοι',
     nextTier: 'Επόμενο επίπεδο',
-    progressToNext: 'Πρόοδος προς {{tier}}',
+    progressToNext: 'Πρόοδος προς {tier}',
     tierNewcomer: 'Αρχάριος',
     tierBronze: 'Χάλκινο',
     tierSilver: 'Ασημένιο',
