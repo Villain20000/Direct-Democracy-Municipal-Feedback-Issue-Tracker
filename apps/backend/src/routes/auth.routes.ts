@@ -26,7 +26,7 @@ router.post('/register', authLimiter as any, async (req, res) => {
     const result = await authService.register(data);
     res.cookie('refreshToken', result.refreshToken, {
       httpOnly: true, secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict', maxAge: 7 * 24 * 60 * 60 * 1000,
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict', maxAge: 7 * 24 * 60 * 60 * 1000,
     });
     res.status(201).json({ success: true, data: { accessToken: result.accessToken, user: result.user } });
   } catch (error: any) {
@@ -46,7 +46,7 @@ router.post('/login', authLimiter as any, async (req, res) => {
     const result = await authService.login(email, password);
     res.cookie('refreshToken', result.refreshToken, {
       httpOnly: true, secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict', maxAge: 7 * 24 * 60 * 60 * 1000,
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict', maxAge: 7 * 24 * 60 * 60 * 1000,
     });
     res.json({ success: true, data: { accessToken: result.accessToken, user: result.user } });
   } catch (error: any) {
@@ -70,7 +70,7 @@ router.post('/refresh', authLimiter as any, async (req, res) => {
     const result = await authService.refresh(token);
     res.cookie('refreshToken', result.refreshToken, {
       httpOnly: true, secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict', maxAge: 7 * 24 * 60 * 60 * 1000,
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict', maxAge: 7 * 24 * 60 * 60 * 1000,
     });
     res.json({ success: true, data: { accessToken: result.accessToken, user: result.user } });
   } catch (error: any) {
